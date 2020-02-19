@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Texture.h"
+#include "GlobalInclude.h"
+
+class Texture;
 
 class Frame
 {
@@ -8,6 +10,9 @@ public:
 	struct FrameUniform
 	{
 		uint32_t frameIndex;
+		uint32_t PADDING0;
+		uint32_t PADDING1;
+		uint32_t PADDING2;
 	};
 
 	Frame();

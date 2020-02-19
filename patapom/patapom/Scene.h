@@ -1,9 +1,8 @@
 #pragma once
 
-#include "Pass.h"
-#include "Shader.h"
+#include "GlobalInclude.h"
 
-class Renderer;
+class Texture;
 
 class Scene
 {
@@ -13,7 +12,7 @@ public:
 		uint32_t sceneMode;
 	};
 
-	Scene();
+	Scene(const string& debugName = "unnamed scene");
 	~Scene();
 	void AddPass(Pass* pass);
 	void AddTexture(Texture* texture);
@@ -35,6 +34,7 @@ public:
 	SceneUniform mSceneUniform;
 
 private:
+	string mDebugName;
 	Renderer* mRenderer;
 	vector<Pass*> mPasses;
 	vector<Texture*> mTextures;

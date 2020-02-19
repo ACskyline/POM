@@ -1,11 +1,13 @@
 #pragma once
 
-#include "Camera.h"
-#include "Mesh.h"
-#include "Texture.h"
+#include "GlobalInclude.h"
 #include "Shader.h"
 
-class Renderer;
+class Scene;
+class Camera;
+class Mesh;
+class Texture;
+class RenderTexture;
 
 class Pass
 {
@@ -20,9 +22,10 @@ public:
 		XMFLOAT4X4 mViewProjInv;
 	};
 
-	Pass(const wstring& _debugName = L"unnamed pass");
+	Pass(const wstring& debugName = L"unnamed pass");
 	~Pass();
 
+	void SetScene(Scene* scene);
 	void SetCamera(Camera* camera);
 	void AddMesh(Mesh* mesh);
 	void AddTexture(Texture* texture);
@@ -43,6 +46,10 @@ public:
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& GetDsvHandles(int frameIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSamplerDescriptorHeapTableHandle(int frameIndex);
+	bool IsConstantBlendFactorsUsed();
+	bool IsStencilReferenceUsed();
+	float* GetConstantBlendFactors();
+	uint32_t GetStencilReference();
 
 	void InitPass(
 		Renderer* renderer,
@@ -76,6 +83,13 @@ private:
 	ID3D12PipelineState* mPso;
 	ID3D12RootSignature* mRootSignature;
 	D3D12_PRIMITIVE_TOPOLOGY_TYPE mPrimitiveType;
+
+	// these values are set using OMSet... functions in D3D12, so we cache them here
+	bool mConstantBlendFactorsUsed;
+	bool mStencilReferenceUsed;
+
+	float mBlendConstants[4];
+	uint32_t mStencilReference;
 
 	int GetMaxMeshTextureCount();
 };

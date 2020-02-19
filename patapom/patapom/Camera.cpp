@@ -17,7 +17,6 @@ Camera::Camera(const XMFLOAT3 &position,
 	mNearClipPlane(nearClipPlane),
 	mFarClipPlane(farClipPlane)
 {
-	Update();
 }
 
 Camera::~Camera()
@@ -49,20 +48,20 @@ void Camera::UpdatePosition()
 
 void Camera::UpdateViewport()
 {
-	mViewport.TopLeftX = 0;
-	mViewport.TopLeftY = 0;
-	mViewport.Width = mWidth;
-	mViewport.Height = mHeight;
-	mViewport.MinDepth = 0.0f;
-	mViewport.MaxDepth = 1.0f;
+	mViewport.mTopLeftX = 0;
+	mViewport.mTopLeftY = 0;
+	mViewport.mWidth = mWidth;
+	mViewport.mHeight = mHeight;
+	mViewport.mMinDepth = 0.0f;
+	mViewport.mMaxDepth = 1.0f;
 }
 
 void Camera::UpdateScissorRect()
 {
-	mScissorRect.left = 0;
-	mScissorRect.top = 0;
-	mScissorRect.right = mWidth;
-	mScissorRect.bottom = mHeight;
+	mScissorRect.mLeft = 0;
+	mScissorRect.mTop = 0;
+	mScissorRect.mRight = mWidth;
+	mScissorRect.mBottom = mHeight;
 }
 
 void Camera::UpdateMatrices()
@@ -86,12 +85,21 @@ void Camera::UpdateMatrices()
 			XMLoadFloat4x4(&mViewProj)));
 }
 
+void Camera::InitCamera()
+{
+	Update();
+}
+
 void Camera::Update()
 {
 	UpdatePosition();
 	UpdateViewport();
 	UpdateScissorRect();
 	UpdateMatrices();
+}
+
+void Camera::Release()
+{
 }
 
 XMFLOAT3 Camera::GetPosition()
@@ -104,12 +112,12 @@ XMFLOAT3 Camera::GetTarget()
 	return mTarget;
 }
 
-D3D12_VIEWPORT Camera::GetViewport()
+Viewport Camera::GetViewport()
 {
 	return mViewport;
 }
 
-D3D12_RECT Camera::GetScissorRect()
+ScissorRect Camera::GetScissorRect()
 {
 	return mScissorRect;
 }
@@ -139,7 +147,8 @@ XMFLOAT3 Camera::ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane)
 /////////////// Orbit Camera ///////////////
 ////////////////////////////////////////////
 
-OrbitCamera::OrbitCamera(float distance,
+OrbitCamera::OrbitCamera(
+	float distance,
 	float horizontalAngle,
 	float verticalAngle,
 	const XMFLOAT3 &target,
@@ -149,19 +158,18 @@ OrbitCamera::OrbitCamera(float distance,
 	float fov,
 	float nearClipPlane,
 	float farClipPlane) :
+	Camera(XMFLOAT3{ 0,0,0 },
+		target,
+		up,
+		width,
+		height,
+		fov,
+		nearClipPlane,
+		farClipPlane),
 	mDistance(distance),
 	mHorizontalAngle(horizontalAngle),
-	mVerticalAngle(verticalAngle),
-	Camera(XMFLOAT3{0,0,0}, 
-		target, 
-		up, 
-		width, 
-		height,
-		fov, 
-		nearClipPlane, 
-		farClipPlane)
+	mVerticalAngle(verticalAngle)
 {
-	UpdatePosition();
 }
 
 OrbitCamera::~OrbitCamera()

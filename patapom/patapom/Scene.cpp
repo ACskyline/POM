@@ -1,7 +1,9 @@
 #include "Scene.h"
-#include "Renderer.h"
+#include "Pass.h"
+#include "Texture.h"
 
-Scene::Scene() : mRenderer(nullptr)
+Scene::Scene(const string& debugName) : 
+	mRenderer(nullptr), mDebugName(debugName)
 {
 }
 
@@ -13,6 +15,7 @@ Scene::~Scene()
 void Scene::AddPass(Pass* pass)
 {
 	mPasses.push_back(pass);
+	pass->SetScene(this);
 }
 
 void Scene::AddTexture(Texture* texture)
@@ -50,12 +53,13 @@ void Scene::InitScene(
 
 	// bind textures to heaps
 	mCbvSrvUavDescriptorHeapTableHandles.resize(frameCount);
+	mSamplerDescriptorHeapTableHandles.resize(frameCount);
 	for (int i = 0; i < frameCount; i++)
 	{
 		// scene texture table
 		mCbvSrvUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto texture : mTextures)
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
+			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
 		
 		// scene sampler table
 		mSamplerDescriptorHeapTableHandles[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();

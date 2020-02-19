@@ -24,12 +24,14 @@ public:
 		float nearClipPlane,
 		float farClipPlane);
 
+	void InitCamera();
 	void Update();
+	void Release();
 
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetTarget();
-	D3D12_VIEWPORT GetViewport();
-	D3D12_RECT GetScissorRect();
+	Viewport GetViewport();
+	ScissorRect GetScissorRect();
 	XMFLOAT4X4 GetViewProjMatrix();
 	XMFLOAT4X4 GetViewProjInvMatrix();
 
@@ -46,8 +48,8 @@ protected:
 	XMFLOAT3 mUp;
 	XMFLOAT4X4 mViewProj;
 	XMFLOAT4X4 mViewProjInv;
-	D3D12_VIEWPORT mViewport;
-	D3D12_RECT mScissorRect;
+	Viewport mViewport;
+	ScissorRect mScissorRect;
 
 	virtual void UpdatePosition();
 	void UpdateViewport();

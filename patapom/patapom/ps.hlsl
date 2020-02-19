@@ -1,7 +1,8 @@
 #include "GlobalInclude.hlsli"
 
-float4 main(VS_OUTPUT input) : SV_TARGET
+PS_OUTPUT main(VS_OUTPUT input)
 {
-    // return interpolated color
-    return float4(1, 0, 0, 1);
+    PS_OUTPUT output;
+    output.col1 = float4(1, 0, 0, 1);
+    return output;
 }

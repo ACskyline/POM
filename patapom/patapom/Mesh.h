@@ -3,12 +3,11 @@
 #include "GlobalInclude.h"
 
 class Texture;
-class Renderer;
 
 class Mesh
 {
 public:
-	enum MeshType { CIRCLE, PLANE, CUBE, WAVE_PARTICLE, TILEABLE_SURFACE, FULLSCREEN_QUAD, COUNT };
+	enum class MeshType { CIRCLE, PLANE, CUBE, WAVE_PARTICLE, TILEABLE_SURFACE, FULLSCREEN_QUAD, COUNT };
 
 	struct ObjectUniform
 	{

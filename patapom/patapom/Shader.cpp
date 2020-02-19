@@ -13,7 +13,7 @@ Shader::~Shader()
 
 void Shader::InitShader()
 {
-
+	CreateShaderFromFile(mFileName);
 }
 
 void Shader::CreateShaderFromFile(const wstring& fileName)
@@ -29,25 +29,26 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 	// them at runtime
 
 	// compile vertex shader
-	ID3DBlob* errorBuff; // a buffer holding the error data if any
+	ID3DBlob* errorBuff = nullptr; // a buffer holding the error data if any
 	
 	string shaderType;
+	// using 5_1 instead of 5_0 to use shader space
 	switch(mType)
 	{
 	case ShaderType::VERTEX_SHADER:
-		shaderType = "vs_5_0";
+		shaderType = "vs_5_1";
 		break;
 	case ShaderType::HULL_SHADER:
-		shaderType = "hs_5_0";
+		shaderType = "hs_5_1";
 		break;
 	case ShaderType::DOMAIN_SHADER:
-		shaderType = "ds_5_0";
+		shaderType = "ds_5_1";
 		break;
 	case ShaderType::GEOMETRY_SHADER:
-		shaderType = "gs_5_0";
+		shaderType = "gs_5_1";
 		break;
 	case ShaderType::PIXEL_SHADER:
-		shaderType = "ps_5_0";
+		shaderType = "ps_5_1";
 		break;
 	default:
 		fatalf("wrong shader type");
@@ -66,7 +67,7 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 	
 	if (FAILED(hr))
 	{
-		CheckError(hr, errorBuff);
+		CheckError(hr, nullptr, errorBuff);
 		fatalf("shader compiling failed");
 	}
 

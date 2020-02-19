@@ -1,7 +1,12 @@
-#include "Renderer.h"
 #include "Pass.h"
+#include "Camera.h"
+#include "Texture.h"
+#include "Scene.h"
+#include "Mesh.h"
 
-Pass::Pass(const wstring& debugName) : mRenderer(nullptr), mDebugName(debugName)
+Pass::Pass(const wstring& debugName) : 
+	mRenderer(nullptr), mDebugName(debugName), 
+	mConstantBlendFactorsUsed(false), mStencilReferenceUsed(false)
 {
 	for(int i = 0;i<Shader::ShaderType::COUNT;i++)
 	{
@@ -12,6 +17,11 @@ Pass::Pass(const wstring& debugName) : mRenderer(nullptr), mDebugName(debugName)
 Pass::~Pass()
 {
 	Release();
+}
+
+void Pass::SetScene(Scene* scene)
+{
+	mScene = scene;
 }
 
 void Pass::SetCamera(Camera* camera)
@@ -52,7 +62,7 @@ void Pass::CreateUniformBuffer(int frameCount)
 			nullptr, // we do not have use an optimized clear value for constant buffers
 			IID_PPV_ARGS(&mUniformBuffers[i]));
 
-		fatalAssertf(SUCCEEDED(hr), "create pass uniform buffer failed");
+		fatalAssertf(!CheckError(hr, mRenderer->mDevice), "create pass uniform buffer failed");
 
 		mUniformBuffers[i]->SetName(L"pass uniform buffer " + i);
 	}
@@ -110,6 +120,27 @@ D3D12_GPU_DESCRIPTOR_HANDLE Pass::GetSamplerDescriptorHeapTableHandle(int frameI
 	return mSamplerDescriptorHeapTableHandles[frameIndex];
 }
 
+bool Pass::IsConstantBlendFactorsUsed()
+{
+	return mConstantBlendFactorsUsed;
+}
+
+bool Pass::IsStencilReferenceUsed()
+{
+	return mStencilReferenceUsed;
+}
+
+
+float* Pass::GetConstantBlendFactors()
+{
+	return mBlendConstants;
+}
+
+uint32_t Pass::GetStencilReference()
+{
+	return mStencilReference;
+}
+
 void Pass::InitPass(
 	Renderer* renderer,
 	int frameCount,
@@ -133,7 +164,7 @@ void Pass::InitPass(
 		// pass texture table
 		mCbvSrvUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto texture : mTextures)
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
+			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
 
 		// pass sampler table
 		mSamplerDescriptorHeapTableHandles[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
@@ -142,36 +173,95 @@ void Pass::InitPass(
 	}
 
 	// 3. create root signature
-	int maxTextureCount[UNIFORM_REGISTER_SPACE::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mTextures.size(), GetMaxMeshTextureCount() };
+	int maxTextureCount[(int)UNIFORM_REGISTER_SPACE::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mTextures.size(), GetMaxMeshTextureCount() };
 	mRenderer->CreateGraphicsRootSignature(&mRootSignature, maxTextureCount);
 
 	// 4. bind render textures and create pso
+	// this is the default blend desc for the backbuffer when there is no render targets attched
+	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
+	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	
+	// initialize with backbuffer parameter
+	vector<DXGI_FORMAT> rtvFormatVec(1, Renderer::TranslateFormat(mRenderer->mColorBufferFormat));
+	DXGI_FORMAT dsvFormat = Renderer::TranslateFormat(mRenderer->mDepthStencilBufferFormat);
+	blendDesc.RenderTarget[0] = Renderer::TranslateBlendState(mRenderer->mBlendState);
+	depthStencilDesc = Renderer::TranslateDepthStencilState(mRenderer->mDepthStencilState);
 	mRtvHandles.resize(frameCount);
 	mDsvHandles.resize(frameCount);
-	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
+	for (int i = 0; i < frameCount; i++)
+	{
+		mRtvHandles[i].push_back(mRenderer->GetRtvHandle(i));
+		mDsvHandles[i].push_back(mRenderer->GetDsvHandle(i));
+	}
+
+	// if render textures are used
+	if (mRenderTextures.size() > 0) {
+		rtvFormatVec.resize(mRenderTextures.size());
+		dsvFormat = Renderer::TranslateFormat(mRenderTextures[0]->GetDepthStencilFormat());
+		depthStencilDesc = mRenderTextures[0]->GetDepthStencilDesc();
+		for (int i = 0; i < frameCount; i++)
+		{
+			mRtvHandles[i].resize(mRenderTextures.size());
+			mDsvHandles[i].resize(mRenderTextures.size());
+		}
+	}
 	if (mRenderTextures.size() > 1)
 		blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, add it as a member variable to pass class
-	vector<DXGI_FORMAT> rtvFormatVec(mRenderTextures.size());
-	for(int i = 0; i < mRenderTextures.size(); i++)
+	
+	// assign to render textures parameter
+	for(int i = 0; i < mRenderTextures.size() && i < 8; i++) // only the first 8 targets will be used
 	{
+		// these values are set using OMSet... functions in D3D12, so we cache them here
+		const BlendState& blendState = mRenderTextures[i]->GetBlendState();
+		if (!mConstantBlendFactorsUsed && (
+				blendState.mSrcBlend == BlendState::BlendFactor::CONSTANT ||
+				blendState.mSrcBlend == BlendState::BlendFactor::INV_CONSTANT ||
+				blendState.mDestBlend == BlendState::BlendFactor::CONSTANT ||
+				blendState.mDestBlend == BlendState::BlendFactor::INV_CONSTANT ||
+				blendState.mSrcBlendAlpha == BlendState::BlendFactor::CONSTANT ||
+				blendState.mSrcBlendAlpha == BlendState::BlendFactor::INV_CONSTANT ||
+				blendState.mDestBlendAlpha == BlendState::BlendFactor::CONSTANT ||
+				blendState.mDestBlendAlpha == BlendState::BlendFactor::INV_CONSTANT))
+		{
+			mConstantBlendFactorsUsed = true; // only the first one will be used
+			memcpy(mBlendConstants, blendState.mBlendConstants, sizeof(blendState.mBlendConstants));
+		}
+
+		const DepthStencilState& depthStencilState = mRenderTextures[i]->GetDepthStencilState();
+		if (!mStencilReferenceUsed && (
+			depthStencilState.mFrontStencilOpSet.mDepthFailOp == DepthStencilState::StencilOp::REPLACE ||
+			depthStencilState.mFrontStencilOpSet.mFailOp == DepthStencilState::StencilOp::REPLACE ||
+			depthStencilState.mFrontStencilOpSet.mPassOp == DepthStencilState::StencilOp::REPLACE ||
+			depthStencilState.mBackStencilOpSet.mDepthFailOp == DepthStencilState::StencilOp::REPLACE ||
+			depthStencilState.mBackStencilOpSet.mFailOp == DepthStencilState::StencilOp::REPLACE ||
+			depthStencilState.mBackStencilOpSet.mPassOp == DepthStencilState::StencilOp::REPLACE
+			))
+		{
+			mStencilReferenceUsed = true; // only the first one will be used
+			mStencilReference = depthStencilState.mStencilReference;
+		}
+
+		// render targets recording
 		blendDesc.RenderTarget[i] = mRenderTextures[i]->GetRenderTargetBlendDesc();
 		rtvFormatVec[i] = Renderer::TranslateFormat(mRenderTextures[i]->GetFormat());
 		for (int j = 0; j < frameCount; j++)
 		{
-			mRtvHandles[j].push_back(rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetTextureBuffer(), mRenderTextures[i]->GetRtvDesc(), 1));
-			mDsvHandles[j].push_back(dsvDescriptorHeap.AllocateDsv(mRenderTextures[i]->GetDepthStencilBuffer(), mRenderTextures[i]->GetDsvDesc(), 1));
+			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetColorBuffer(), mRenderTextures[i]->GetRtvDesc(), 1);
+			mDsvHandles[j][i] = dsvDescriptorHeap.AllocateDsv(mRenderTextures[i]->GetDepthStencilBuffer(), mRenderTextures[i]->GetDsvDesc(), 1);
 		}
 	}
-
+	
+	// create PSO
+	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // TODO: add support for other primitive types
 	mRenderer->CreatePSO(
 		mRenderer->mDevice,
 		&mPso,
 		mRootSignature,
 		mPrimitiveType,
 		blendDesc,
-		mRenderTextures[0]->GetDepthStencilDesc(),
+		depthStencilDesc,
 		rtvFormatVec,
-		Renderer::TranslateFormat(mRenderTextures[0]->GetDepthStencilFormat()),
+		dsvFormat,
 		mShaders[Shader::VERTEX_SHADER],
 		mShaders[Shader::HULL_SHADER],
 		mShaders[Shader::DOMAIN_SHADER],

@@ -66,7 +66,7 @@ std::vector<Texture*>& Level::GetTextures()
 	return mTextures;
 }
 
-int Level::EstimateTotalCbvSrvUavCount()
+int Level::EstimateTotalCbvSrvUavCount(int frameCount)
 {
 	int totalCbvSrvUavCount = 0;
 
@@ -79,37 +79,32 @@ int Level::EstimateTotalCbvSrvUavCount()
 	for (auto mesh : mMeshes)
 		totalCbvSrvUavCount += mesh->GetTextureCount();
 
-	totalCbvSrvUavCount *= mRenderer->mFrameCount;
-
-	for (auto& frame : mRenderer->GetFrames())
-		totalCbvSrvUavCount += frame.GetTextureCount();
+	totalCbvSrvUavCount *= frameCount;
 
 	return totalCbvSrvUavCount;
 }
 
-int Level::EstimateTotalSamplerCount()
+int Level::EstimateTotalSamplerCount(int frameCount)
 {
 	// assume one srv correspond to one sampler
-	return EstimateTotalCbvSrvUavCount();
+	return EstimateTotalCbvSrvUavCount(frameCount);
 }
 
-int Level::EstimateTotalRtvCount()
+int Level::EstimateTotalRtvCount(int frameCount)
 {
 	int totalRtvCount = 0;
 	for(auto pass : mPasses)
 		totalRtvCount += pass->GetRenderTextureCount();
 
-	totalRtvCount *= mRenderer->mFrameCount;
-
-	totalRtvCount += mRenderer->mFrameCount; // swap chain frame buffer
+	totalRtvCount *= frameCount;
 
 	return totalRtvCount;
 }
 
-int Level::EstimateTotalDsvCount()
+int Level::EstimateTotalDsvCount(int frameCount)
 {
 	// assume one rtv correspond to one dsv
-	return EstimateTotalRtvCount();
+	return EstimateTotalRtvCount(frameCount);
 }
 
 void Level::InitLevel(
@@ -121,6 +116,9 @@ void Level::InitLevel(
 	DescriptorHeap& dsvDescriptorHeap)
 {
 	mRenderer = renderer;
+
+	for (auto camera : mCameras)
+		camera->InitCamera();
 
 	for (auto shader : mShaders)
 		shader->InitShader();
@@ -154,6 +152,9 @@ void Level::InitLevel(
 
 void Level::Release()
 {
+	for (auto camera : mCameras)
+		camera->Release();
+
 	for (auto shader : mShaders)
 		shader->Release();
 

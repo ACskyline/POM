@@ -1,5 +1,5 @@
 #include "Mesh.h"
-#include "Renderer.h"
+#include "Texture.h"
 
 Mesh::Mesh(const MeshType& type, 
 	const XMFLOAT3& position,
@@ -108,7 +108,7 @@ void Mesh::InitMesh(
 		// object texture table
 		mCbvSrvUavDescriptorHeapTableHandleVec[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto texture : mTextureVec)
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
+			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
 		
 		// object sampler table
 		mSamplerDescriptorHeapTableHandleVec[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
@@ -419,8 +419,8 @@ void Mesh::InitWaveParticles(int waveParticleCount)
 		XMFLOAT2 position = { rand() / (float)RAND_MAX * 2.f - 1.f, rand() / (float)RAND_MAX * 2.f - 1.f };
 		XMFLOAT2 direction = { rand() / (float)RAND_MAX * 2.f - 1.f, rand() / (float)RAND_MAX * 2.f - 1.f };
 		XMStoreFloat2(&direction, XMVector2Normalize(XMLoadFloat2(&direction)));
-		float height = rand() / (float)RAND_MAX * 0.1 + 0.2;
-		float radius = rand() / (float)RAND_MAX * 0.05 + 0.1;
+		float height = rand() / (float)RAND_MAX * 0.1f + 0.2f;
+		float radius = rand() / (float)RAND_MAX * 0.05f + 0.1f;
 		float beta = rand() / (float)RAND_MAX;
 		float speed = rand() / (float)RAND_MAX;
 		mVertexVec[index] = { position.x, position.y, height, direction.x, direction.y, radius, beta, speed };

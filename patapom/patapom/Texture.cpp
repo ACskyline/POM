@@ -8,9 +8,9 @@ Texture::Texture(
 	const string& fileName, 
 	const wstring& debugName, 
 	Sampler sampler,
-	int width = -1,
-	int height = -1,
-	Format format = Format::INVALID) :
+	Format format,
+	int width,
+	int height) :
 	mFileName(fileName), 
 	mDebugName(debugName),
 	mWidth(width), 
@@ -19,11 +19,11 @@ Texture::Texture(
 	mSamplePerPixel(1), 
 	mRenderer(nullptr), 
 	mImageData(nullptr), 
-	mTextureBuffer(nullptr),
+	mColorBuffer(nullptr),
 	mSampler(sampler),
 	mFormat(format)
 {
-	mSrv.mType = View::SRV;
+	mSrv.mType = View::Type::SRV;
 }
 
 Texture::~Texture()
@@ -33,7 +33,7 @@ Texture::~Texture()
 
 void Texture::Release()
 {
-	SAFE_RELEASE(mTextureBuffer);
+	SAFE_RELEASE(mColorBuffer);
 }
 
 void Texture::CreateTextureBuffer()
@@ -65,10 +65,10 @@ void Texture::CreateTextureBuffer()
 
 	D3D12_RESOURCE_DESC textureDesc = {};
 	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;//TODO: add support for cube map and texture array
-	textureDesc.Alignment = 0;//automatically seleted bu API
+	textureDesc.Alignment = 0;//automatically seleted by API
 	textureDesc.Width = mWidth;
 	textureDesc.Height = mHeight;
-	textureDesc.DepthOrArraySize = 0;//TODO: add support for cube map and texture array
+	textureDesc.DepthOrArraySize = 1;//Width, Height, and DepthOrArraySize must be between 1 and the maximum dimension supported for the particular feature level and texture dimension https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_resource_desc TODO: add support for cube map and texture array
 	textureDesc.MipLevels = mMipLevelCount;
 	textureDesc.Format = Renderer::TranslateFormat(mFormat);
 	textureDesc.SampleDesc.Count = mSamplePerPixel;
@@ -83,13 +83,13 @@ void Texture::CreateTextureBuffer()
 		&textureDesc, // the description of our texture
 		D3D12_RESOURCE_STATE_COPY_DEST, // We will copy the texture from the upload heap to here, so we start it out in a copy dest state
 		nullptr, // used for render targets and depth/stencil buffers
-		IID_PPV_ARGS(&mTextureBuffer));
+		IID_PPV_ARGS(&mColorBuffer));
 
-	mRenderer->UploadTextureDataToBuffer(pixels, bytePerRow, bytePerSlice, textureDesc, mTextureBuffer);
+	mRenderer->UploadTextureDataToBuffer(pixels, bytePerRow, bytePerSlice, textureDesc, mColorBuffer);
 
 	stbi_image_free(pixels);
 
-	mTextureBuffer->SetName(mDebugName.c_str());
+	mColorBuffer->SetName(mDebugName.c_str());
 }
 
 void Texture::CreateView()
@@ -107,35 +107,35 @@ void Texture::CreateView()
 
 void Texture::CreateSampler()
 {
-	mSampler.mSamplerDesc.Filter = Renderer::ExtractFilter(mSampler);
-	mSampler.mSamplerDesc.AddressU = Renderer::TranslateAddressMode(mSampler.mAddressModeU);
-	mSampler.mSamplerDesc.AddressV = Renderer::TranslateAddressMode(mSampler.mAddressModeV);
-	mSampler.mSamplerDesc.AddressW = Renderer::TranslateAddressMode(mSampler.mAddressModeW);
-	mSampler.mSamplerDesc.MipLODBias = mSampler.mMipLodBias;
-	mSampler.mSamplerDesc.MaxAnisotropy = 0; // TODO: add support for anisotropic filtering
-	mSampler.mSamplerDesc.ComparisonFunc = Renderer::TranslateCompareOp(mSampler.mCompareOp);
-	mSampler.mSamplerDesc.BorderColor[0] = mSampler.mBorderColor[0];
-	mSampler.mSamplerDesc.BorderColor[1] = mSampler.mBorderColor[1];
-	mSampler.mSamplerDesc.BorderColor[2] = mSampler.mBorderColor[2];
-	mSampler.mSamplerDesc.BorderColor[3] = mSampler.mBorderColor[3];
-	mSampler.mSamplerDesc.MinLOD = mSampler.mMinLod;
-	mSampler.mSamplerDesc.MaxLOD = mSampler.mMaxLod;
+	mSampler.mImpl.Filter = Renderer::ExtractFilter(mSampler);
+	mSampler.mImpl.AddressU = Renderer::TranslateAddressMode(mSampler.mAddressModeU);
+	mSampler.mImpl.AddressV = Renderer::TranslateAddressMode(mSampler.mAddressModeV);
+	mSampler.mImpl.AddressW = Renderer::TranslateAddressMode(mSampler.mAddressModeW);
+	mSampler.mImpl.MipLODBias = mSampler.mMipLodBias;
+	mSampler.mImpl.MaxAnisotropy = 0; // TODO: add support for anisotropic filtering
+	mSampler.mImpl.ComparisonFunc = Renderer::TranslateCompareOp(mSampler.mCompareOp);
+	mSampler.mImpl.BorderColor[0] = mSampler.mBorderColor[0];
+	mSampler.mImpl.BorderColor[1] = mSampler.mBorderColor[1];
+	mSampler.mImpl.BorderColor[2] = mSampler.mBorderColor[2];
+	mSampler.mImpl.BorderColor[3] = mSampler.mBorderColor[3];
+	mSampler.mImpl.MinLOD = mSampler.mMinLod;
+	mSampler.mImpl.MaxLOD = mSampler.mMaxLod;
 }
 
-ID3D12Resource* Texture::GetTextureBuffer()
+ID3D12Resource* Texture::GetColorBuffer()
 {
-	return mTextureBuffer;
+	return mColorBuffer;
 }
 
 D3D12_SHADER_RESOURCE_VIEW_DESC Texture::GetSrvDesc()
 {
-	fatalAssertf(mSrv.mType == View::SRV, "srv type wrong");
+	fatalAssertf(mSrv.mType == View::Type::SRV, "srv type wrong");
 	return mSrv.mSrvDesc;
 }
 
 D3D12_SAMPLER_DESC Texture::GetSamplerDesc()
 {
-	return mSampler.mSamplerDesc;
+	return mSampler.mImpl;
 }
 
 Format Texture::GetFormat()
@@ -182,7 +182,7 @@ RenderTexture::RenderTexture(
 	int height,
 	ReadFrom readFrom,
 	Sampler sampler,
-	Format format,
+	Format colorFormat,
 	Format depthStencilFormat,
 	BlendState blendState,
 	DepthStencilState depthStencilState,
@@ -194,7 +194,7 @@ RenderTexture::RenderTexture(
 	mSupportDepthStencil(supportDepthStencil),
 	mDepthStencilBuffer(nullptr),
 	mLayout(TextureLayout::INVALID),
-	Texture(fileName, debugName, sampler, width, height, format)
+	Texture(fileName, debugName, sampler, colorFormat, width, height)
 {
 	
 }
@@ -240,10 +240,10 @@ void RenderTexture::CreateTextureBuffer()
 		&textureDesc,
 		D3D12_RESOURCE_STATE_RENDER_TARGET,
 		&colorOptimizedClearValue,
-		IID_PPV_ARGS(&mTextureBuffer));
+		IID_PPV_ARGS(&mColorBuffer));
 	
 	assertf(SUCCEEDED(hr), "create render texture color buffer failed");
-	mTextureBuffer->SetName(mDebugName.c_str());
+	mColorBuffer->SetName(mDebugName.c_str());
 
 	////////////////////////////////////////////////////////////////////
 	if (mSupportDepthStencil)
@@ -300,6 +300,8 @@ void RenderTexture::CreateView()
 	mRtv.mRtvDesc.Texture2D.MipSlice = 0;
 	mRtv.mRtvDesc.Texture2D.PlaneSlice = 0;
 	
+	mBlendState.mImpl = Renderer::TranslateBlendState(mBlendState);
+
 	//Stencil Depth View Desc
 	//if you want to bind null dsv desciptor, you need to create the dsv
 	//if you want to create the dsv, you need an initialized dsvDesc to avoid the debug layer throwing out error
@@ -308,6 +310,8 @@ void RenderTexture::CreateView()
 	mDsv.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 	mDsv.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
 	mDsv.mDsvDesc.Texture2D.MipSlice = 0;
+
+	mDepthStencilState.mImpl = Renderer::TranslateDepthStencilState(mDepthStencilState);
 }
 
 bool RenderTexture::IsDepthStencilSupported()
@@ -323,24 +327,24 @@ ID3D12Resource* RenderTexture::GetDepthStencilBuffer()
 
 D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc()
 {
-	fatalAssertf(mRtv.mType == View::RTV, "rtv type wrong");
+	fatalAssertf(mRtv.mType == View::Type::RTV, "rtv type wrong");
 	return mRtv.mRtvDesc;
 }
 
 D3D12_DEPTH_STENCIL_VIEW_DESC RenderTexture::GetDsvDesc()
 {
-	fatalAssertf(mDsv.mType == View::DSV, "dsv type wrong");
+	fatalAssertf(mDsv.mType == View::Type::DSV, "dsv type wrong");
 	return mDsv.mDsvDesc;
 }
 
 D3D12_RENDER_TARGET_BLEND_DESC RenderTexture::GetRenderTargetBlendDesc()
 {
-	return mBlendState.mRenderTargetBlendDesc;
+	return mBlendState.mImpl;
 }
 
 D3D12_DEPTH_STENCIL_DESC RenderTexture::GetDepthStencilDesc()
 {
-	return mDepthStencilState.mDepthStencilDesc;
+	return mDepthStencilState.mImpl;
 }
 
 Format RenderTexture::GetDepthStencilFormat()
@@ -348,12 +352,22 @@ Format RenderTexture::GetDepthStencilFormat()
 	return mDepthStencilFormat;
 }
 
+BlendState RenderTexture::GetBlendState()
+{
+	return mBlendState;
+}
+
+DepthStencilState RenderTexture::GetDepthStencilState()
+{
+	return mDepthStencilState;
+}
+
 CD3DX12_RESOURCE_BARRIER RenderTexture::TransitionLayout(TextureLayout newLayout)
 {
 	// TODO: maybe it's more robust if we do not return any barrier when the current layout is the same as the new layout
 	fatalAssertf(mLayout != newLayout, "new layout is the same as the current layout");
 	CD3DX12_RESOURCE_BARRIER result;
-	result = CD3DX12_RESOURCE_BARRIER::Transition(mTextureBuffer, Renderer::TranslateTextureLayout(mLayout), Renderer::TranslateTextureLayout(newLayout));
+	result = CD3DX12_RESOURCE_BARRIER::Transition(mColorBuffer, Renderer::TranslateTextureLayout(mLayout), Renderer::TranslateTextureLayout(newLayout));
 	mLayout = newLayout;
 	return result;
 }
