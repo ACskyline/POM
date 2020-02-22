@@ -148,7 +148,8 @@ struct Sampler {
 	enum class AddressMode { INVALID, WRAP, MIRROR, CLAMP, BORDER, MIRROR_ONCE, COUNT };
 
 	Filter mMinFilter;
-	Filter mMaxFilter;
+	Filter mMagFilter;
+	Filter mMipFilter;
 	AddressMode mAddressModeU;
 	AddressMode mAddressModeV;
 	AddressMode mAddressModeW;
@@ -160,7 +161,6 @@ struct Sampler {
 	float mMinLod;
 	float mMaxLod;
 	float mBorderColor[4];
-	bool mUseMipmap;
 
 	D3D12_SAMPLER_DESC mImpl; // TODO: hide API specific implementation in Renderer
 };
@@ -291,9 +291,14 @@ public:
 	bool RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList);
 	bool SubmitCommands(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists);
 	bool Present();
-	void UploadTextureDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer);
+	void UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& srcBytePerRow, vector<int>& srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer);
 	void UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, int copyBufferSize, ID3D12Resource* dstBuffer);
-	
+
+	bool Transition(ID3D12Resource* resource, TextureLayout oldLayout, TextureLayout newLayout);
+	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout);
+	bool CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout);
+	bool RecordCachedTransitions(ID3D12GraphicsCommandList* commandList, vector<CD3DX12_RESOURCE_BARRIER>& cachedTransitions);
+
 	void CreateDescriptorHeap(DescriptorHeap& srvDescriptorHeap, int size);
 	void CreateGraphicsRootSignature(
 		ID3D12RootSignature** rootSignature,
@@ -357,6 +362,8 @@ private:
 	void EndSingleTimeCommands(ID3D12CommandQueue* commandQueue, ID3D12CommandAllocator* commandAllocator, ID3D12GraphicsCommandList* commandList);
 	void EnableDebugLayer();
 	void EnableGBV();
+
+	bool TransitionLayout(ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
 
 	DescriptorHeap mCbvSrvUavDescriptorHeap;
 	DescriptorHeap mSamplerDescriptorHeap;

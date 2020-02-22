@@ -42,6 +42,7 @@ Shader gPixelShader(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
+	Sampler::Filter::POINT,
 	Sampler::AddressMode::WRAP,
 	Sampler::AddressMode::WRAP,
 	Sampler::AddressMode::WRAP,
@@ -49,14 +50,12 @@ Sampler gSampler = {
 	false,
 	1.f,
 	false,
-	CompareOp::ALWAYS,
+	CompareOp::NEVER,
 	0.f,
 	1.f,
-	{0.f, 0.f, 0.f, 0.f},
-	false
-	// left out the last variable
+	{0.f, 0.f, 0.f, 0.f}
 };
-Texture gTextureAlbedo("foam.jpg", L"foam", gSampler, Format::R8G8B8A8_UNORM);
+Texture gTextureAlbedo("foam.jpg", L"albedo", gSampler, true, Format::R16G16B16A16_UNORM);
 
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;

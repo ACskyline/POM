@@ -9,6 +9,7 @@ public:
 		const string& fileName,
 		const wstring& debugName,
 		Sampler sampler,
+		bool useMipmap,
 		Format format = Format::INVALID,
 		int width = -1,
 		int height = -1);
@@ -32,6 +33,7 @@ public:
 protected:
 	string mFileName;
 	wstring mDebugName;
+	bool mUseMipmap;
 	int mWidth;
 	int mHeight;
 	int mMipLevelCount;
@@ -75,7 +77,8 @@ public:
 	DepthStencilState GetDepthStencilState();
 
 	// TODO: hide API specific implementation in Renderer
-	CD3DX12_RESOURCE_BARRIER TransitionLayout(TextureLayout newLayout);
+	bool TransitionColorBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout);
+	bool TransitionDepthStencilBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout);
 
 	virtual void CreateTextureBuffer();
 	virtual void CreateView();
@@ -88,7 +91,8 @@ private:
 
 	View mRtv;
 	View mDsv;
-	TextureLayout mLayout;
+	TextureLayout mColorBufferLayout;
+	TextureLayout mDepthStencilBufferLayout;
 	Format mDepthStencilFormat;
 
 	BlendState mBlendState;

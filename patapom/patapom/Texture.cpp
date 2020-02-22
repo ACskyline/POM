@@ -2,17 +2,22 @@
 #include "Renderer.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include "Dependencies/stb_image.h"
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "Dependencies/stb_image_resize.h"
 
 Texture::Texture(
 	const string& fileName, 
 	const wstring& debugName, 
 	Sampler sampler,
+	bool useMipmap,
 	Format format,
 	int width,
 	int height) :
 	mFileName(fileName), 
 	mDebugName(debugName),
+	mUseMipmap(useMipmap),
 	mWidth(width), 
 	mHeight(height), 
 	mMipLevelCount(1), 
@@ -38,30 +43,38 @@ void Texture::Release()
 
 void Texture::CreateTextureBuffer()
 {
-	int texChannels = 0;
+	int channelCountOriginal = 0;
+	int channelCountRequested = 0;
 	int bytePerChannel = 0;
-	void* pixels = nullptr;
+	void* data = nullptr;
 	switch (mFormat)
 	{
 	case Format::R16G16B16A16_UNORM:
 	case Format::R16G16B16A16_FLOAT:
 		bytePerChannel = 2;
-		pixels = stbi_load_16(mFileName.c_str(), &mWidth, &mHeight, &texChannels, STBI_rgb_alpha);
+		channelCountRequested = STBI_rgb_alpha;
+		data = stbi_load_16(mFileName.c_str(), &mWidth, &mHeight, &channelCountOriginal, channelCountRequested);
 		break;
 	case Format::R8G8B8A8_UNORM:
 		bytePerChannel = 1;
-		pixels = stbi_load(mFileName.c_str(), &mWidth, &mHeight, &texChannels, STBI_rgb_alpha);//default is 8 bit version
+		channelCountRequested = STBI_rgb_alpha;
+		data = stbi_load(mFileName.c_str(), &mWidth, &mHeight, &channelCountOriginal, channelCountRequested);//default is 8 bit version
 		break;
 	default:
 		fatalf("Texture format is wrong");
 		break;
 	}
 		
-	int bytePerRow = mWidth * texChannels * bytePerChannel;
+	int bytePerRow = mWidth * channelCountRequested * bytePerChannel;
 	int bytePerSlice = bytePerRow * mHeight;
 
-	//if(!mUseMipmap) // TODO: add support to mip map tool chain
+	if(!mUseMipmap) // TODO: add support to mip map tool chain
 		mMipLevelCount = 1;
+	else
+	{
+		//fatalAssertf((mWidth > 0) && ((mWidth - 1) & mWidth == 0) && (mHeight > 0) && ((mHeight - 1) & mHeight == 0), "texture size is not power of 2");
+		mMipLevelCount = static_cast<uint32_t>(floor(log2(max(mWidth, mHeight)))) + 1;
+	}
 
 	D3D12_RESOURCE_DESC textureDesc = {};
 	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;//TODO: add support for cube map and texture array
@@ -81,13 +94,48 @@ void Texture::CreateTextureBuffer()
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&textureDesc, // the description of our texture
-		D3D12_RESOURCE_STATE_COPY_DEST, // We will copy the texture from the upload heap to here, so we start it out in a copy dest state
+		Renderer::TranslateTextureLayout(TextureLayout::COPY_DEST), // We will copy the texture from the upload heap to here, so we start it out in a copy dest state
 		nullptr, // used for render targets and depth/stencil buffers
 		IID_PPV_ARGS(&mColorBuffer));
 
-	mRenderer->UploadTextureDataToBuffer(pixels, bytePerRow, bytePerSlice, textureDesc, mColorBuffer);
+	vector<void*> dataVec(mMipLevelCount);
+	vector<int> bytePerRowVec(mMipLevelCount);
+	vector<int> bytePerSliceVec(mMipLevelCount);
+	dataVec[0] = data;
+	bytePerRowVec[0] = bytePerRow;
+	bytePerSliceVec[0] = bytePerSlice;
+	int w = mWidth;
+	int h = mHeight;
+	for (int i = 1; i < mMipLevelCount; i++)
+	{
+		int wNew = w / 2;
+		int hNew = h / 2;
+		switch (bytePerChannel) {
+		case 1:
+			dataVec[i] = new uint8_t[wNew * hNew * channelCountRequested];
+			stbir_resize_uint8_generic((uint8_t*)dataVec[i - 1], w, h, 0, (uint8_t*)dataVec[i], wNew, hNew, 0, channelCountRequested, -1, 0, STBIR_EDGE_CLAMP, STBIR_FILTER_DEFAULT, STBIR_COLORSPACE_LINEAR, nullptr);
+			break;
+		case 2:
+			dataVec[i] = new uint16_t[wNew * hNew * channelCountRequested];
+			stbir_resize_uint16_generic((uint16_t*)dataVec[i - 1], w, h, 0, (uint16_t*)dataVec[i], wNew, hNew, 0, channelCountRequested, -1, 0, STBIR_EDGE_CLAMP, STBIR_FILTER_DEFAULT, STBIR_COLORSPACE_LINEAR, nullptr);
+			break;
+		default:
+			fatalf("texture format wrong");
+			break;
+		}
+		
+		bytePerRowVec[i] = bytePerRowVec[i - 1] / 2;
+		bytePerSliceVec[i] = bytePerRowVec[i - 1] / 4;
+		w = wNew;
+		h = hNew;
+	}
+	mRenderer->UploadTextureDataToBuffer(dataVec, bytePerRowVec, bytePerSliceVec, textureDesc, mColorBuffer);
 
-	stbi_image_free(pixels);
+	mRenderer->Transition(mColorBuffer, TextureLayout::COPY_DEST, TextureLayout::SHADER_READ);
+
+	stbi_image_free(data);
+	for(int i = 1;i<mMipLevelCount;i++)
+		delete[] dataVec[i];
 
 	mColorBuffer->SetName(mDebugName.c_str());
 }
@@ -193,8 +241,9 @@ RenderTexture::RenderTexture(
 	mDepthStencilState(depthStencilState),
 	mSupportDepthStencil(supportDepthStencil),
 	mDepthStencilBuffer(nullptr),
-	mLayout(TextureLayout::INVALID),
-	Texture(fileName, debugName, sampler, colorFormat, width, height)
+	mColorBufferLayout(TextureLayout::INVALID),
+	mDepthStencilBufferLayout(TextureLayout::INVALID),
+	Texture(fileName, debugName,  sampler, false,colorFormat, width, height)
 {
 	
 }
@@ -211,7 +260,7 @@ void RenderTexture::Release()
 
 void RenderTexture::CreateTextureBuffer()
 {
-	//if(!mUseMipmap) // TODO: add support for mip map tool chain
+	//if(!mUseMipmap) // TODO: add support for render texture
 		mMipLevelCount = 1;
 
 	D3D12_RESOURCE_DESC textureDesc = {};
@@ -362,12 +411,12 @@ DepthStencilState RenderTexture::GetDepthStencilState()
 	return mDepthStencilState;
 }
 
-CD3DX12_RESOURCE_BARRIER RenderTexture::TransitionLayout(TextureLayout newLayout)
+bool RenderTexture::TransitionColorBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout)
 {
-	// TODO: maybe it's more robust if we do not return any barrier when the current layout is the same as the new layout
-	fatalAssertf(mLayout != newLayout, "new layout is the same as the current layout");
-	CD3DX12_RESOURCE_BARRIER result;
-	result = CD3DX12_RESOURCE_BARRIER::Transition(mColorBuffer, Renderer::TranslateTextureLayout(mLayout), Renderer::TranslateTextureLayout(newLayout));
-	mLayout = newLayout;
-	return result;
+	return mRenderer->RecordTransition(commandList, mColorBuffer, mColorBufferLayout, newLayout);
+}
+
+bool RenderTexture::TransitionDepthStencilBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout)
+{
+	return mRenderer->RecordTransition(commandList, mDepthStencilBuffer, mDepthStencilBufferLayout, newLayout);
 }

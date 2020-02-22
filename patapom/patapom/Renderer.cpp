@@ -6,6 +6,7 @@
 #include "Mesh.h"
 #include "Camera.h"
 #include "Shader.h"
+#include "Texture.h"
 
 DescriptorHeap::DescriptorHeap() : 
 	mHead(D3D12_DEFAULT), 
@@ -309,198 +310,45 @@ D3D12_DESCRIPTOR_HEAP_TYPE Renderer::TranslateDescriptorHeapType(DescriptorHeap:
 
 D3D12_FILTER Renderer::ExtractFilter(Sampler sampler)
 {
+	//https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_filter
+	uint16_t reductionType = 0;
+	uint16_t anistropy = 0;
+	uint16_t min = 0;
+	uint16_t mag = 0;
+	uint16_t mip = 0;
+	
 	if(sampler.mUseCompare)
 	{
-		if(sampler.mCompareOp == CompareOp::MINIMUM)
+		switch (sampler.mCompareOp)
 		{
-			if (sampler.mUseAnisotropy)
-			{
-				return D3D12_FILTER_MINIMUM_ANISOTROPIC;
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::POINT)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MINIMUM_MIN_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MINIMUM_MIN_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MINIMUM_MIN_POINT_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MINIMUM_MIN_POINT_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::LINEAR)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MINIMUM_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MINIMUM_MIN_LINEAR_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MINIMUM_MIN_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MINIMUM_MIN_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else
-				fatalf("filter type wrong");
-		}
-		else if(sampler.mCompareOp == CompareOp::MAXIMUM)
-		{
-			if (sampler.mUseAnisotropy)
-			{
-				return D3D12_FILTER_MAXIMUM_ANISOTROPIC;
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::POINT)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MAXIMUM_MIN_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MAXIMUM_MIN_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MAXIMUM_MIN_POINT_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MAXIMUM_MIN_POINT_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::LINEAR)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MAXIMUM_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MAXIMUM_MIN_LINEAR_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_MAXIMUM_MIN_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_MAXIMUM_MIN_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else
-				fatalf("filter type wrong");
-		}
-		else
-		{
-			if (sampler.mUseAnisotropy)
-			{
-				return D3D12_FILTER_COMPARISON_ANISOTROPIC;
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::POINT)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_COMPARISON_MIN_POINT_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_COMPARISON_MIN_POINT_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else if (sampler.mMinFilter == Sampler::Filter::LINEAR)
-			{
-				if (sampler.mMaxFilter == Sampler::Filter::POINT)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
-					else
-						return D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_MIP_POINT;
-				}
-				else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-				{
-					if (sampler.mUseMipmap)
-						return D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-					else
-						return D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
-				}
-				else
-					fatalf("filter type wrong");
-			}
-			else
-				fatalf("filter type wrong");
+		case CompareOp::INVALID:
+			fatalf("wrong filter");
+			break;
+		case CompareOp::MAXIMUM:
+			reductionType = 3;
+			break;
+		case CompareOp::MINIMUM:
+			reductionType = 2;
+			break;
+		default:
+			reductionType = 1;
+			break;
 		}
 	}
-	else
-	{
-		if (sampler.mUseAnisotropy)
-		{
-			return D3D12_FILTER_ANISOTROPIC;
-		}
-		else if (sampler.mMinFilter == Sampler::Filter::POINT)
-		{
-			if (sampler.mMaxFilter == Sampler::Filter::POINT)
-			{
-				if (sampler.mUseMipmap)
-					return D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR;
-				else
-					return D3D12_FILTER_MIN_MAG_MIP_POINT;
-			}
-			else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-			{
-				if (sampler.mUseMipmap)
-					return D3D12_FILTER_MIN_POINT_MAG_MIP_LINEAR;
-				else
-					return D3D12_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT;
-			}
-			else
-				fatalf("filter type wrong");
-		}
-		else if (sampler.mMinFilter == Sampler::Filter::LINEAR)
-		{
-			if (sampler.mMaxFilter == Sampler::Filter::POINT)
-			{
-				if (sampler.mUseMipmap)
-					return D3D12_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
-				else
-					return D3D12_FILTER_MIN_LINEAR_MAG_MIP_POINT;
-			}
-			else if (sampler.mMaxFilter == Sampler::Filter::LINEAR)
-			{
-				if (sampler.mUseMipmap)
-					return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-				else
-					return D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-			}
-			else
-				fatalf("filter type wrong");
-		}
-		else
-			fatalf("filter type wrong");
-	}
-	return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	
+	if (sampler.mUseAnisotropy)
+		anistropy = 1;
+
+	if (sampler.mMinFilter == Sampler::Filter::LINEAR)
+		min = 1;
+
+	if (sampler.mMagFilter == Sampler::Filter::LINEAR)
+		mag = 1;
+
+	if (sampler.mMipFilter == Sampler::Filter::LINEAR)
+		mip = 1;
+
+	return (D3D12_FILTER)(reductionType << 7 | anistropy << 6 | min << 4 | mag << 2 | mip);
 }
 
 D3D12_TEXTURE_ADDRESS_MODE Renderer::TranslateAddressMode(Sampler::AddressMode addressMode)
@@ -545,7 +393,9 @@ D3D12_COMPARISON_FUNC Renderer::TranslateCompareOp(CompareOp op)
 		return D3D12_COMPARISON_FUNC_ALWAYS;
 	case CompareOp::MINIMUM:
 	case CompareOp::MAXIMUM:
-		return D3D12_COMPARISON_FUNC_NEVER;
+		// not sure about this, what comparison function should it be 
+		// if minimum or maximum reduction is used in the filter
+		return D3D12_COMPARISON_FUNC_NEVER; 
 	default:
 		fatalf("compare op wrong");
 	}
@@ -1030,14 +880,50 @@ bool Renderer::Present()
 	return true;
 }
 
-void Renderer::UploadTextureDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer)
+void Renderer::UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& srcBytePerRow, vector<int>& srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer)
 {
-	UINT64 textureUploadBufferSize = 0;
-	// TODO: add support to subresources https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-getcopyablefootprints
-	mDevice->GetCopyableFootprints(&textureDesc, 0, 1, 0, nullptr, nullptr, nullptr, &textureUploadBufferSize);
-	UploadDataToBuffer(srcData, srcBytePerRow, srcBytePerSlice, textureUploadBufferSize, dstBuffer);
+	int numSubresources = srcData.size();
+	fatalAssert(numSubresources > 0 && numSubresources == srcBytePerRow.size() && numSubresources == srcBytePerSlice.size());
+
+	ID3D12GraphicsCommandList* commandList = BeginSingleTimeCommands(mCopyCommandAllocator);
+
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT* layouts = new D3D12_PLACED_SUBRESOURCE_FOOTPRINT[numSubresources];
+	UINT* numRows = new UINT[numSubresources];
+	UINT64* rowSizesInBytes = new UINT64[numSubresources];
+	UINT64 totalBytes = 0;
+	mDevice->GetCopyableFootprints(&textureDesc, 0, numSubresources, 0, layouts, numRows, rowSizesInBytes, &totalBytes);
+
+	// creaete an upload buffer
+	ID3D12Resource* uploadBuffer;
+	fatalAssert(!CheckError(mDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
+		D3D12_HEAP_FLAG_NONE, // no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(totalBytes), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
+		D3D12_RESOURCE_STATE_GENERIC_READ, // we will copy the contents from this heap to the default heap above
+		nullptr,
+		IID_PPV_ARGS(&uploadBuffer)),
+		mDevice)
+	);
+
+	D3D12_SUBRESOURCE_DATA* data = new D3D12_SUBRESOURCE_DATA[numSubresources];
+	for (int i = 0; i < numSubresources; i++)
+	{
+		data[i].pData = srcData[i]; // pointer to our image data
+		data[i].RowPitch = srcBytePerRow[i]; // number of bytes per row
+		data[i].SlicePitch = srcBytePerSlice[i]; // number of bytes per slice
+	}
+
+	// TODO: add support to subresources
+	UINT64 r = UpdateSubresources(commandList, dstBuffer, uploadBuffer, 0, numSubresources, totalBytes, layouts, numRows, rowSizesInBytes, data);
+
+	EndSingleTimeCommands(mGraphicsCommandQueue, mCopyCommandAllocator, commandList);
+	SAFE_RELEASE(uploadBuffer);
+	delete[] layouts;
+	delete[] numRows;
+	delete[] rowSizesInBytes;
 }
 
+//mainly for vertex buffer and index buffer for now
 void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, int uploadBufferSize, ID3D12Resource* dstBuffer)
 {
 	ID3D12GraphicsCommandList* commandList = BeginSingleTimeCommands(mCopyCommandAllocator);
@@ -1064,6 +950,60 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 
 	EndSingleTimeCommands(mGraphicsCommandQueue, mCopyCommandAllocator, commandList);
 	SAFE_RELEASE(uploadBuffer);
+}
+
+bool Renderer::TransitionLayout(ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
+{
+	// TODO: maybe it's more robust if we do not return any barrier when the current layout is the same as the new layout
+	assertf(oldLayout != newLayout, "new layout is the same as the current layout");
+	if (oldLayout == newLayout)
+		return false;
+	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateTextureLayout(oldLayout), Renderer::TranslateTextureLayout(newLayout));
+	oldLayout = newLayout;
+	return true;
+}
+
+bool Renderer::Transition(ID3D12Resource* resource, TextureLayout oldLayout, TextureLayout newLayout)
+{
+	CD3DX12_RESOURCE_BARRIER barrier = {};
+	if (TransitionLayout(resource, oldLayout, newLayout, barrier))
+	{
+		ID3D12GraphicsCommandList* commandList = BeginSingleTimeCommands(mCopyCommandAllocator);
+		commandList->ResourceBarrier(1, &barrier);
+		EndSingleTimeCommands(mGraphicsCommandQueue, mCopyCommandAllocator, commandList);
+		return true;
+	}
+	return false;
+}
+
+bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout)
+{
+	CD3DX12_RESOURCE_BARRIER barrier = {};
+	if(TransitionLayout(resource, oldLayout, newLayout, barrier))
+	{
+		commandList->ResourceBarrier(1, &barrier);
+		return true;
+	}
+	return false;
+}
+
+bool Renderer::CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout)
+{
+	CD3DX12_RESOURCE_BARRIER barrier = {};
+	if (TransitionLayout(resource, oldLayout, newLayout, barrier))
+	{
+		transitions.push_back(barrier);
+		return true;
+	}
+	return false;
+}
+
+bool Renderer::RecordCachedTransitions(ID3D12GraphicsCommandList* commandList, vector<CD3DX12_RESOURCE_BARRIER>& cachedTransitions)
+{
+	if (cachedTransitions.size() <= 0)
+		return false;
+	commandList->ResourceBarrier(cachedTransitions.size(), cachedTransitions.data());
+	return true;
 }
 
 ID3D12GraphicsCommandList* Renderer::BeginSingleTimeCommands(ID3D12CommandAllocator* commandAllocator)

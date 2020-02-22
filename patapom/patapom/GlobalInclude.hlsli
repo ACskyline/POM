@@ -1,19 +1,29 @@
+#ifndef GLOBAL_INCLUDE
+#define GLOBAL_INCLUDE
+
+#define SCENE   0
+#define FRAME   1
+#define PASS    2
+#define OBJECT  3
+
+#define SPACE(x)    space ## x
+
 /////////////// UNIFORM ///////////////
 //vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv//
 
 // TODO: add support for shader space
 
-cbuffer SceneUniform : register(b0, space0)
+cbuffer SceneUniform : register(b0, SPACE(SCENE))
 {
     uint mode;
 };
 
-cbuffer FrameUniform : register(b0, space1)
+cbuffer FrameUniform : register(b0, SPACE(FRAME))
 {
     uint frameIndex;
 };
 
-cbuffer PassUniform : register(b0, space2)
+cbuffer PassUniform : register(b0, SPACE(PASS))
 {
     uint passIndex;
 	float vx;
@@ -23,7 +33,7 @@ cbuffer PassUniform : register(b0, space2)
     float4x4 viewProjInv;
 };
 
-cbuffer ObjectUniform : register(b0, space3)
+cbuffer ObjectUniform : register(b0, SPACE(OBJECT))
 {
     float4x4 model;
     float4x4 modelInv;
@@ -57,3 +67,5 @@ struct PS_OUTPUT
 };
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 ///////////////// PS /////////////////
+
+#endif
