@@ -10,6 +10,7 @@ class Frame;
 class Pass;
 class Shader;
 class Renderer;
+class RenderTexture;
 
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
 enum class UNIFORM_REGISTER_SPACE { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
@@ -106,6 +107,21 @@ struct BlendState {
 	float mBlendConstants[4]; // D3D12 set this constant using OMSetBlendFactor, Vulkan put it in VkPipelineColorBlendStateCreateInfo 
 
 	D3D12_RENDER_TARGET_BLEND_DESC mImpl; // TODO: hide API specific implementation in Renderer
+	static BlendState Default()
+	{
+		return {
+			false,
+				false,
+				BlendState::BlendFactor::ZERO,
+				BlendState::BlendFactor::ZERO,
+				BlendState::BlendOp::ADD,
+				BlendState::BlendFactor::ZERO,
+				BlendState::BlendFactor::ZERO,
+				BlendState::BlendOp::ADD,
+				BlendState::LogicOp::NOOP,
+				BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
+		};
+	}
 };
 
 struct DepthStencilState {
@@ -130,6 +146,26 @@ struct DepthStencilState {
 	float mDepthBoundMax; // same as above
 
 	D3D12_DEPTH_STENCIL_DESC mImpl; // TODO: hide API specific implementation in Renderer
+	static DepthStencilState Default()
+	{
+		return {
+			true,
+			true,
+			false,
+			false,
+			CompareOp::LESS,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
 };
 
 struct View {
@@ -250,37 +286,10 @@ public:
 		int width,
 		int height,
 		DebugMode debugMode = DebugMode::OFF,
-		BlendState blendState = {
-			false,
-			false,
-			BlendState::BlendFactor::ZERO,
-			BlendState::BlendFactor::ZERO,
-			BlendState::BlendOp::ADD,
-			BlendState::BlendFactor::ZERO,
-			BlendState::BlendFactor::ZERO,
-			BlendState::BlendOp::ADD,
-			BlendState::LogicOp::NOOP,
-			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
-		},
-		DepthStencilState depthStencilState = {
-			true,
-			true,
-			false,
-			false,
-			CompareOp::LESS,
-			DepthStencilState::StencilOpSet {
-				DepthStencilState::StencilOp::KEEP,
-				DepthStencilState::StencilOp::KEEP,
-				DepthStencilState::StencilOp::KEEP,
-				CompareOp::NEVER },
-			DepthStencilState::StencilOpSet {
-				DepthStencilState::StencilOp::KEEP,
-				DepthStencilState::StencilOp::KEEP,
-				DepthStencilState::StencilOp::KEEP,
-				CompareOp::NEVER }
-			},
-			Format colorBufferFormat = Format::R8G8B8A8_UNORM,
-			Format depthBufferStencilFormat = Format::D24_UNORM_S8_UINT);
+		BlendState blendState = BlendState::Default(),
+		DepthStencilState depthStencilState = DepthStencilState::Default(),
+		Format colorBufferFormat = Format::R8G8B8A8_UNORM,
+		Format depthBufferStencilFormat = Format::D24_UNORM_S8_UINT);
 	void CreateDepthStencilBuffers(Format format);
 	void CreateColorBuffers();
 	void Release();
@@ -304,14 +313,10 @@ public:
 		ID3D12RootSignature** rootSignature,
 		int maxTextureCount[(int)UNIFORM_REGISTER_SPACE::COUNT]);
 	void CreatePSO(
-		ID3D12Device* device,
+		vector<RenderTexture*>& renderTextureVec,
 		ID3D12PipelineState** pso,
 		ID3D12RootSignature* rootSignature,
-		D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveTType,
-		D3D12_BLEND_DESC blendDesc,
-		D3D12_DEPTH_STENCIL_DESC dsDesc,
-		const vector<DXGI_FORMAT>& rtvFormat,
-		DXGI_FORMAT dsvFormat,
+		D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
 		Shader* vertexShader,
 		Shader* hullShader,
 		Shader* domainShader,
@@ -323,8 +328,10 @@ public:
 		Pass& pass,
 		bool clearColor = true,
 		bool clearDepth = true,
+		bool clearStencil = true,
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
-		float clearDepthValue = 1.0f);
+		float clearDepthValue = 1.0f,
+		uint8_t clearStencilValue = 0);
 
 	IDXGIFactory4* mDxgiFactory;
 	ID3D12Device* mDevice; // direct3d device
@@ -364,6 +371,23 @@ private:
 	void EnableGBV();
 
 	bool TransitionLayout(ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
+
+	void CreatePSO(
+		ID3D12Device* device,
+		ID3D12PipelineState** pso,
+		ID3D12RootSignature* rootSignature,
+		D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
+		D3D12_BLEND_DESC blendDesc,
+		D3D12_DEPTH_STENCIL_DESC dsDesc,
+		const vector<DXGI_FORMAT>& rtvFormat,
+		DXGI_FORMAT dsvFormat,
+		int multiSampleCount,
+		Shader* vertexShader,
+		Shader* hullShader,
+		Shader* domainShader,
+		Shader* geometryShader,
+		Shader* pixelShader,
+		const wstring& name);
 
 	DescriptorHeap mCbvSrvUavDescriptorHeap;
 	DescriptorHeap mSamplerDescriptorHeap;

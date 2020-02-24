@@ -1116,6 +1116,81 @@ void Renderer::CreateDescriptorHeap(DescriptorHeap& descriptorHeap, int size)
 }
 
 void Renderer::CreatePSO(
+	vector<RenderTexture*>& renderTextures,
+	ID3D12PipelineState** pso,
+	ID3D12RootSignature* rootSignature,
+	D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
+	Shader* vertexShader,
+	Shader* hullShader,
+	Shader* domainShader,
+	Shader* geometryShader,
+	Shader* pixelShader,
+	const wstring& name)
+{
+	// initialize
+	vector<DXGI_FORMAT> rtvFormatVec(1, DXGI_FORMAT_UNKNOWN);
+	DXGI_FORMAT dsvFormat = DXGI_FORMAT_UNKNOWN;
+	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
+	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	int multiSampleCount = -1;
+
+	if (renderTextures.size() > 0) 
+	{ 
+		// if render textures are used
+		rtvFormatVec.resize(renderTextures.size());
+		depthStencilDesc = renderTextures[0]->GetDepthStencilDesc();
+		multiSampleCount = renderTextures[0]->GetMultiSampleCount();
+		if (renderTextures.size() > 1)
+			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, add it as a member variable to pass class
+
+		// assign to render textures parameter
+		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
+		{
+			// render targets recording
+			blendDesc.RenderTarget[i] = renderTextures[i]->GetRenderTargetBlendDesc();
+			rtvFormatVec[i] = Renderer::TranslateFormat(renderTextures[i]->GetFormat());
+		}
+
+		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
+		{
+			if (renderTextures[i]->IsDepthStencilSupported())
+			{
+				//!!!* only the first usable depth stencil buffer will be used *!!!//
+				dsvFormat = Renderer::TranslateFormat(renderTextures[i]->GetDepthStencilFormat());
+				break;
+			}
+		}
+	}
+	else
+	{
+		// use backbuffer parameters
+		rtvFormatVec[0] = Renderer::TranslateFormat(mColorBufferFormat);
+		dsvFormat = Renderer::TranslateFormat(mDepthStencilBufferFormat);
+		blendDesc.RenderTarget[0] = Renderer::TranslateBlendState(mBlendState);
+		depthStencilDesc = Renderer::TranslateDepthStencilState(mDepthStencilState);
+		multiSampleCount = mMultiSampleCount;
+	}
+
+	// create PSO
+	CreatePSO(
+		mDevice,
+		pso,
+		rootSignature,
+		primitiveType,
+		blendDesc,
+		depthStencilDesc,
+		rtvFormatVec,
+		dsvFormat,
+		multiSampleCount,
+		vertexShader,
+		hullShader,
+		domainShader,
+		geometryShader,
+		pixelShader,
+		name);
+}
+
+void Renderer::CreatePSO(
 	ID3D12Device* device,
 	ID3D12PipelineState** pso,
 	ID3D12RootSignature* rootSignature,
@@ -1124,6 +1199,7 @@ void Renderer::CreatePSO(
 	D3D12_DEPTH_STENCIL_DESC dsDesc,
 	const vector<DXGI_FORMAT>& rtvFormatVec,
 	DXGI_FORMAT dsvFormat,
+	int multiSampleCount,
 	Shader* vertexShader,
 	Shader* hullShader,
 	Shader* domainShader,
@@ -1152,7 +1228,7 @@ void Renderer::CreatePSO(
 	// output.
 
 	DXGI_SAMPLE_DESC sampleDesc = {};
-	sampleDesc.Count = mMultiSampleCount;
+	sampleDesc.Count = multiSampleCount;
 	sampleDesc.Quality = 0;
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {}; // a structure to define a pso
@@ -1168,7 +1244,7 @@ void Renderer::CreatePSO(
 	{
 		psoDesc.RTVFormats[i] = rtvFormatVec[i]; // format of the render target
 	}
-	psoDesc.SampleDesc = sampleDesc; // must be the same sample description as the swapchain and depth/stencil buffer
+	psoDesc.SampleDesc = sampleDesc; // must be the same sample description as the render target
 	psoDesc.SampleMask = 0xffffffff; // sample mask has to do with multi-sampling. 0xffffffff means point sampling is done
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT); // a default rasterizer state.
 	psoDesc.BlendState = blendDesc;// CD3DX12_BLEND_DESC(D3D12_DEFAULT); // a default blent state.
@@ -1189,41 +1265,66 @@ void Renderer::RecordPass(
 	Pass& pass,
 	bool clearColor,
 	bool clearDepth,
+	bool clearStencil,
 	XMFLOAT4 clearColorValue,
-	float clearDepthValue)
+	float clearDepthValue,
+	uint8_t clearStencilValue)
 {
 	// set PSO
 	commandList->SetPipelineState(pass.GetPso());
 
 	// set the render target for the output merger stage (the output of the pipeline), viewports and scissor rects
-	//!!!* only the first depth stencil buffer will be used *!!!//
-	//the last parameter is the address of one dsv handle
-	int renderTextureCount = pass.GetRenderTextureCount();
-	if (renderTextureCount <= 0)
-		renderTextureCount = 1; // using backbuffer instead
-	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& frameRtvHandles = pass.GetRtvHandles(mCurrentFrameIndex);
-	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& frameDsvHandles = pass.GetDsvHandles(mCurrentFrameIndex);//!!!* only the first depth stencil buffer will be used *!!!//
-	vector<D3D12_VIEWPORT> frameViewPorts(renderTextureCount, TranslateViewport(pass.GetCamera()->GetViewport()));
-	vector<D3D12_RECT> frameScissorRects(renderTextureCount, TranslateScissorRect(pass.GetCamera()->GetScissorRect()));
-	commandList->OMSetRenderTargets(renderTextureCount, frameRtvHandles.data(), FALSE, frameDsvHandles.data());
-	commandList->RSSetViewports(renderTextureCount, frameViewPorts.data()); // set the viewports
-	commandList->RSSetScissorRects(renderTextureCount, frameScissorRects.data()); // set the scissor rects
+	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameRtvHandles = pass.GetRtvHandles(mCurrentFrameIndex);
+	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameDsvHandles = pass.GetDsvHandles(mCurrentFrameIndex);//!!!* only the first depth stencil buffer will be used *!!!//
+	fatalAssert(pass.GetRenderTextureCount() == frameRtvHandles.size() && frameRtvHandles.size() == frameDsvHandles.size());
+	int dsvIndex = -1;
+	//!!!* only the first usable depth stencil buffer will be used *!!!//
+	for(int i = 0;i< pass.GetRenderTextureCount();i++)
+	{
+		if(pass.GetRenderTexture(i)->IsDepthStencilSupported())
+		{
+			dsvIndex = i;
+			break;
+		}
+	}
+	// if none are bound, use swap chain back buffer instead
+	if (frameRtvHandles.size() == 0)
+		frameRtvHandles.push_back(mRtvHandles[mCurrentFrameIndex]);
+	if (frameDsvHandles.size() == 0)
+	{
+		frameDsvHandles.push_back(mDsvHandles[mCurrentFrameIndex]); 
+		// assuming backbuffer always supports depth stencil buffer
+		fatalAssert(mDepthStencilBuffers[mCurrentFrameIndex]);
+		dsvIndex = 0;
+	}
+	vector<D3D12_VIEWPORT> frameViewPorts(frameRtvHandles.size(), TranslateViewport(pass.GetCamera()->GetViewport()));
+	vector<D3D12_RECT> frameScissorRects(frameRtvHandles.size(), TranslateScissorRect(pass.GetCamera()->GetScissorRect()));
+	commandList->OMSetRenderTargets(frameRtvHandles.size(), frameRtvHandles.data(), FALSE, dsvIndex >= 0 ? &frameDsvHandles[dsvIndex] : nullptr);
+	commandList->RSSetViewports(frameViewPorts.size(), frameViewPorts.data()); // set the viewports
+	commandList->RSSetScissorRects(frameScissorRects.size(), frameScissorRects.data()); // set the scissor rects
 	if (pass.IsConstantBlendFactorsUsed())
 		commandList->OMSetBlendFactor(pass.GetConstantBlendFactors());
 	if (pass.IsStencilReferenceUsed())
 		commandList->OMSetStencilRef(pass.GetStencilReference());
-	// Clear the render target by using the ClearRenderTargetView command
-	if (clearColor || clearDepth)
+
+	// Clear the render targets
+	if (clearColor || clearDepth || clearStencil)
 	{
 		const float clearColorValueV[] = { clearColorValue.x, clearColorValue.y, clearColorValue.z, clearColorValue.w };
-		for (int i = 0; i < renderTextureCount; i++)
+		for (int i = 0; i < frameRtvHandles.size(); i++)
 		{
 			// clear the render target buffer
 			if(clearColor)
 				commandList->ClearRenderTargetView(frameRtvHandles[i], clearColorValueV, 0, nullptr);
+			
 			// clear the depth/stencil buffer
-			if(clearDepth)
-				commandList->ClearDepthStencilView(frameDsvHandles[i], D3D12_CLEAR_FLAG_DEPTH, clearDepthValue, 0, 0, nullptr);
+			if((clearDepth || clearStencil) && 
+				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsDepthStencilSupported()) ||
+				(pass.GetRenderTextureCount() <= 0)))
+			{
+				D3D12_CLEAR_FLAGS flag = clearDepth ? (clearStencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH) : D3D12_CLEAR_FLAG_STENCIL;
+				commandList->ClearDepthStencilView(frameDsvHandles[i], flag, clearDepthValue, clearStencilValue, 0, nullptr);
+			}
 		}
 	}
 

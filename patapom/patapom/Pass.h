@@ -36,6 +36,7 @@ public:
 	int GetRenderTextureCount();
 	vector<Texture*>& GetTextureVec();
 	vector<RenderTexture*>& GetRenderTextureVec();
+	RenderTexture* GetRenderTexture(int i);
 	Camera* GetCamera();
 	Scene* GetScene();
 	vector<Mesh*>& GetMeshVec();

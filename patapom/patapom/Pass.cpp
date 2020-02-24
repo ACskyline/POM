@@ -130,7 +130,6 @@ bool Pass::IsStencilReferenceUsed()
 	return mStencilReferenceUsed;
 }
 
-
 float* Pass::GetConstantBlendFactors()
 {
 	return mBlendConstants;
@@ -177,38 +176,18 @@ void Pass::InitPass(
 	mRenderer->CreateGraphicsRootSignature(&mRootSignature, maxTextureCount);
 
 	// 4. bind render textures and create pso
-	// this is the default blend desc for the backbuffer when there is no render targets attched
-	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	
-	// initialize with backbuffer parameter
-	vector<DXGI_FORMAT> rtvFormatVec(1, Renderer::TranslateFormat(mRenderer->mColorBufferFormat));
-	DXGI_FORMAT dsvFormat = Renderer::TranslateFormat(mRenderer->mDepthStencilBufferFormat);
-	blendDesc.RenderTarget[0] = Renderer::TranslateBlendState(mRenderer->mBlendState);
-	depthStencilDesc = Renderer::TranslateDepthStencilState(mRenderer->mDepthStencilState);
 	mRtvHandles.resize(frameCount);
 	mDsvHandles.resize(frameCount);
-	for (int i = 0; i < frameCount; i++)
-	{
-		mRtvHandles[i].push_back(mRenderer->GetRtvHandle(i));
-		mDsvHandles[i].push_back(mRenderer->GetDsvHandle(i));
-	}
 
 	// if render textures are used
-	if (mRenderTextures.size() > 0) {
-		rtvFormatVec.resize(mRenderTextures.size());
-		dsvFormat = Renderer::TranslateFormat(mRenderTextures[0]->GetDepthStencilFormat());
-		depthStencilDesc = mRenderTextures[0]->GetDepthStencilDesc();
-		for (int i = 0; i < frameCount; i++)
-		{
-			mRtvHandles[i].resize(mRenderTextures.size());
-			mDsvHandles[i].resize(mRenderTextures.size());
-		}
+	for (int i = 0; i < frameCount; i++)
+	{
+		mRtvHandles[i].resize(mRenderTextures.size());
+		mDsvHandles[i].resize(mRenderTextures.size());
 	}
-	if (mRenderTextures.size() > 1)
-		blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, add it as a member variable to pass class
-	
 	// assign to render textures parameter
+	mConstantBlendFactorsUsed = false;
+	mStencilReferenceUsed = false;
 	for(int i = 0; i < mRenderTextures.size() && i < 8; i++) // only the first 8 targets will be used
 	{
 		// these values are set using OMSet... functions in D3D12, so we cache them here
@@ -241,9 +220,6 @@ void Pass::InitPass(
 			mStencilReference = depthStencilState.mStencilReference;
 		}
 
-		// render targets recording
-		blendDesc.RenderTarget[i] = mRenderTextures[i]->GetRenderTargetBlendDesc();
-		rtvFormatVec[i] = Renderer::TranslateFormat(mRenderTextures[i]->GetFormat());
 		for (int j = 0; j < frameCount; j++)
 		{
 			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetColorBuffer(), mRenderTextures[i]->GetRtvDesc(), 1);
@@ -253,15 +229,12 @@ void Pass::InitPass(
 	
 	// create PSO
 	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // TODO: add support for other primitive types
+
 	mRenderer->CreatePSO(
-		mRenderer->mDevice,
+		mRenderTextures,
 		&mPso,
 		mRootSignature,
 		mPrimitiveType,
-		blendDesc,
-		depthStencilDesc,
-		rtvFormatVec,
-		dsvFormat,
 		mShaders[Shader::VERTEX_SHADER],
 		mShaders[Shader::HULL_SHADER],
 		mShaders[Shader::DOMAIN_SHADER],
@@ -288,6 +261,11 @@ vector<Texture*>& Pass::GetTextureVec()
 vector<RenderTexture*>& Pass::GetRenderTextureVec()
 {
 	return mRenderTextures;
+}
+
+RenderTexture* Pass::GetRenderTexture(int i)
+{
+	return mRenderTextures[i];
 }
 
 Camera* Pass::GetCamera()

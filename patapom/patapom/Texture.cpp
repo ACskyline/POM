@@ -8,11 +8,30 @@
 #include "Dependencies/stb_image_resize.h"
 
 Texture::Texture(
+	const string& fileName,
+	const wstring& debugName,
+	Sampler sampler,
+	bool useMipmap,
+	Format format) :
+	Texture(
+		fileName,
+		debugName,
+		sampler,
+		useMipmap,
+		format,
+		1,
+		-1,
+		-1)
+{
+}
+
+Texture::Texture(
 	const string& fileName, 
 	const wstring& debugName, 
 	Sampler sampler,
 	bool useMipmap,
 	Format format,
+	int multiSampleCount,
 	int width,
 	int height) :
 	mFileName(fileName), 
@@ -21,7 +40,7 @@ Texture::Texture(
 	mWidth(width), 
 	mHeight(height), 
 	mMipLevelCount(1), 
-	mSamplePerPixel(1), 
+	mMultiSampleCount(multiSampleCount), 
 	mRenderer(nullptr), 
 	mImageData(nullptr), 
 	mColorBuffer(nullptr),
@@ -84,7 +103,7 @@ void Texture::CreateTextureBuffer()
 	textureDesc.DepthOrArraySize = 1;//Width, Height, and DepthOrArraySize must be between 1 and the maximum dimension supported for the particular feature level and texture dimension https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_resource_desc TODO: add support for cube map and texture array
 	textureDesc.MipLevels = mMipLevelCount;
 	textureDesc.Format = Renderer::TranslateFormat(mFormat);
-	textureDesc.SampleDesc.Count = mSamplePerPixel;
+	textureDesc.SampleDesc.Count = mMultiSampleCount;
 	textureDesc.SampleDesc.Quality = 0;//TODO: investigate how this affect the visual quality
 	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN; //The arrangement of the pixels. Setting to unknown lets the driver choose the most efficient one
 	textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;//TODO: add uav, cross queue and mgpu support
@@ -145,7 +164,7 @@ void Texture::CreateView()
 	// D3D12 binds the view to a descriptor heap as soon as it is created, so this function is not actually creating the API view
 	// what we are creating here is the view defined by ourselves
 	mSrv.mSrvDesc.Format = Renderer::TranslateFormat(mFormat);
-	mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; // TODO: add support for cube map and texture array
+	mSrv.mSrvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D; // TODO: add support for cube map and texture array
 	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	mSrv.mSrvDesc.Texture2D.MostDetailedMip = 0; // this is an API level integer to restrict smallest mip level
 	mSrv.mSrvDesc.Texture2D.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
@@ -211,6 +230,11 @@ wstring Texture::GetDebugName()
 	return mDebugName;
 }
 
+int Texture::GetMultiSampleCount()
+{
+	return mMultiSampleCount;
+}
+
 void Texture::InitTexture(Renderer* renderer)
 {
 	mRenderer = renderer;
@@ -224,7 +248,34 @@ void Texture::InitTexture(Renderer* renderer)
 ///////////////////////////////////////////////////////////////
 
 RenderTexture::RenderTexture(
-	const string& fileName,
+	const wstring& debugName,
+	int width,
+	int height,
+	ReadFrom readFrom,
+	Sampler sampler,
+	Format colorFormat,
+	int samplePerPixel,
+	XMFLOAT4 colorClearValue,
+	BlendState blendState) :
+	RenderTexture(
+		debugName,
+		width,
+		height,
+		readFrom,
+		sampler,
+		false,
+		colorFormat,
+		Format::D24_UNORM_S8_UINT,
+		samplePerPixel,
+		colorClearValue,
+		1.f,
+		0,
+		blendState,
+		DepthStencilState::Default())
+{
+}
+
+RenderTexture::RenderTexture(
 	const wstring& debugName,
 	int width,
 	int height,
@@ -232,20 +283,58 @@ RenderTexture::RenderTexture(
 	Sampler sampler,
 	Format colorFormat,
 	Format depthStencilFormat,
+	int samplePerPixel,
+	XMFLOAT4 colorClearValue,
+	float depthClearValue,
+	uint8_t stencilClearValue,
 	BlendState blendState,
-	DepthStencilState depthStencilState,
-	bool supportDepthStencil) :
+	DepthStencilState depthStencilState) :
+	RenderTexture(
+		debugName,
+		width,
+		height,
+		readFrom,
+		sampler,
+		true,
+		colorFormat,
+		depthStencilFormat,
+		samplePerPixel,
+		colorClearValue,
+		depthClearValue,
+		stencilClearValue,
+		blendState,
+		depthStencilState)
+{
+}
+
+RenderTexture::RenderTexture(
+	const wstring& debugName,
+	int width,
+	int height,
+	ReadFrom readFrom,
+	Sampler sampler,
+	bool supportDepthStencil,
+	Format colorFormat,
+	Format depthStencilFormat,
+	int samplePerPixel,
+	XMFLOAT4 colorClearValue,
+	float depthClearValue,
+	uint8_t stencilClearValue,
+	BlendState blendState,
+	DepthStencilState depthStencilState) :
 	mReadFrom(readFrom),
+	mSupportDepthStencil(supportDepthStencil),
 	mDepthStencilFormat(depthStencilFormat),
+	mColorClearValue(colorClearValue),
+	mDepthClearValue(depthClearValue),
+	mStencilClearValue(stencilClearValue),
 	mBlendState(blendState),
 	mDepthStencilState(depthStencilState),
-	mSupportDepthStencil(supportDepthStencil),
 	mDepthStencilBuffer(nullptr),
-	mColorBufferLayout(TextureLayout::INVALID),
-	mDepthStencilBufferLayout(TextureLayout::INVALID),
-	Texture(fileName, debugName,  sampler, false,colorFormat, width, height)
+	mColorBufferLayout(TextureLayout::RENDER_TARGET),
+	mDepthStencilBufferLayout(TextureLayout::DEPTH_STENCIL_WRITE),
+	Texture("no file", debugName,  sampler, false, colorFormat, samplePerPixel, width, height)
 {
-	
 }
 
 RenderTexture::~RenderTexture()
@@ -271,17 +360,17 @@ void RenderTexture::CreateTextureBuffer()
 	textureDesc.DepthOrArraySize = 1; 
 	textureDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
 	textureDesc.Format = Renderer::TranslateFormat(mFormat);
-	textureDesc.SampleDesc.Count = mSamplePerPixel;
+	textureDesc.SampleDesc.Count = mMultiSampleCount;
 	textureDesc.SampleDesc.Quality = 0;
 	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET; // | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
 
 	D3D12_CLEAR_VALUE colorOptimizedClearValue = {};
 	colorOptimizedClearValue.Format = textureDesc.Format;
-	colorOptimizedClearValue.Color[0] = 0.0f;
-	colorOptimizedClearValue.Color[1] = 0.0f;
-	colorOptimizedClearValue.Color[2] = 0.0f;
-	colorOptimizedClearValue.Color[3] = 0.0f;
+	colorOptimizedClearValue.Color[0] = mColorClearValue.x;
+	colorOptimizedClearValue.Color[1] = mColorClearValue.y;
+	colorOptimizedClearValue.Color[2] = mColorClearValue.z;
+	colorOptimizedClearValue.Color[3] = mColorClearValue.w;
 
 	HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
@@ -305,15 +394,15 @@ void RenderTexture::CreateTextureBuffer()
 		depthStencilBufferDesc.DepthOrArraySize = 1; // TODO: add support for cube map and texture array
 		depthStencilBufferDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
 		depthStencilBufferDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);
-		depthStencilBufferDesc.SampleDesc.Count = mSamplePerPixel; // TODO: add support for multi sampling
+		depthStencilBufferDesc.SampleDesc.Count = mMultiSampleCount; // TODO: add support for multi sampling
 		depthStencilBufferDesc.SampleDesc.Quality = 0;
 		depthStencilBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		depthStencilBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
 		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
 		depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
-		depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
-		depthOptimizedClearValue.DepthStencil.Stencil = 0;
+		depthOptimizedClearValue.DepthStencil.Depth = mDepthClearValue;
+		depthOptimizedClearValue.DepthStencil.Stencil = mStencilClearValue;
 
 		hr = mRenderer->mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
@@ -335,17 +424,25 @@ void RenderTexture::CreateView()
 	// what we are creating here is the view defined by ourselves
 	mSrv.mType = View::Type::SRV;
 	mSrv.mSrvDesc.Format = mReadFrom == ReadFrom::COLOR ? Renderer::TranslateFormat(mFormat) : Renderer::TranslateFormat(mDepthStencilFormat);
-	mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	mSrv.mSrvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
 	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	mSrv.mSrvDesc.Texture2D.MostDetailedMip = 0;
-	mSrv.mSrvDesc.Texture2D.MipLevels = mMipLevelCount;
-	mSrv.mSrvDesc.Texture2D.PlaneSlice = 0;
-	mSrv.mSrvDesc.Texture2D.ResourceMinLODClamp = 0; 
+	if(mMultiSampleCount > 1)
+	{
+		// do nothing
+		// mSrv.mSrvDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+	}
+	else
+	{
+		mSrv.mSrvDesc.Texture2D.MostDetailedMip = 0;
+		mSrv.mSrvDesc.Texture2D.MipLevels = mMipLevelCount;
+		mSrv.mSrvDesc.Texture2D.PlaneSlice = 0;
+		mSrv.mSrvDesc.Texture2D.ResourceMinLODClamp = 0;
+	}
 	
 	//Render Target View Desc
 	mRtv.mType = View::Type::RTV;
 	mRtv.mRtvDesc.Format = Renderer::TranslateFormat(mFormat);
-	mRtv.mRtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+	mRtv.mRtvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_RTV_DIMENSION_TEXTURE2DMS : D3D12_RTV_DIMENSION_TEXTURE2D;
 	mRtv.mRtvDesc.Texture2D.MipSlice = 0;
 	mRtv.mRtvDesc.Texture2D.PlaneSlice = 0;
 	
@@ -356,7 +453,7 @@ void RenderTexture::CreateView()
 	//if you want to create the dsv, you need an initialized dsvDesc to avoid the debug layer throwing out error
 	mDsv.mType = View::Type::DSV;
 	mDsv.mDsvDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);;
-	mDsv.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	mDsv.mDsvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
 	mDsv.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
 	mDsv.mDsvDesc.Texture2D.MipSlice = 0;
 

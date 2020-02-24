@@ -28,21 +28,27 @@ int gUpdateSettings = 0;
 
 const int gWidth = 1024;
 const int gHeight = 768;
+const int gWidthDeferred = 1024;
+const int gHeightDeferred = 1024;
 const int gFrameCount = 3;
 const int gMultiSampleCount = 1;
 
 Renderer gRenderer;
-Level gLevelDefault;
-Scene gSceneDefault;
-Pass gPassDefault;
-OrbitCamera gCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
+Level gLevelDefault("default level");
+Scene gSceneDefault("default scene");
+Pass gPassDefault(L"default pass");
+Pass gPassDeferred(L"deferred pass");
+OrbitCamera gMainCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 0.1f, 1000.0f);
+Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
 Mesh gQuad(Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
-Shader gVertexShader(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
-Shader gPixelShader(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
+Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
+Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
+Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
+Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred_ms.hlsl");//using multisampled srv
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
-	Sampler::Filter::POINT,
+	Sampler::Filter::LINEAR,
 	Sampler::AddressMode::WRAP,
 	Sampler::AddressMode::WRAP,
 	Sampler::AddressMode::WRAP,
@@ -55,7 +61,8 @@ Sampler gSampler = {
 	1.f,
 	{0.f, 0.f, 0.f, 0.f}
 };
-Texture gTextureAlbedo("foam.jpg", L"albedo", gSampler, true, Format::R16G16B16A16_UNORM);
+Texture gTextureAlbedo("foam.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
+RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, RenderTexture::ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, 2);
 
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
@@ -69,27 +76,41 @@ void CreateLevel()
 	// mesh.AddTexture(...);
 
 	// B. Pass
-	gPassDefault.SetCamera(&gCamera);
+	gPassDefault.SetCamera(&gMainCamera);
 	gPassDefault.AddMesh(&gQuad);
-	gPassDefault.AddShader(&gVertexShader);
-	gPassDefault.AddShader(&gPixelShader);
+	gPassDefault.AddShader(&gStandardVS);
+	gPassDefault.AddShader(&gStandardPS);
 	gPassDefault.AddTexture(&gTextureAlbedo);
+	gPassDefault.AddRenderTexture(&gRenderTexture);
 
+	gPassDeferred.SetCamera(&gDummyCamera);
+	gPassDeferred.AddMesh(&gQuad);
+	gPassDeferred.AddShader(&gDeferredVS);
+	gPassDeferred.AddShader(&gDeferredPS);
+	gPassDeferred.AddTexture(&gRenderTexture);
+	
 	// C. Frame
 	gRenderer.mFrames.resize(gFrameCount);
-	// gRenderer.mFrames[i].AddTexture(...);
+	// renderer.mFrames[i].AddTexture(...);
 
 	// D. Scene
 	gSceneDefault.AddPass(&gPassDefault);
+	gSceneDefault.AddPass(&gPassDeferred);
+	// scene.AddTexture(...);
 
 	// E. Level
-	gLevelDefault.AddCamera(&gCamera); // camera
+	gLevelDefault.AddCamera(&gMainCamera); // camera
+	gLevelDefault.AddCamera(&gDummyCamera);
 	gLevelDefault.AddScene(&gSceneDefault); // scene
-	gLevelDefault.AddPass(&gPassDefault); // frame
+	gLevelDefault.AddPass(&gPassDefault); // pass
+	gLevelDefault.AddPass(&gPassDeferred);
 	gLevelDefault.AddMesh(&gQuad); // mesh
-	gLevelDefault.AddShader(&gVertexShader); // vertex shader
-	gLevelDefault.AddShader(&gPixelShader); // pixel shader
+	gLevelDefault.AddShader(&gStandardVS); // vertex shader
+	gLevelDefault.AddShader(&gDeferredVS);
+	gLevelDefault.AddShader(&gStandardPS); // pixel shader
+	gLevelDefault.AddShader(&gDeferredPS);
 	gLevelDefault.AddTexture(&gTextureAlbedo); // texture
+	gLevelDefault.AddTexture(&gRenderTexture);
 
 	// F. Renderer
 	gRenderer.SetLevel(&gLevelDefault);
@@ -175,23 +196,23 @@ void DetectInput()
 		gDIMouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouseCurrState);
 		if (mouseCurrState.lX != 0)
 		{
-			gCamera.SetHorizontalAngle(gCamera.GetHorizontalAngle() + mouseCurrState.lX * 0.1);
+			gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrState.lX * 0.1);
 		}
 		if (mouseCurrState.lY != 0)
 		{
-			float tempVerticalAngle = gCamera.GetVerticalAngle() + mouseCurrState.lY * 0.1;
+			float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrState.lY * 0.1;
 			if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89 - EPSILON;
 			if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89 + EPSILON;
-			gCamera.SetVerticalAngle(tempVerticalAngle);
+			gMainCamera.SetVerticalAngle(tempVerticalAngle);
 		}
 		if (mouseCurrState.lZ != 0)
 		{
-			float tempDistance = gCamera.GetDistance() - mouseCurrState.lZ * 0.01;
+			float tempDistance = gMainCamera.GetDistance() - mouseCurrState.lZ * 0.01;
 			if (tempDistance < 0 + EPSILON) tempDistance = 0.1 + EPSILON;
-			gCamera.SetDistance(tempDistance);
+			gMainCamera.SetDistance(tempDistance);
 		}
 		gMouseLastState = mouseCurrState;
-		gCamera.Update();
+		gMainCamera.Update();
 		gUpdateCamera = gRenderer.mFrameCount;
 	}
 	
@@ -247,7 +268,7 @@ void Update()
 	// game logic updates
 	if (gUpdateCamera > 0)
 	{
-		gPassDefault.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gCamera);
+		gPassDefault.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gMainCamera);
 		gUpdateCamera--;
 	}
 
@@ -266,7 +287,13 @@ void RecordCommands()
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
 
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault);
+	gRenderTexture.TransitionColorBufferLayout(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], TextureLayout::RENDER_TARGET);
+
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault, true, false, false, gRenderTexture.mColorClearValue);
+
+	gRenderTexture.TransitionColorBufferLayout(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], TextureLayout::SHADER_READ);
+
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDeferred);
 
 	///////// IMGUI PIPELINE /////////
 	//vvvvvvvvvvvvvvvvvvvvvvvvvvvvvv//

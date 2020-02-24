@@ -6,13 +6,11 @@ class Texture
 {
 public:
 	Texture(
-		const string& fileName,
-		const wstring& debugName,
-		Sampler sampler,
-		bool useMipmap,
-		Format format = Format::INVALID,
-		int width = -1,
-		int height = -1);
+	const string& fileName,
+	const wstring& debugName,
+	Sampler sampler,
+	bool useMipmap,
+	Format format = Format::R8G8B8A8_UNORM);
 	virtual ~Texture();
 
 	ID3D12Resource* GetColorBuffer();
@@ -23,6 +21,7 @@ public:
 	Sampler GetSampler();
 	string GetName();
 	wstring GetDebugName();
+	int GetMultiSampleCount();
 
 	virtual void InitTexture(Renderer* renderer);
 	virtual void CreateTextureBuffer();
@@ -31,13 +30,23 @@ public:
 	void Release();
 
 protected:
+	Texture(
+		const string& fileName,
+		const wstring& debugName,
+		Sampler sampler,
+		bool useMipmap,
+		Format format,
+		int multiSampleCount,
+		int width,
+		int height);
+
 	string mFileName;
 	wstring mDebugName;
 	bool mUseMipmap;
 	int mWidth;
 	int mHeight;
 	int mMipLevelCount;
-	int mSamplePerPixel;
+	int mMultiSampleCount;
 	Format mFormat;
 	View mSrv;
 	Sampler mSampler; // TODO: separate sampler from texture so that we don't create duplicate textures when we just want to use a different sampler
@@ -52,8 +61,20 @@ class RenderTexture : public Texture
 public:
 	enum class ReadFrom { COLOR, DEPTH, STENCIL, COUNT };
 
+	// only enable color buffer
 	RenderTexture(
-		const string& fileName,
+		const wstring& debugName,
+		int width,
+		int height,
+		ReadFrom readFrom,
+		Sampler sampler,
+		Format colorFormat,
+		int multiSampleCount = 1,
+		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
+		BlendState blendState = BlendState::Default());
+
+	// enable both color and depthStencil buffer
+	RenderTexture(
 		const wstring& debugName,
 		int width,
 		int height,
@@ -61,9 +82,13 @@ public:
 		Sampler sampler,
 		Format colorFormat,
 		Format depthStencilFormat,
-		BlendState blendState,
-		DepthStencilState depthStencilState,
-		bool supportDepthStencil = false);
+		int multiSampleCount = 1,
+		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
+		float depthClearValue = 1.f,
+		uint8_t stencilClearValue = 0,
+		BlendState blendState = BlendState::Default(),
+		DepthStencilState depthStencilState = DepthStencilState::Default());
+
 	virtual ~RenderTexture();
 	
 	bool IsDepthStencilSupported();
@@ -83,6 +108,27 @@ public:
 	virtual void CreateTextureBuffer();
 	virtual void CreateView();
 	void Release();
+
+	XMFLOAT4 mColorClearValue;
+	float mDepthClearValue;
+	uint8_t mStencilClearValue;
+
+protected:
+	RenderTexture(
+		const wstring& debugName,
+		int width,
+		int height,
+		ReadFrom readFrom,
+		Sampler sampler,
+		bool supportDepthStencil,
+		Format colorFormat,
+		Format depthStencilFormat,
+		int multiSampleCount,
+		XMFLOAT4 colorClearValue,
+		float depthClearValue,
+		uint8_t stencilClearValue,
+		BlendState blendState,
+		DepthStencilState depthStencilState);
 
 private:
 	ReadFrom mReadFrom;
