@@ -31,20 +31,22 @@ const int gHeight = 768;
 const int gWidthDeferred = 1024;
 const int gHeightDeferred = 1024;
 const int gFrameCount = 3;
-const int gMultiSampleCount = 1;
+const int gMultiSampleCount = 4;
+Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
+Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
 
 Renderer gRenderer;
 Level gLevelDefault("default level");
-Scene gSceneDefault("default scene");
+Scene gSceneDefault(L"default scene");
 Pass gPassDefault(L"default pass");
 Pass gPassDeferred(L"deferred pass");
 OrbitCamera gMainCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 0.1f, 1000.0f);
 Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
-Mesh gQuad(Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Mesh gQuad(L"fullscreen_quad", Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
-Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred_ms.hlsl");//using multisampled srv
+Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred_ms.hlsl"); // using multisampled srv
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
@@ -62,7 +64,7 @@ Sampler gSampler = {
 	{0.f, 0.f, 0.f, 0.f}
 };
 Texture gTextureAlbedo("foam.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, RenderTexture::ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, 2);
+RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::STENCIL_MS, gSampler, Format::R8G8B8A8_UNORM, Format::D24_UNORM_S8_UINT, 4);
 
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
@@ -238,7 +240,7 @@ bool InitImgui()
 	ImGui_ImplWin32_Init(gHwnd);
 	ImGui_ImplDX12_Init(gRenderer.mDevice,
 		gRenderer.mFrameCount,
-		DXGI_FORMAT_R8G8B8A8_UNORM,
+		Renderer::TranslateFormat(gSwapchainColorBufferFormat),
 		g_pd3dSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
 		g_pd3dSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
 
@@ -279,7 +281,7 @@ void Update()
 	}
 }
 
-void RecordCommands()
+void Record()
 {
 	if (!gRenderer.WaitForFrame(gRenderer.mCurrentFrameIndex))
 		debugbreak(gRunning = false);
@@ -287,16 +289,19 @@ void RecordCommands()
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
 
-	gRenderTexture.TransitionColorBufferLayout(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], TextureLayout::RENDER_TARGET);
+	gRenderTexture.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault, true, false, false, gRenderTexture.mColorClearValue);
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault);
 
-	gRenderTexture.TransitionColorBufferLayout(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], TextureLayout::SHADER_READ);
-
+	gRenderTexture.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	
 	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDeferred);
+
+	gRenderer.ResolveFrame(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
 	///////// IMGUI PIPELINE /////////
 	//vvvvvvvvvvvvvvvvvvvvvvvvvvvvvv//
+	gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]->OMSetRenderTargets(1, &gRenderer.GetRtvHandle(gRenderer.mCurrentFrameIndex), FALSE, nullptr);
 	gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
 	ImGui::Render();
 	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
@@ -307,9 +312,9 @@ void RecordCommands()
 		debugbreak(gRunning = false);
 }
 
-void SubmitCommands()
+void Submit()
 {
-	if (!gRenderer.SubmitCommands(gRenderer.mCurrentFrameIndex, gRenderer.mGraphicsCommandQueue, { gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex] }))
+	if (!gRenderer.Submit(gRenderer.mCurrentFrameIndex, gRenderer.mGraphicsCommandQueue, { gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex] }))
 		debugbreak(gRunning = false);
 }
 
@@ -322,8 +327,8 @@ void Present()
 void Draw()
 {
 	gRenderer.mFrameCountTotal++;
-	RecordCommands();
-	SubmitCommands();
+	Record();
+	Submit();
 	Present();
 }
 
@@ -521,6 +526,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		gMultiSampleCount, 
 		gWidth, 
 		gHeight,
+		gSwapchainColorBufferFormat,
+		gSwapchainDepthStencilBufferFormat,
 		DebugMode::GBV))
 	{
 		MessageBox(0, L"Failed to initialize renderer", L"Error", MB_OK);

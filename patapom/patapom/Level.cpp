@@ -69,19 +69,13 @@ std::vector<Texture*>& Level::GetTextures()
 int Level::EstimateTotalCbvSrvUavCount(int frameCount)
 {
 	int totalCbvSrvUavCount = 0;
-
 	for(auto scene : mScenes)
 		totalCbvSrvUavCount += scene->GetTextureCount();
-
 	for(auto pass : mPasses)
 		totalCbvSrvUavCount += pass->GetTextureCount();
-
 	for (auto mesh : mMeshes)
 		totalCbvSrvUavCount += mesh->GetTextureCount();
-
-	totalCbvSrvUavCount *= frameCount;
-
-	return totalCbvSrvUavCount;
+	return totalCbvSrvUavCount * frameCount;
 }
 
 int Level::EstimateTotalSamplerCount(int frameCount)
@@ -95,10 +89,7 @@ int Level::EstimateTotalRtvCount(int frameCount)
 	int totalRtvCount = 0;
 	for(auto pass : mPasses)
 		totalRtvCount += pass->GetRenderTextureCount();
-
-	totalRtvCount *= frameCount;
-
-	return totalRtvCount;
+	return totalRtvCount * frameCount;
 }
 
 int Level::EstimateTotalDsvCount(int frameCount)

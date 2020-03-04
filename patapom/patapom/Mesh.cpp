@@ -1,10 +1,12 @@
 #include "Mesh.h"
 #include "Texture.h"
 
-Mesh::Mesh(const MeshType& type, 
+Mesh::Mesh(const wstring& debugName,
+	const MeshType& type,
 	const XMFLOAT3& position,
 	const XMFLOAT3& rotation,
 	const XMFLOAT3& scale) :
+	mDebugName(debugName),
 	mType(type),
 	mPosition(position),
 	mScale(scale),
@@ -24,11 +26,13 @@ Mesh::Mesh(const MeshType& type,
 	}
 }
 
-Mesh::Mesh(const MeshType& type,
+Mesh::Mesh(const wstring& debugName,
+	const MeshType& type,
 	int waveParticleCountOrSegment,
 	const XMFLOAT3& position,
 	const XMFLOAT3& rotation,
 	const XMFLOAT3& scale) :
+	mDebugName(debugName),
 	mType(type),
 	mPosition(position),
 	mScale(scale),
@@ -44,12 +48,14 @@ Mesh::Mesh(const MeshType& type,
 	}
 }
 
-Mesh::Mesh(const MeshType& type,
+Mesh::Mesh(const wstring& debugName,
+	const MeshType& type,
 	int cellCountX,
 	int cellCountZ,
 	const XMFLOAT3& position,
 	const XMFLOAT3& rotation,
 	const XMFLOAT3& scale) :
+	mDebugName(debugName),
 	mType(type),
 	mPosition(position),
 	mScale(scale),
@@ -108,7 +114,7 @@ void Mesh::InitMesh(
 		// object texture table
 		mCbvSrvUavDescriptorHeapTableHandleVec[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto texture : mTextureVec)
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
+			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
 		
 		// object sampler table
 		mSamplerDescriptorHeapTableHandleVec[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
@@ -131,13 +137,13 @@ void Mesh::CreateUniformBuffer(int frameCount)
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 			D3D12_HEAP_FLAG_NONE, // no flags
 			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(ObjectUniform)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
-			D3D12_RESOURCE_STATE_GENERIC_READ, // will be data that is read from so we keep it in the generic read state
+			Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
 			nullptr, // we do not have use an optimized clear value for constant buffers
 			IID_PPV_ARGS(&mUniformBufferVec[i]));
 
 		fatalAssertf(SUCCEEDED(hr), "create object uniform buffer failed");
-
-		mUniformBufferVec[i]->SetName(L"object uniform buffer " + i);
+		wstring name(L": object uniform buffer ");
+		mUniformBufferVec[i]->SetName((mDebugName + name + to_wstring(i)).data());
 	}
 }
 
@@ -167,8 +173,7 @@ void Mesh::CreateVertexBuffer()
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(mVertexBufferSizeInBytes), // resource description for a buffer
-		D3D12_RESOURCE_STATE_COPY_DEST, // we will start this heap in the copy destination state since we will copy data
-										// from the upload heap to this heap
+		Renderer::TranslateResourceLayout(ResourceLayout::COPY_DST), // we will start this heap in the copy destination state since we will copy data from the upload heap to this heap
 		nullptr, // optimized clear value must be null for this type of resource. used for render targets and depth/stencil buffers
 		IID_PPV_ARGS(&mVertexBuffer));
 
@@ -187,7 +192,7 @@ void Mesh::CreateIndexBuffer()
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(mIndexBufferSizeInBytes), // resource description for a buffer
-		D3D12_RESOURCE_STATE_COPY_DEST, // start in the copy destination state
+		Renderer::TranslateResourceLayout(ResourceLayout::COPY_DST), // start in the copy destination state
 		nullptr, // optimized clear value must be null for this type of resource
 		IID_PPV_ARGS(&mIndexBuffer));
 

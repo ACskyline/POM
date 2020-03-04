@@ -290,6 +290,71 @@ DXGI_FORMAT Renderer::TranslateFormat(Format format)
 	return DXGI_FORMAT_UNKNOWN;
 }
 
+DXGI_FORMAT Renderer::TranslateToTypelessFormat(Format format)
+{
+	switch (format)
+	{
+	case Format::R8G8B8A8_UNORM:
+		return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+	case Format::R16G16B16A16_UNORM:
+	case Format::R16G16B16A16_FLOAT:
+		return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+	case Format::D16_UNORM:
+		return DXGI_FORMAT_R16_TYPELESS;
+	case Format::D32_FLOAT:
+		return DXGI_FORMAT_R32_TYPELESS;
+	case Format::D24_UNORM_S8_UINT:
+		return DXGI_FORMAT_R24G8_TYPELESS;
+	default:
+		fatalf("TranslateFormat wrong format");
+	}
+	return DXGI_FORMAT_UNKNOWN;
+}
+
+DXGI_FORMAT Renderer::TranslateToSrvFormat(Format format, ReadFrom readFrom)
+{
+	if (readFrom & ReadFrom::COLOR)
+	{
+		switch (format)
+		{
+		case Format::R8G8B8A8_UNORM:
+		case Format::R16G16B16A16_UNORM:
+		case Format::R16G16B16A16_FLOAT:
+			return TranslateFormat(format);
+		default:
+			fatalf("read from wrong format");
+		}
+	}
+	else if (readFrom & ReadFrom::DEPTH)
+	{
+		switch (format)
+		{
+		case Format::D16_UNORM:
+			return DXGI_FORMAT_R16_UNORM;
+		case Format::D32_FLOAT:
+			return DXGI_FORMAT_R32_FLOAT;
+		case Format::D24_UNORM_S8_UINT:
+			return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+		default:
+			fatalf("read from wrong format");
+		}
+	}
+	else if (readFrom & ReadFrom::STENCIL)
+	{
+		switch (format)
+		{
+		case Format::D24_UNORM_S8_UINT:
+			return DXGI_FORMAT_X24_TYPELESS_G8_UINT;
+		default:
+			fatalf("read from wrong format");
+		}
+	}
+	else
+		fatalf("read from wrong format");
+	
+	return DXGI_FORMAT_UNKNOWN;
+}
+
 D3D12_DESCRIPTOR_HEAP_TYPE Renderer::TranslateDescriptorHeapType(DescriptorHeap::Type type)
 {
 	switch (type)
@@ -438,28 +503,30 @@ D3D12_STENCIL_OP Renderer::TranslateStencilOp(DepthStencilState::StencilOp op)
 	return D3D12_STENCIL_OP_KEEP;
 }
 
-D3D12_RESOURCE_STATES Renderer::TranslateTextureLayout(TextureLayout textureLayout)
+D3D12_RESOURCE_STATES Renderer::TranslateResourceLayout(ResourceLayout resourceLayout)
 {
-	switch (textureLayout)
+	switch (resourceLayout)
 	{
-	case TextureLayout::SHADER_READ:
-		return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-	case TextureLayout::RENDER_TARGET:
+	case ResourceLayout::SHADER_READ:
+		return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; // TODO: examine the necessity to split these two
+	case ResourceLayout::RENDER_TARGET:
 		return D3D12_RESOURCE_STATE_RENDER_TARGET;
-	case TextureLayout::DEPTH_STENCIL_READ:
+	case ResourceLayout::DEPTH_STENCIL_READ:
 		return D3D12_RESOURCE_STATE_DEPTH_READ;
-	case TextureLayout::DEPTH_STENCIL_WRITE:
+	case ResourceLayout::DEPTH_STENCIL_WRITE:
 		return D3D12_RESOURCE_STATE_DEPTH_WRITE;
-	case TextureLayout::COPY_SRC:
+	case ResourceLayout::COPY_SRC:
 		return D3D12_RESOURCE_STATE_COPY_SOURCE;
-	case TextureLayout::COPY_DEST:
+	case ResourceLayout::COPY_DST:
 		return D3D12_RESOURCE_STATE_COPY_DEST;
-	case TextureLayout::RESOLVE_SRC:
+	case ResourceLayout::RESOLVE_SRC:
 		return D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
-	case TextureLayout::RESOLVE_DEST:
+	case ResourceLayout::RESOLVE_DST:
 		return D3D12_RESOURCE_STATE_RESOLVE_DEST;
-	case TextureLayout::PRESENT:
+	case ResourceLayout::PRESENT:
 		return D3D12_RESOURCE_STATE_PRESENT;
+	case ResourceLayout::UPLOAD:
+		return D3D12_RESOURCE_STATE_GENERIC_READ; // D3D12_RESOURCE_STATE_GENERIC_READ is a logically OR'd combination of other read-state bits. This is the required starting state for an upload heap.
 	default:
 		fatalf("texture layout wrong");
 	}
@@ -508,6 +575,11 @@ ID3D12Resource* Renderer::GetDepthStencilBuffer(int frameIndex)
 	return mDepthStencilBuffers[frameIndex];
 }
 
+ID3D12Resource* Renderer::GetPreResolveBuffer(int frameIndex)
+{
+	return mPreResolveColorBuffers[frameIndex];
+}
+
 IDXGISwapChain3* Renderer::GetSwapChain()
 {
 	return mSwapChain;
@@ -534,6 +606,16 @@ int Renderer::GetMaxFrameTextureCount()
 	return maxFrameTextureCount;
 }
 
+bool Renderer::IsMultiSampleUsed()
+{
+	return mMultiSampleCount > 1;
+}
+
+bool Renderer::IsResolveNeeded()
+{
+	return IsMultiSampleUsed();
+}
+
 void Renderer::SetLevel(Level* level)
 {
 	mLevel = level;
@@ -545,11 +627,11 @@ bool Renderer::InitRenderer(
 	int multiSampleCount,
 	int width,
 	int height,
+	Format colorBufferFormat,
+	Format depthStencilBufferFormat,
 	DebugMode debugMode,
 	BlendState blendState,
-	DepthStencilState depthStencilState,
-	Format colorBufferFormat,
-	Format depthStencilBufferFormat)
+	DepthStencilState depthStencilState)
 {
 	mInitialized = false;
 	mFrameCount = frameCount;
@@ -618,7 +700,7 @@ bool Renderer::InitRenderer(
 	backBufferDesc.Format = TranslateFormat(mColorBufferFormat);
 	// describe our multi-sampling. We are not multi-sampling, so we set the count to 1 (we need at least one sample of course)
 	DXGI_SAMPLE_DESC sampleDesc = {};
-	sampleDesc.Count = mMultiSampleCount; // TODO: add support to MSAA
+	sampleDesc.Count = 1; // this is the final render targets, MSAA is done in PreResolve buffers
 	sampleDesc.Quality = 0;
 	// Describe and create the swap chain.
 	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
@@ -683,6 +765,7 @@ bool Renderer::InitRenderer(
 
 	CreateColorBuffers();
 	CreateDepthStencilBuffers(mDepthStencilBufferFormat);//hard coded to DXGI_FORMAT_D24_UNORM_S8_UINT
+	CreatePreResolveBuffers(mColorBufferFormat);
 
 	for(int i = 0;i<mFrames.size();i++)
 	{
@@ -695,33 +778,119 @@ bool Renderer::InitRenderer(
 	return mInitialized = true;
 }
 
+// unlike renter textuers, there is no need for pre resolve depth stencil buffers
+// because we will not read or present swap chain depth stencil buffers
 void Renderer::CreateDepthStencilBuffers(Format format)
 {
-	DXGI_FORMAT formatDXGI = TranslateFormat(format);
-	D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
-	depthStencilDesc.Format = formatDXGI;
-	depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-	depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+	D3D12_RESOURCE_DESC dsBufferDesc = {};
+	dsBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	dsBufferDesc.Alignment = 0;
+	dsBufferDesc.Width = mWidth;
+	dsBufferDesc.Height = mHeight;
+	dsBufferDesc.DepthOrArraySize = 1;
+	dsBufferDesc.MipLevels = 1;
+	dsBufferDesc.Format = Renderer::TranslateFormat(format);
+	dsBufferDesc.SampleDesc.Count = mMultiSampleCount;
+	dsBufferDesc.SampleDesc.Quality = 0;
+	dsBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	dsBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
 	D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
-	depthOptimizedClearValue.Format = formatDXGI;
+	depthOptimizedClearValue.Format = dsBufferDesc.Format;
 	depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
 	depthOptimizedClearValue.DepthStencil.Stencil = 0;
 
+	D3D12_DEPTH_STENCIL_VIEW_DESC dsViewDesc = {};
+	dsViewDesc.Format = dsBufferDesc.Format;
+	dsViewDesc.Flags = D3D12_DSV_FLAG_NONE;
+	if (IsMultiSampleUsed())
+	{
+		dsViewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
+		dsViewDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+	}
+	else
+	{
+		dsViewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		dsViewDesc.Texture2D.MipSlice = 0;
+	}
+
 	mDepthStencilBuffers.resize(mFrameCount);
 	mDsvHandles.resize(mFrameCount);
+
 	for (int i = 0; i < mFrameCount; i++)
 	{
-		fatalAssert(SUCCEEDED(mDevice->CreateCommittedResource(
+		HRESULT hr = mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Tex2D(formatDXGI, mWidth, mHeight, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
-			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			&dsBufferDesc,
+			Renderer::TranslateResourceLayout(ResourceLayout::DEPTH_STENCIL_WRITE),
 			&depthOptimizedClearValue,
 			IID_PPV_ARGS(&mDepthStencilBuffers[i])
-		)));
+		);
 
-		mDsvHandles[i] = mDsvDescriptorHeap.AllocateDsv(mDepthStencilBuffers[i], depthStencilDesc, 1);
+		assertf(SUCCEEDED(hr), "create swap chain depth stencil buffer %d failed", i);
+		wstring name(L"swap chain depth stencil buffer : ");
+		mDepthStencilBuffers[i]->SetName((name + to_wstring(i)).data());
+		mDsvHandles[i] = mDsvDescriptorHeap.AllocateDsv(mDepthStencilBuffers[i], dsViewDesc, 1);
+	}
+}
+
+void Renderer::CreatePreResolveBuffers(Format format)
+{
+	if (!IsMultiSampleUsed())
+		return;
+
+	D3D12_RESOURCE_DESC rtBufferDesc = {};
+	rtBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	rtBufferDesc.Alignment = 0;
+	rtBufferDesc.Width = mWidth;
+	rtBufferDesc.Height = mHeight;
+	rtBufferDesc.DepthOrArraySize = 1;
+	rtBufferDesc.MipLevels = 1;
+	rtBufferDesc.Format = Renderer::TranslateFormat(format);
+	rtBufferDesc.SampleDesc.Count = mMultiSampleCount;
+	rtBufferDesc.SampleDesc.Quality = 0;
+	rtBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	rtBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET; // | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+
+	D3D12_CLEAR_VALUE colorOptimizedClearValue = {};
+	colorOptimizedClearValue.Format = rtBufferDesc.Format;
+	colorOptimizedClearValue.Color[0] = 0.f;
+	colorOptimizedClearValue.Color[1] = 0.f;
+	colorOptimizedClearValue.Color[2] = 0.f;
+	colorOptimizedClearValue.Color[3] = 0.f;
+
+	D3D12_RENDER_TARGET_VIEW_DESC rtViewDesc = {};
+	rtViewDesc.Format = rtBufferDesc.Format;
+	if (IsMultiSampleUsed())
+	{
+		rtViewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+		rtViewDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+	}
+	else
+	{
+		rtViewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+		rtViewDesc.Texture2D.MipSlice = 0;
+		rtViewDesc.Texture2D.PlaneSlice = 0;
+	}
+
+	mPreResolveColorBuffers.resize(mFrameCount);
+	mPreResolvedRtvHandles.resize(mFrameCount);
+
+	for (int i = 0; i < mFrameCount; i++)
+	{
+		HRESULT hr = mDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&rtBufferDesc,
+			Renderer::TranslateResourceLayout(ResourceLayout::RESOLVE_SRC),
+			&colorOptimizedClearValue,
+			IID_PPV_ARGS(&mPreResolveColorBuffers[i]));
+
+		assertf(SUCCEEDED(hr), "create swap chain pre resolve buffer %d failed", i);
+		wstring name(L"swap chain pre resolve buffer : ");
+		mPreResolveColorBuffers[i]->SetName((name + to_wstring(i)).data());
+		mPreResolvedRtvHandles[i] = mRtvDescriptorHeap.AllocateRtv(mPreResolveColorBuffers[i], 1);
 	}
 }
 
@@ -839,16 +1008,40 @@ bool Renderer::RecordBegin(int frameIndex, ID3D12GraphicsCommandList* commandLis
 	if (CheckError(commandList->Reset(mGraphicsCommandAllocators[frameIndex], nullptr)))
 		return false;
 
-	// transition the "frameIndex" render target from the present state to the render target state so the command list draws to it starting from here
-	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(GetRenderTargetBuffer(frameIndex), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+	if (IsResolveNeeded())
+	{
+		RecordTransition(commandList, GetPreResolveBuffer(frameIndex), ResourceLayout::RESOLVE_SRC, ResourceLayout::RENDER_TARGET);
+	}
+	else
+	{
+		// transition the "frameIndex" render target from the present state to the render target state so the command list draws to it starting from here
+		// "Swap chain back buffers automatically start out in the D3D12_RESOURCE_STATE_COMMON state."
+		// https://docs.microsoft.com/en-us/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12#initial-states-for-resources
+		// "D3D12_RESOURCE_STATE_PRESENT	Synonymous with D3D12_RESOURCE_STATE_COMMON."
+		// https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_states#constants
+		RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::PRESENT, ResourceLayout::RENDER_TARGET);
+	}
+	return true;
+}
+
+bool Renderer::ResolveFrame(int frameIndex, ID3D12GraphicsCommandList* commandList)
+{
+	if (!IsResolveNeeded())
+		return false;
+
+	RecordTransition(commandList, GetPreResolveBuffer(frameIndex), ResourceLayout::RENDER_TARGET, ResourceLayout::RESOLVE_SRC);
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::PRESENT, ResourceLayout::RESOLVE_DST);
+	RecordResolve(commandList, GetPreResolveBuffer(frameIndex), 0, GetRenderTargetBuffer(frameIndex), 0, mColorBufferFormat);
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::RESOLVE_DST, ResourceLayout::RENDER_TARGET);
+	
 	return true;
 }
 
 bool Renderer::RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList)
 {
-	// transition the "frameIndex" render target from the render target state to the present state. If the debug layer is enabled, you will receive a
-	// warning if present is called on the render target when it's not in the present state
-	commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(GetRenderTargetBuffer(frameIndex), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+	// transition the "frameIndex" render target from the render target state to the present state. 
+	// If the debug layer is enabled, you will receive a warning if present is called on the render target when it's not in the present state
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::RENDER_TARGET, ResourceLayout::PRESENT);
 
 	if (CheckError(commandList->Close()))
 		return false;
@@ -856,7 +1049,7 @@ bool Renderer::RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList)
 	return true;
 }
 
-bool Renderer::SubmitCommands(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists)
+bool Renderer::Submit(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists)
 {
 	// execute the array of command lists
 	commandQueue->ExecuteCommandLists(commandLists.size(), (ID3D12CommandList**)commandLists.data());
@@ -899,7 +1092,7 @@ void Renderer::UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& sr
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(totalBytes), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
-		D3D12_RESOURCE_STATE_GENERIC_READ, // we will copy the contents from this heap to the default heap above
+		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // we will copy the contents from this heap to the default heap above
 		nullptr,
 		IID_PPV_ARGS(&uploadBuffer)),
 		mDevice)
@@ -934,7 +1127,7 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
-		D3D12_RESOURCE_STATE_GENERIC_READ, // we will copy the contents from this heap to the default heap above
+		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // we will copy the contents from this heap to the default heap above
 		nullptr,
 		IID_PPV_ARGS(&uploadBuffer)),
 		mDevice)
@@ -952,18 +1145,17 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 	SAFE_RELEASE(uploadBuffer);
 }
 
-bool Renderer::TransitionLayout(ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
+bool Renderer::TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
 {
-	// TODO: maybe it's more robust if we do not return any barrier when the current layout is the same as the new layout
+	// TODO: this is currently not thread safe, improve it
 	assertf(oldLayout != newLayout, "new layout is the same as the current layout");
 	if (oldLayout == newLayout)
 		return false;
-	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateTextureLayout(oldLayout), Renderer::TranslateTextureLayout(newLayout));
-	oldLayout = newLayout;
+	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateResourceLayout(oldLayout), Renderer::TranslateResourceLayout(newLayout));
 	return true;
 }
 
-bool Renderer::Transition(ID3D12Resource* resource, TextureLayout oldLayout, TextureLayout newLayout)
+bool Renderer::TransitionSingleTime(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout)
 {
 	CD3DX12_RESOURCE_BARRIER barrier = {};
 	if (TransitionLayout(resource, oldLayout, newLayout, barrier))
@@ -976,7 +1168,7 @@ bool Renderer::Transition(ID3D12Resource* resource, TextureLayout oldLayout, Tex
 	return false;
 }
 
-bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout)
+bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout)
 {
 	CD3DX12_RESOURCE_BARRIER barrier = {};
 	if(TransitionLayout(resource, oldLayout, newLayout, barrier))
@@ -987,7 +1179,7 @@ bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Re
 	return false;
 }
 
-bool Renderer::CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout)
+bool Renderer::CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout)
 {
 	CD3DX12_RESOURCE_BARRIER barrier = {};
 	if (TransitionLayout(resource, oldLayout, newLayout, barrier))
@@ -1004,6 +1196,11 @@ bool Renderer::RecordCachedTransitions(ID3D12GraphicsCommandList* commandList, v
 		return false;
 	commandList->ResourceBarrier(cachedTransitions.size(), cachedTransitions.data());
 	return true;
+}
+
+void Renderer::RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, uint8_t srcSubresource, ID3D12Resource* dst, uint8_t dstSubresource, Format format)
+{
+	commandList->ResolveSubresource(dst, dstSubresource, src, srcSubresource, Renderer::TranslateFormat(format));
 }
 
 ID3D12GraphicsCommandList* Renderer::BeginSingleTimeCommands(ID3D12CommandAllocator* commandAllocator)
@@ -1148,12 +1345,12 @@ void Renderer::CreatePSO(
 		{
 			// render targets recording
 			blendDesc.RenderTarget[i] = renderTextures[i]->GetRenderTargetBlendDesc();
-			rtvFormatVec[i] = Renderer::TranslateFormat(renderTextures[i]->GetFormat());
+			rtvFormatVec[i] = Renderer::TranslateFormat(renderTextures[i]->GetRenderTargetFormat());
 		}
 
 		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
 		{
-			if (renderTextures[i]->IsDepthStencilSupported())
+			if (renderTextures[i]->IsDepthStencilUsed())
 			{
 				//!!!* only the first usable depth stencil buffer will be used *!!!//
 				dsvFormat = Renderer::TranslateFormat(renderTextures[i]->GetDepthStencilFormat());
@@ -1245,10 +1442,14 @@ void Renderer::CreatePSO(
 		psoDesc.RTVFormats[i] = rtvFormatVec[i]; // format of the render target
 	}
 	psoDesc.SampleDesc = sampleDesc; // must be the same sample description as the render target
-	psoDesc.SampleMask = 0xffffffff; // sample mask has to do with multi-sampling. 0xffffffff means point sampling is done
+	psoDesc.SampleMask = (UINT)-1; // sample mask has to do with multi-sampling. 0xffffffff means point sampling is done
 	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT); // a default rasterizer state.
-	psoDesc.BlendState = blendDesc;// CD3DX12_BLEND_DESC(D3D12_DEFAULT); // a default blent state.
-	psoDesc.NumRenderTargets = rtvFormatVec.size(); // we are only binding one render target
+	// For feature levels 9.1, 9.2, 9.3, and 10.0, if you set MultisampleEnable to FALSE, 
+	// the runtime renders all points, lines, and triangles without anti - aliasing even for render targets with a sample count greater than 1. 
+	// For feature levels 10.1 and higher, the setting of MultisampleEnable has no effect on points and triangles with regard to MSAA and impacts only the selection of the line - rendering algorithms.
+	//psoDesc.RasterizerState.MultisampleEnable = multiSampleCount > 1;
+	psoDesc.BlendState = blendDesc;
+	psoDesc.NumRenderTargets = rtvFormatVec.size();
 	psoDesc.DepthStencilState = dsDesc;// CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT); // a default depth stencil state
 	psoDesc.DSVFormat = dsvFormat;
 
@@ -1281,7 +1482,7 @@ void Renderer::RecordPass(
 	//!!!* only the first usable depth stencil buffer will be used *!!!//
 	for(int i = 0;i< pass.GetRenderTextureCount();i++)
 	{
-		if(pass.GetRenderTexture(i)->IsDepthStencilSupported())
+		if(pass.GetRenderTexture(i)->IsDepthStencilUsed())
 		{
 			dsvIndex = i;
 			break;
@@ -1289,7 +1490,7 @@ void Renderer::RecordPass(
 	}
 	// if none are bound, use swap chain back buffer instead
 	if (frameRtvHandles.size() == 0)
-		frameRtvHandles.push_back(mRtvHandles[mCurrentFrameIndex]);
+		frameRtvHandles.push_back(IsResolveNeeded() ? mPreResolvedRtvHandles[mCurrentFrameIndex] : mRtvHandles[mCurrentFrameIndex]);
 	if (frameDsvHandles.size() == 0)
 	{
 		frameDsvHandles.push_back(mDsvHandles[mCurrentFrameIndex]); 
@@ -1319,7 +1520,7 @@ void Renderer::RecordPass(
 			
 			// clear the depth/stencil buffer
 			if((clearDepth || clearStencil) && 
-				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsDepthStencilSupported()) ||
+				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsDepthStencilUsed()) ||
 				(pass.GetRenderTextureCount() <= 0)))
 			{
 				D3D12_CLEAR_FLAGS flag = clearDepth ? (clearStencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH) : D3D12_CLEAR_FLAG_STENCIL;
@@ -1457,7 +1658,7 @@ int Renderer::EstimateTotalSamplerCount()
 int Renderer::EstimateTotalRtvCount()
 {
 	int totalRtvCount = mLevel->EstimateTotalRtvCount(mFrameCount);
-	totalRtvCount += mFrameCount; // swap chain frame buffer
+	totalRtvCount += IsResolveNeeded() ? mFrameCount * 2 : mFrameCount; // swap chain frame buffer
 	return totalRtvCount;
 }
 

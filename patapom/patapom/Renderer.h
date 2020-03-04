@@ -12,6 +12,8 @@ class Shader;
 class Renderer;
 class RenderTexture;
 
+enum ReadFrom : uint8_t { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04, MS = 0x10, COLOR_MS = 0x11, DEPTH_MS = 0x12, STENCIL_MS = 0x14 };
+enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
 enum class UNIFORM_REGISTER_SPACE { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
 enum class UNIFORM_TYPE { CONSTANT, TEXTURE_TABLE, SAMPLER_TABLE, COUNT };
@@ -25,9 +27,7 @@ const D3D12_INPUT_ELEMENT_DESC VertexInputLayout[] =
 	{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 };
 
-enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
-
-enum class TextureLayout {
+enum class ResourceLayout {
 	INVALID,
 	SHADER_READ,
 	RENDER_TARGET,
@@ -36,10 +36,11 @@ enum class TextureLayout {
 	DEPTH_STENCIL_READ,
 	DEPTH_STENCIL_WRITE,
 	COPY_SRC,
-	COPY_DEST,
+	COPY_DST,
 	RESOLVE_SRC,
-	RESOLVE_DEST,
+	RESOLVE_DST,
 	PRESENT,
+	UPLOAD, // D3D12_RESOURCE_STATE_GENERIC_READ is a logically OR'd combination of other read-state bits. This is the required starting state for an upload heap.
 	COUNT
 };
 
@@ -260,10 +261,12 @@ public:
 	static D3D12_DEPTH_STENCILOP_DESC TranslateStencilOpSet(DepthStencilState::StencilOpSet opSet);
 	static D3D12_STENCIL_OP TranslateStencilOp(DepthStencilState::StencilOp op);
 	static DXGI_FORMAT TranslateFormat(Format format);
+	static DXGI_FORMAT TranslateToTypelessFormat(Format format);
+	static DXGI_FORMAT TranslateToSrvFormat(Format format, ReadFrom readFrom);
 	static D3D12_DESCRIPTOR_HEAP_TYPE TranslateDescriptorHeapType(DescriptorHeap::Type type);
 	static D3D12_FILTER ExtractFilter(Sampler sampler);
 	static D3D12_TEXTURE_ADDRESS_MODE TranslateAddressMode(Sampler::AddressMode addressMode);
-	static D3D12_RESOURCE_STATES TranslateTextureLayout(TextureLayout textureLayout);
+	static D3D12_RESOURCE_STATES TranslateResourceLayout(ResourceLayout resourceLayout);
 	static D3D12_VIEWPORT TranslateViewport(Viewport viewport);
 	static D3D12_RECT TranslateScissorRect(ScissorRect rect);
 
@@ -272,9 +275,12 @@ public:
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetDsvHandle(int frameIndex);
 	ID3D12Resource* GetRenderTargetBuffer(int frameIndex);
 	ID3D12Resource* GetDepthStencilBuffer(int frameIndex);
+	ID3D12Resource* GetPreResolveBuffer(int frameIndex);
 	vector<Frame>& GetFrames();
 	Frame& GetFrame(int frameIndex);
 	int GetMaxFrameTextureCount();
+	bool IsMultiSampleUsed();
+	bool IsResolveNeeded();
 
 	void SetLevel(Level* level);
 
@@ -285,28 +291,31 @@ public:
 		int multiSampleCount,
 		int width,
 		int height,
+		Format colorBufferFormat = Format::R8G8B8A8_UNORM,
+		Format depthStencilBufferFormat = Format::D24_UNORM_S8_UINT,
 		DebugMode debugMode = DebugMode::OFF,
 		BlendState blendState = BlendState::Default(),
-		DepthStencilState depthStencilState = DepthStencilState::Default(),
-		Format colorBufferFormat = Format::R8G8B8A8_UNORM,
-		Format depthBufferStencilFormat = Format::D24_UNORM_S8_UINT);
+		DepthStencilState depthStencilState = DepthStencilState::Default());
 	void CreateDepthStencilBuffers(Format format);
+	void CreatePreResolveBuffers(Format format);
 	void CreateColorBuffers();
 	void Release();
 	void WaitAllFrames();
 	bool WaitForFrame(int frameINdex);
 
 	bool RecordBegin(int frameIndex, ID3D12GraphicsCommandList* commandList);
+	bool ResolveFrame(int frameIndex, ID3D12GraphicsCommandList* commandList);
 	bool RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList);
-	bool SubmitCommands(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists);
+	bool Submit(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists);
 	bool Present();
 	void UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& srcBytePerRow, vector<int>& srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer);
 	void UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, int copyBufferSize, ID3D12Resource* dstBuffer);
 
-	bool Transition(ID3D12Resource* resource, TextureLayout oldLayout, TextureLayout newLayout);
-	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout);
-	bool CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout);
+	bool TransitionSingleTime(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
+	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
+	bool CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
 	bool RecordCachedTransitions(ID3D12GraphicsCommandList* commandList, vector<CD3DX12_RESOURCE_BARRIER>& cachedTransitions);
+	void RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, uint8_t srcSubresource, ID3D12Resource* dst, uint8_t dstSubresource, Format format);
 
 	void CreateDescriptorHeap(DescriptorHeap& srvDescriptorHeap, int size);
 	void CreateGraphicsRootSignature(
@@ -370,7 +379,7 @@ private:
 	void EnableDebugLayer();
 	void EnableGBV();
 
-	bool TransitionLayout(ID3D12Resource* resource, TextureLayout& oldLayout, TextureLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
+	bool TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
 
 	void CreatePSO(
 		ID3D12Device* device,
@@ -397,6 +406,8 @@ private:
 	Level* mLevel;
 	vector<ID3D12Resource*> mColorBuffers;
 	vector<ID3D12Resource*> mDepthStencilBuffers;
+	vector<ID3D12Resource*> mPreResolveColorBuffers;
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mDsvHandles;
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mRtvHandles;
+	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mPreResolvedRtvHandles;
 };

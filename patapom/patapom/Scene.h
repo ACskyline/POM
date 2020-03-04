@@ -12,7 +12,7 @@ public:
 		uint32_t sceneMode;
 	};
 
-	Scene(const string& debugName = "unnamed scene");
+	Scene(const wstring& debugName = L"unnamed scene");
 	~Scene();
 	void AddPass(Pass* pass);
 	void AddTexture(Texture* texture);
@@ -34,7 +34,7 @@ public:
 	SceneUniform mSceneUniform;
 
 private:
-	string mDebugName;
+	wstring mDebugName;
 	Renderer* mRenderer;
 	vector<Pass*> mPasses;
 	vector<Texture*> mTextures;

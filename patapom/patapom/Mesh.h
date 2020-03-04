@@ -15,16 +15,19 @@ public:
 		XMFLOAT4X4 mModelInv;
 	};
 
-	Mesh(const MeshType&type,
-		const XMFLOAT3&position,
-		const XMFLOAT3&rotation,
-		const XMFLOAT3&scale);
-	Mesh(const MeshType&type,
+	Mesh(const wstring& debugName,
+		const MeshType& type,
+		const XMFLOAT3& position,
+		const XMFLOAT3& rotation,
+		const XMFLOAT3& scale);
+	Mesh(const wstring& debugName,
+		const MeshType &type,
 		int waveParticleCountOrCircleSegment,
 		const XMFLOAT3&position,
 		const XMFLOAT3&rotation,
 		const XMFLOAT3&scale);
-	Mesh(const MeshType&type,
+	Mesh(const wstring& debugName,
+		const MeshType&type,
 		int cellCountX,
 		int cellCountZ,
 		const XMFLOAT3&position,
@@ -68,6 +71,7 @@ public:
 	int GetTextureCount();
 	
 private:
+	wstring mDebugName;
 	MeshType mType;
 	XMFLOAT3 mPosition;
 	XMFLOAT3 mScale;

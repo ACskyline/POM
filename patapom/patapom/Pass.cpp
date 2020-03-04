@@ -58,13 +58,13 @@ void Pass::CreateUniformBuffer(int frameCount)
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 			D3D12_HEAP_FLAG_NONE, // no flags
 			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(PassUniform)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
-			D3D12_RESOURCE_STATE_GENERIC_READ, // will be data that is read from so we keep it in the generic read state
+			Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
 			nullptr, // we do not have use an optimized clear value for constant buffers
 			IID_PPV_ARGS(&mUniformBuffers[i]));
 
 		fatalAssertf(!CheckError(hr, mRenderer->mDevice), "create pass uniform buffer failed");
-
-		mUniformBuffers[i]->SetName(L"pass uniform buffer " + i);
+		wstring name(L": pass uniform buffer ");
+		mUniformBuffers[i]->SetName((mDebugName + name + to_wstring(i)).data());
 	}
 }
 
@@ -160,15 +160,14 @@ void Pass::InitPass(
 	mSamplerDescriptorHeapTableHandles.resize(frameCount);
 	for (int i = 0; i < frameCount; i++)
 	{
-		// pass texture table
+		// pass texture table and pass sampler table
 		mCbvSrvUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
-		for (auto texture : mTextures)
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
-
-		// pass sampler table
 		mSamplerDescriptorHeapTableHandles[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto texture : mTextures)
+		{
+			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
 			samplerDescriptorHeap.AllocateSampler(texture->GetSamplerDesc(), 1);
+		}
 	}
 
 	// 3. create root signature
@@ -185,7 +184,8 @@ void Pass::InitPass(
 		mRtvHandles[i].resize(mRenderTextures.size());
 		mDsvHandles[i].resize(mRenderTextures.size());
 	}
-	// assign to render textures parameter
+
+	// populate output merger stage parameter with render texture attributes
 	mConstantBlendFactorsUsed = false;
 	mStencilReferenceUsed = false;
 	for(int i = 0; i < mRenderTextures.size() && i < 8; i++) // only the first 8 targets will be used
@@ -222,7 +222,7 @@ void Pass::InitPass(
 
 		for (int j = 0; j < frameCount; j++)
 		{
-			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetColorBuffer(), mRenderTextures[i]->GetRtvDesc(), 1);
+			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetRenderTargetBuffer(), mRenderTextures[i]->GetRtvDesc(), 1);
 			mDsvHandles[j][i] = dsvDescriptorHeap.AllocateDsv(mRenderTextures[i]->GetDepthStencilBuffer(), mRenderTextures[i]->GetDsvDesc(), 1);
 		}
 	}

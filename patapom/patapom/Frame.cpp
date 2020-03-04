@@ -58,7 +58,7 @@ void Frame::InitFrame(
 	// frame texture table
 	mCbvSrvUavDescriptorHeapTableHandle = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 	for (auto texture : mTextureVec)
-		cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetColorBuffer(), texture->GetSrvDesc(), 1);
+		cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
 	
 	// frame sampler table
 	mSamplerDescriptorHeapTableHandle = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
@@ -72,7 +72,7 @@ void Frame::CreateUniformBuffer()
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(sizeof(FrameUniform)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
-		D3D12_RESOURCE_STATE_GENERIC_READ, // will be data that is read from so we keep it in the generic read state
+		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
 		nullptr, // we do not have use an optimized clear value for constant buffers
 		IID_PPV_ARGS(&mUniformBuffer))));
 

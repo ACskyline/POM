@@ -19,7 +19,6 @@ Texture::Texture(
 		sampler,
 		useMipmap,
 		format,
-		1,
 		-1,
 		-1)
 {
@@ -31,7 +30,6 @@ Texture::Texture(
 	Sampler sampler,
 	bool useMipmap,
 	Format format,
-	int multiSampleCount,
 	int width,
 	int height) :
 	mFileName(fileName), 
@@ -39,13 +37,13 @@ Texture::Texture(
 	mUseMipmap(useMipmap),
 	mWidth(width), 
 	mHeight(height), 
-	mMipLevelCount(1), 
-	mMultiSampleCount(multiSampleCount), 
+	mMipLevelCount(1),
 	mRenderer(nullptr), 
 	mImageData(nullptr), 
-	mColorBuffer(nullptr),
+	mTextureBuffer(nullptr),
+	mTextureBufferLayout(ResourceLayout::SHADER_READ),
 	mSampler(sampler),
-	mFormat(format)
+	mTextureFormat(format)
 {
 	mSrv.mType = View::Type::SRV;
 }
@@ -57,7 +55,7 @@ Texture::~Texture()
 
 void Texture::Release()
 {
-	SAFE_RELEASE(mColorBuffer);
+	SAFE_RELEASE(mTextureBuffer);
 }
 
 void Texture::CreateTextureBuffer()
@@ -66,7 +64,7 @@ void Texture::CreateTextureBuffer()
 	int channelCountRequested = 0;
 	int bytePerChannel = 0;
 	void* data = nullptr;
-	switch (mFormat)
+	switch (mTextureFormat)
 	{
 	case Format::R16G16B16A16_UNORM:
 	case Format::R16G16B16A16_FLOAT:
@@ -102,20 +100,21 @@ void Texture::CreateTextureBuffer()
 	textureDesc.Height = mHeight;
 	textureDesc.DepthOrArraySize = 1;//Width, Height, and DepthOrArraySize must be between 1 and the maximum dimension supported for the particular feature level and texture dimension https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_resource_desc TODO: add support for cube map and texture array
 	textureDesc.MipLevels = mMipLevelCount;
-	textureDesc.Format = Renderer::TranslateFormat(mFormat);
-	textureDesc.SampleDesc.Count = mMultiSampleCount;
+	textureDesc.Format = Renderer::TranslateFormat(mTextureFormat);
+	textureDesc.SampleDesc.Count = 1; // same as 0
 	textureDesc.SampleDesc.Quality = 0;//TODO: investigate how this affect the visual quality
-	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN; //The arrangement of the pixels. Setting to unknown lets the driver choose the most efficient one
+	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN; //The arrangement of the pixels. Setting to unknown lets the driver choose the most efficient one, this is not the resource state
 	textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;//TODO: add uav, cross queue and mgpu support
 
 	// create a default heap where the upload heap will copy its contents into (contents being the texture)
+	mTextureBufferLayout = ResourceLayout::COPY_DST;
 	mRenderer->mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&textureDesc, // the description of our texture
-		Renderer::TranslateTextureLayout(TextureLayout::COPY_DEST), // We will copy the texture from the upload heap to here, so we start it out in a copy dest state
-		nullptr, // used for render targets and depth/stencil buffers
-		IID_PPV_ARGS(&mColorBuffer));
+		Renderer::TranslateResourceLayout(mTextureBufferLayout), // We will copy the texture from the upload heap to here, so we start it out in a copy dest state
+		nullptr, // only used for render targets and depth/stencil buffers
+		IID_PPV_ARGS(&mTextureBuffer));
 
 	vector<void*> dataVec(mMipLevelCount);
 	vector<int> bytePerRowVec(mMipLevelCount);
@@ -148,23 +147,23 @@ void Texture::CreateTextureBuffer()
 		w = wNew;
 		h = hNew;
 	}
-	mRenderer->UploadTextureDataToBuffer(dataVec, bytePerRowVec, bytePerSliceVec, textureDesc, mColorBuffer);
+	mRenderer->UploadTextureDataToBuffer(dataVec, bytePerRowVec, bytePerSliceVec, textureDesc, mTextureBuffer);
 
-	mRenderer->Transition(mColorBuffer, TextureLayout::COPY_DEST, TextureLayout::SHADER_READ);
+	TransitionTextureLayoutSingleTime(ResourceLayout::SHADER_READ);
 
 	stbi_image_free(data);
 	for(int i = 1;i<mMipLevelCount;i++)
 		delete[] dataVec[i];
 
-	mColorBuffer->SetName(mDebugName.c_str());
+	mTextureBuffer->SetName(mDebugName.c_str());
 }
 
 void Texture::CreateView()
 {
 	// D3D12 binds the view to a descriptor heap as soon as it is created, so this function is not actually creating the API view
 	// what we are creating here is the view defined by ourselves
-	mSrv.mSrvDesc.Format = Renderer::TranslateFormat(mFormat);
-	mSrv.mSrvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D; // TODO: add support for cube map and texture array
+	mSrv.mSrvDesc.Format = Renderer::TranslateFormat(mTextureFormat);
+	mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; // plain texture does not support MSAA
 	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	mSrv.mSrvDesc.Texture2D.MostDetailedMip = 0; // this is an API level integer to restrict smallest mip level
 	mSrv.mSrvDesc.Texture2D.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
@@ -189,9 +188,9 @@ void Texture::CreateSampler()
 	mSampler.mImpl.MaxLOD = mSampler.mMaxLod;
 }
 
-ID3D12Resource* Texture::GetColorBuffer()
+ID3D12Resource* Texture::GetTextureBuffer()
 {
-	return mColorBuffer;
+	return mTextureBuffer;
 }
 
 D3D12_SHADER_RESOURCE_VIEW_DESC Texture::GetSrvDesc()
@@ -205,9 +204,9 @@ D3D12_SAMPLER_DESC Texture::GetSamplerDesc()
 	return mSampler.mImpl;
 }
 
-Format Texture::GetFormat()
+Format Texture::GetTextureFormat()
 {
-	return mFormat;
+	return mTextureFormat;
 }
 
 View Texture::GetSrv()
@@ -230,17 +229,28 @@ wstring Texture::GetDebugName()
 	return mDebugName;
 }
 
-int Texture::GetMultiSampleCount()
-{
-	return mMultiSampleCount;
-}
-
 void Texture::InitTexture(Renderer* renderer)
 {
 	mRenderer = renderer;
 	CreateTextureBuffer();
 	CreateView();
 	CreateSampler();
+}
+
+bool Texture::TransitionTextureLayoutSingleTime(ResourceLayout newLayout)
+{
+	bool result = mRenderer->TransitionSingleTime(mTextureBuffer, mTextureBufferLayout, newLayout);
+	if (result)
+		mTextureBufferLayout = newLayout;
+	return result;
+}
+
+bool Texture::TransitionTextureLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout)
+{
+	bool result = mRenderer->RecordTransition(commandList, mTextureBuffer, mTextureBufferLayout, newLayout);
+	if(result)
+		mTextureBufferLayout = newLayout;
+	return result;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -253,8 +263,8 @@ RenderTexture::RenderTexture(
 	int height,
 	ReadFrom readFrom,
 	Sampler sampler,
-	Format colorFormat,
-	int samplePerPixel,
+	Format renderTargetFormat,
+	int multiSampleCount,
 	XMFLOAT4 colorClearValue,
 	BlendState blendState) :
 	RenderTexture(
@@ -264,9 +274,9 @@ RenderTexture::RenderTexture(
 		readFrom,
 		sampler,
 		false,
-		colorFormat,
-		Format::D24_UNORM_S8_UINT,
-		samplePerPixel,
+		renderTargetFormat,
+		Format::D24_UNORM_S8_UINT, // place holder format so that we can create an empty dsv if we don't need depth stencil buffer
+		multiSampleCount,
 		colorClearValue,
 		1.f,
 		0,
@@ -281,9 +291,9 @@ RenderTexture::RenderTexture(
 	int height,
 	ReadFrom readFrom,
 	Sampler sampler,
-	Format colorFormat,
+	Format renderTargetFormat,
 	Format depthStencilFormat,
-	int samplePerPixel,
+	int multiSampleCount,
 	XMFLOAT4 colorClearValue,
 	float depthClearValue,
 	uint8_t stencilClearValue,
@@ -296,9 +306,9 @@ RenderTexture::RenderTexture(
 		readFrom,
 		sampler,
 		true,
-		colorFormat,
+		renderTargetFormat,
 		depthStencilFormat,
-		samplePerPixel,
+		multiSampleCount,
 		colorClearValue,
 		depthClearValue,
 		stencilClearValue,
@@ -313,27 +323,29 @@ RenderTexture::RenderTexture(
 	int height,
 	ReadFrom readFrom,
 	Sampler sampler,
-	bool supportDepthStencil,
-	Format colorFormat,
+	bool useDepthStencil,
+	Format renderTargetFormat,
 	Format depthStencilFormat,
-	int samplePerPixel,
+	int multiSampleCount,
 	XMFLOAT4 colorClearValue,
 	float depthClearValue,
 	uint8_t stencilClearValue,
 	BlendState blendState,
 	DepthStencilState depthStencilState) :
 	mReadFrom(readFrom),
-	mSupportDepthStencil(supportDepthStencil),
+	mUseDepthStencil(useDepthStencil),
+	mRenderTargetFormat(renderTargetFormat),
 	mDepthStencilFormat(depthStencilFormat),
+	mMultiSampleCount(multiSampleCount),
 	mColorClearValue(colorClearValue),
 	mDepthClearValue(depthClearValue),
 	mStencilClearValue(stencilClearValue),
 	mBlendState(blendState),
 	mDepthStencilState(depthStencilState),
 	mDepthStencilBuffer(nullptr),
-	mColorBufferLayout(TextureLayout::RENDER_TARGET),
-	mDepthStencilBufferLayout(TextureLayout::DEPTH_STENCIL_WRITE),
-	Texture("no file", debugName,  sampler, false, colorFormat, samplePerPixel, width, height)
+	mDepthStencilBufferLayout(ResourceLayout::DEPTH_STENCIL_WRITE),
+	mRenderTargetBufferLayout(ResourceLayout::RENDER_TARGET),
+	Texture("no file", debugName, sampler, false, Format::INVALID, width, height)
 {
 }
 
@@ -349,126 +361,252 @@ void RenderTexture::Release()
 
 void RenderTexture::CreateTextureBuffer()
 {
-	//if(!mUseMipmap) // TODO: add support for render texture
+	//if(!mUseMipmap) // TODO: add mip map support for render texture
 		mMipLevelCount = 1;
 
-	D3D12_RESOURCE_DESC textureDesc = {};
-	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	textureDesc.Alignment = 0;
-	textureDesc.Width = mWidth;
-	textureDesc.Height = mHeight;
-	textureDesc.DepthOrArraySize = 1; 
-	textureDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
-	textureDesc.Format = Renderer::TranslateFormat(mFormat);
-	textureDesc.SampleDesc.Count = mMultiSampleCount;
-	textureDesc.SampleDesc.Quality = 0;
-	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET; // | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+	// 1. Render Target Buffer
+	D3D12_RESOURCE_DESC renderTargetDesc = {};
+	renderTargetDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	renderTargetDesc.Alignment = 0;
+	renderTargetDesc.Width = mWidth;
+	renderTargetDesc.Height = mHeight;
+	renderTargetDesc.DepthOrArraySize = 1; // TODO: add support for cube map and texture array
+	renderTargetDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
+	renderTargetDesc.Format = Renderer::TranslateFormat(mRenderTargetFormat);
+	renderTargetDesc.SampleDesc.Count = mMultiSampleCount;
+	renderTargetDesc.SampleDesc.Quality = 0;
+	renderTargetDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
-	D3D12_CLEAR_VALUE colorOptimizedClearValue = {};
-	colorOptimizedClearValue.Format = textureDesc.Format;
-	colorOptimizedClearValue.Color[0] = mColorClearValue.x;
-	colorOptimizedClearValue.Color[1] = mColorClearValue.y;
-	colorOptimizedClearValue.Color[2] = mColorClearValue.z;
-	colorOptimizedClearValue.Color[3] = mColorClearValue.w;
+	D3D12_CLEAR_VALUE colorClearValue = {};
+	colorClearValue.Format = renderTargetDesc.Format;
+	colorClearValue.Color[0] = mColorClearValue.x;
+	colorClearValue.Color[1] = mColorClearValue.y;
+	colorClearValue.Color[2] = mColorClearValue.z;
+	colorClearValue.Color[3] = mColorClearValue.w;
 
+	mRenderTargetBufferLayout = ResourceLayout::RENDER_TARGET;
 	HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
-		&textureDesc,
-		D3D12_RESOURCE_STATE_RENDER_TARGET,
-		&colorOptimizedClearValue,
-		IID_PPV_ARGS(&mColorBuffer));
+		&renderTargetDesc,
+		Renderer::TranslateResourceLayout(mRenderTargetBufferLayout),
+		&colorClearValue,
+		IID_PPV_ARGS(&mRenderTargetBuffer));
 	
-	assertf(SUCCEEDED(hr), "create render texture color buffer failed");
-	mColorBuffer->SetName(mDebugName.c_str());
+	fatalAssertf(SUCCEEDED(hr), "create render target buffer failed");
+	mRenderTargetBuffer->SetName(mDebugName.c_str());
 
-	////////////////////////////////////////////////////////////////////
-	if (mSupportDepthStencil)
+	// 2. Depth Stencil Buffer
+	D3D12_RESOURCE_DESC depthStencilDesc = {};
+	D3D12_CLEAR_VALUE depthStencilClearValue = {};
+	if (mUseDepthStencil)
 	{
-		D3D12_RESOURCE_DESC depthStencilBufferDesc = {};
-		depthStencilBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-		depthStencilBufferDesc.Alignment = 0;
-		depthStencilBufferDesc.Width = mWidth;
-		depthStencilBufferDesc.Height = mHeight;
-		depthStencilBufferDesc.DepthOrArraySize = 1; // TODO: add support for cube map and texture array
-		depthStencilBufferDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
-		depthStencilBufferDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);
-		depthStencilBufferDesc.SampleDesc.Count = mMultiSampleCount; // TODO: add support for multi sampling
-		depthStencilBufferDesc.SampleDesc.Quality = 0;
-		depthStencilBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		depthStencilBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		depthStencilDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		depthStencilDesc.Alignment = 0;
+		depthStencilDesc.Width = mWidth;
+		depthStencilDesc.Height = mHeight;
+		depthStencilDesc.DepthOrArraySize = 1; // TODO: add support for cube map and texture array
+		depthStencilDesc.MipLevels = mMipLevelCount; // TODO: add support for mip map tool chain
+		depthStencilDesc.Format = (ReadFromDepth() || ReadFromStencil()) ? Renderer::TranslateToTypelessFormat(mDepthStencilFormat) : Renderer::TranslateFormat(mDepthStencilFormat);
+		depthStencilDesc.SampleDesc.Count = mMultiSampleCount;
+		depthStencilDesc.SampleDesc.Quality = 0;
+		depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+		depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
-		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
-		depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
-		depthOptimizedClearValue.DepthStencil.Depth = mDepthClearValue;
-		depthOptimizedClearValue.DepthStencil.Stencil = mStencilClearValue;
+		depthStencilClearValue.Format = Renderer::TranslateFormat(mDepthStencilFormat);
+		depthStencilClearValue.DepthStencil.Depth = mDepthClearValue;
+		depthStencilClearValue.DepthStencil.Stencil = mStencilClearValue;
 
+		mDepthStencilBufferLayout = ResourceLayout::DEPTH_STENCIL_WRITE;
 		hr = mRenderer->mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
-			&depthStencilBufferDesc,
-			D3D12_RESOURCE_STATE_DEPTH_WRITE,
-			&depthOptimizedClearValue,
+			&depthStencilDesc,
+			Renderer::TranslateResourceLayout(mDepthStencilBufferLayout),
+			&depthStencilClearValue,
 			IID_PPV_ARGS(&mDepthStencilBuffer)
 		);
 
 		assertf(SUCCEEDED(hr), "create render texture depth stencil buffer failed");
 		mDepthStencilBuffer->SetName(mDebugName.c_str());
 	}
+
+	// 3. Texture Buffer
+	if (IsResolveNeeded()) // need to resolve
+	{
+		D3D12_RESOURCE_DESC textureDesc = {};
+		if(ReadFromColor())
+		{
+			mTextureFormat = mRenderTargetFormat;
+			textureDesc = renderTargetDesc;
+			textureDesc.Format = Renderer::TranslateFormat(mTextureFormat);
+			textureDesc.SampleDesc.Count = 1;
+		}
+		else if (ReadFromDepth() || ReadFromStencil())
+		{
+			mTextureFormat = mDepthStencilFormat;
+			textureDesc = depthStencilDesc;
+			textureDesc.Format = Renderer::TranslateToSrvFormat(mTextureFormat, mReadFrom);
+			textureDesc.SampleDesc.Count = 1;
+		}
+		else
+			fatalf("mReadFrom is invalid");
+
+		mTextureBufferLayout = ResourceLayout::RESOLVE_DST;
+		hr = mRenderer->mDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&textureDesc,
+			Renderer::TranslateResourceLayout(mTextureBufferLayout),
+			nullptr,
+			IID_PPV_ARGS(&mTextureBuffer)
+		);
+		assertf(SUCCEEDED(hr), "create texture buffer failed");
+		mTextureBuffer->SetName(mDebugName.c_str());
+	}
+	else // don't need to resolve
+	{
+		if (ReadFromColor())
+		{
+			mTextureFormat = mRenderTargetFormat;
+			mTextureBuffer = mRenderTargetBuffer;
+		}
+		else if (ReadFromDepth() || ReadFromStencil())
+		{
+			mTextureFormat = mDepthStencilFormat;
+			mTextureBuffer = mDepthStencilBuffer;
+		}
+		else
+			fatalf("mReadFrom is invalid");
+
+		mTextureBufferLayout = ResourceLayout::SHADER_READ;
+	}
 }
 
 void RenderTexture::CreateView()
 {
-	// D3D12 binds the view to a descriptor heap as soon as it is created, so this function is not actually creating the API view
-	// what we are creating here is the view defined by ourselves
-	mSrv.mType = View::Type::SRV;
-	mSrv.mSrvDesc.Format = mReadFrom == ReadFrom::COLOR ? Renderer::TranslateFormat(mFormat) : Renderer::TranslateFormat(mDepthStencilFormat);
-	mSrv.mSrvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
-	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	if(mMultiSampleCount > 1)
+	// 1.Render Target View
+	mRtv.mType = View::Type::RTV;
+	mRtv.mRtvDesc.Format = Renderer::TranslateFormat(mRenderTargetFormat);
+	if (IsMultiSampleUsed())
 	{
-		// do nothing
-		// mSrv.mSrvDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+		mRtv.mRtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+		mRtv.mRtvDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
 	}
 	else
 	{
+		mRtv.mRtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+		mRtv.mRtvDesc.Texture2D.MipSlice = 0;
+		mRtv.mRtvDesc.Texture2D.PlaneSlice = 0;
+	}
+	
+	// Blend State
+	mBlendState.mImpl = Renderer::TranslateBlendState(mBlendState);
+
+	// 2.Depth Stencil View Desc
+	// if you want to bind null dsv desciptor, you need to create the (null) dsv
+	// if you want to create the dsv, you need an initialized dsvDesc to avoid the debug layer throwing out error
+	mDsv.mType = View::Type::DSV;
+	mDsv.mDsvDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);
+	mDsv.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
+	if (IsMultiSampleUsed())
+	{
+		mDsv.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
+		mDsv.mDsvDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+	}
+	else
+	{
+		mDsv.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		mDsv.mDsvDesc.Texture2D.MipSlice = 0;
+	}
+	
+	// Depth Stencil State
+	mDepthStencilState.mImpl = Renderer::TranslateDepthStencilState(mDepthStencilState);
+	
+	// 3.Shader Resource View
+	mSrv.mType = View::Type::SRV;
+	mSrv.mSrvDesc.Format = Renderer::TranslateToSrvFormat(mTextureFormat, mReadFrom);
+	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	if (ReadFromMultiSampledBuffer())
+	{
+		mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
+		mSrv.mSrvDesc.Texture2DMS.UnusedField_NothingToDefine = 0;
+	}
+	else
+	{
+		mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 		mSrv.mSrvDesc.Texture2D.MostDetailedMip = 0;
 		mSrv.mSrvDesc.Texture2D.MipLevels = mMipLevelCount;
 		mSrv.mSrvDesc.Texture2D.PlaneSlice = 0;
 		mSrv.mSrvDesc.Texture2D.ResourceMinLODClamp = 0;
 	}
-	
-	//Render Target View Desc
-	mRtv.mType = View::Type::RTV;
-	mRtv.mRtvDesc.Format = Renderer::TranslateFormat(mFormat);
-	mRtv.mRtvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_RTV_DIMENSION_TEXTURE2DMS : D3D12_RTV_DIMENSION_TEXTURE2D;
-	mRtv.mRtvDesc.Texture2D.MipSlice = 0;
-	mRtv.mRtvDesc.Texture2D.PlaneSlice = 0;
-	
-	mBlendState.mImpl = Renderer::TranslateBlendState(mBlendState);
-
-	//Stencil Depth View Desc
-	//if you want to bind null dsv desciptor, you need to create the dsv
-	//if you want to create the dsv, you need an initialized dsvDesc to avoid the debug layer throwing out error
-	mDsv.mType = View::Type::DSV;
-	mDsv.mDsvDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);;
-	mDsv.mDsvDesc.ViewDimension = mMultiSampleCount > 1 ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
-	mDsv.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
-	mDsv.mDsvDesc.Texture2D.MipSlice = 0;
-
-	mDepthStencilState.mImpl = Renderer::TranslateDepthStencilState(mDepthStencilState);
 }
 
-bool RenderTexture::IsDepthStencilSupported()
+bool RenderTexture::ReadFromMultiSampledBuffer()
 {
-	return mSupportDepthStencil;
+	if (mReadFrom & ReadFrom::MS)
+	{
+		fatalAssert(IsMultiSampleUsed());
+		return true;
+	}
+	return false;
+}
+
+bool RenderTexture::ReadFromStencil()
+{
+	if (mReadFrom & ReadFrom::STENCIL)
+	{
+		fatalAssert(IsDepthStencilUsed());
+		return true;
+	}
+	return false;
+}
+
+bool RenderTexture::ReadFromDepth()
+{
+	if (mReadFrom & ReadFrom::DEPTH)
+	{
+		fatalAssert(IsDepthStencilUsed());
+		return true;
+	}
+	return false;
+}
+
+bool RenderTexture::ReadFromDepthStencilBuffer()
+{
+	return !IsResolveNeeded() && (ReadFromDepth() || ReadFromStencil());
+}
+
+bool RenderTexture::ReadFromColor()
+{
+	return mReadFrom & ReadFrom::COLOR;
+}
+
+bool RenderTexture::IsMultiSampleUsed()
+{
+	return GetMultiSampleCount() > 1;
+}
+
+bool RenderTexture::IsResolveNeeded()
+{
+	return !ReadFromMultiSampledBuffer() && IsMultiSampleUsed();
+}
+
+bool RenderTexture::IsDepthStencilUsed()
+{
+	return mUseDepthStencil;
+}
+
+ID3D12Resource* RenderTexture::GetRenderTargetBuffer()
+{
+	return  mRenderTargetBuffer;
 }
 
 ID3D12Resource* RenderTexture::GetDepthStencilBuffer()
 {
 	// make sure to create null descriptor for render textures which does not support depth
-	return mSupportDepthStencil ? mDepthStencilBuffer : nullptr;
+	return  mDepthStencilBuffer;
 }
 
 D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc()
@@ -493,6 +631,11 @@ D3D12_DEPTH_STENCIL_DESC RenderTexture::GetDepthStencilDesc()
 	return mDepthStencilState.mImpl;
 }
 
+Format RenderTexture::GetRenderTargetFormat()
+{
+	return mRenderTargetFormat;
+}
+
 Format RenderTexture::GetDepthStencilFormat()
 {
 	return mDepthStencilFormat;
@@ -508,12 +651,77 @@ DepthStencilState RenderTexture::GetDepthStencilState()
 	return mDepthStencilState;
 }
 
-bool RenderTexture::TransitionColorBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout)
+int RenderTexture::GetMultiSampleCount()
 {
-	return mRenderer->RecordTransition(commandList, mColorBuffer, mColorBufferLayout, newLayout);
+	return mMultiSampleCount;
 }
 
-bool RenderTexture::TransitionDepthStencilBufferLayout(ID3D12GraphicsCommandList* commandList, TextureLayout newLayout)
+bool RenderTexture::TransitionDepthStencilLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout)
 {
-	return mRenderer->RecordTransition(commandList, mDepthStencilBuffer, mDepthStencilBufferLayout, newLayout);
+	bool result = mRenderer->RecordTransition(commandList, mDepthStencilBuffer, mDepthStencilBufferLayout, newLayout);
+	if (result)
+		mDepthStencilBufferLayout = newLayout;
+	return result;
+}
+
+bool RenderTexture::TransitionRenderTargetLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout)
+{
+	bool result = mRenderer->RecordTransition(commandList, mRenderTargetBuffer, mRenderTargetBufferLayout, newLayout);
+	if (result)
+		mRenderTargetBufferLayout = newLayout;
+	return result;
+}
+
+void RenderTexture::ResolveRenderTargetToTexture(ID3D12GraphicsCommandList* commandList)
+{
+	fatalAssert(mRenderTargetFormat == mTextureFormat && mRenderTargetBuffer != mTextureBuffer);
+	mRenderer->RecordResolve(commandList, mRenderTargetBuffer, 0, mTextureBuffer, 0, mRenderTargetFormat);
+}
+
+void RenderTexture::ResolveDepthStencilToTexture(ID3D12GraphicsCommandList* commandList)
+{
+	fatalAssert(mDepthStencilFormat == mTextureFormat && mDepthStencilBuffer != mTextureBuffer);
+	mRenderer->RecordResolve(commandList, mDepthStencilBuffer, 0, mTextureBuffer, 0, mDepthStencilFormat);
+}
+
+void RenderTexture::MakeReadyToWrite(ID3D12GraphicsCommandList* commandList)
+{
+	if (ReadFromColor())
+		TransitionRenderTargetLayout(commandList, ResourceLayout::RENDER_TARGET);
+	else if (ReadFromDepth() || ReadFromStencil())
+		TransitionDepthStencilLayout(commandList, ResourceLayout::DEPTH_STENCIL_WRITE);
+	else
+		fatalf("read from wrong source");
+}
+
+void RenderTexture::MakeReadyToRead(ID3D12GraphicsCommandList* commandList)
+{
+	if(IsResolveNeeded())
+	{
+		if (ReadFromColor())
+		{
+			TransitionRenderTargetLayout(commandList, ResourceLayout::RESOLVE_SRC);
+			TransitionTextureLayout(commandList, ResourceLayout::RESOLVE_DST);
+			ResolveRenderTargetToTexture(commandList);
+			TransitionTextureLayout(commandList, ResourceLayout::SHADER_READ);
+		}
+		else if (ReadFromDepth() || ReadFromStencil())
+		{
+			TransitionDepthStencilLayout(commandList, ResourceLayout::RESOLVE_SRC);
+			TransitionTextureLayout(commandList, ResourceLayout::RESOLVE_DST);
+			ResolveDepthStencilToTexture(commandList);
+			TransitionTextureLayout(commandList, ResourceLayout::SHADER_READ);
+		}
+		else
+			fatalf("read from wrong source");
+	}
+	else
+	{
+		if (ReadFromColor())
+			TransitionRenderTargetLayout(commandList, ResourceLayout::SHADER_READ);
+		else if (ReadFromDepth() || ReadFromStencil())
+			TransitionDepthStencilLayout(commandList, ResourceLayout::SHADER_READ);
+		else
+			fatalf("read from wrong source");
+	}
 }
