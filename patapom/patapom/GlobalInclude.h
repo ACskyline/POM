@@ -8,10 +8,12 @@
 #include "Renderer.h"
 
 #define EPSILON 0.00000001f
+#define EQUALF(a, b) (abs(a - b) < EPSILON)
 
 #define SAFE_RELEASE(p) { if ((p)) { (p)->Release(); (p) = 0; } }
 #define SAFE_RELEASE_ARRAY(p) { int n = _countof(p); for(int i = 0;i<n;i++){ SAFE_RELEASE(p[i]); } }
 #define KEYDOWN(name, key) ((name)[(key)] & 0x80)
+#define BUTTONDOWN(button) ((button) & 0x80)
 
 #define println(...) { printf("[%d:%d] ", gRenderer.mFrameCountTotal, gRenderer.mCurrentFrameIndex); printf(__VA_ARGS__); printf("\n"); }
 #define fatalAssert(x) { if(!(x)) __debugbreak(); }

@@ -34,8 +34,12 @@ public:
 	ScissorRect GetScissorRect();
 	XMFLOAT4X4 GetViewProjMatrix();
 	XMFLOAT4X4 GetViewProjInvMatrix();
+	XMFLOAT3 GetRight();
+	XMFLOAT3 GetForward();
+	XMFLOAT3 GetRealUp();
+	void SetTarget(XMFLOAT3 target);
 
-	XMFLOAT3 ScreenToWorld(XMFLOAT2 screenPos, bool nearClipPlane = false);
+	XMFLOAT3 ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane = false);
 
 protected:
 	float mWidth;

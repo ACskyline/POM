@@ -132,6 +132,39 @@ XMFLOAT4X4 Camera::GetViewProjInvMatrix()
 	return mViewProjInv;
 }
 
+XMFLOAT3 Camera::GetRight()
+{
+	XMFLOAT3 result = {};
+	XMVECTOR forward = XMLoadFloat3(&GetForward());
+	XMVECTOR up = XMLoadFloat3(&mUp);
+	float length = 0.f;
+	XMStoreFloat(&length, XMVector3Length(up));
+	fatalAssertf(EQUALF(length, 1.f), "mUp is not unit length!");
+	XMStoreFloat3(&result, XMVector3Cross(forward, up));
+	return result;
+}
+
+XMFLOAT3 Camera::GetForward()
+{
+	XMFLOAT3 result = {};
+	XMStoreFloat3(&result, XMVector3Normalize(XMLoadFloat3(&mTarget) - XMLoadFloat3(&mPosition)));
+	return result;
+}
+
+XMFLOAT3 Camera::GetRealUp()
+{
+	XMFLOAT3 result = {};
+	XMVECTOR forward = XMLoadFloat3(&GetForward());
+	XMVECTOR right = XMLoadFloat3(&GetRight());
+	XMStoreFloat3(&result, XMVector3Cross(right, forward));
+	return result;
+}
+
+void Camera::SetTarget(XMFLOAT3 target)
+{
+	mTarget = target;
+}
+
 XMFLOAT3 Camera::ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane)
 {
 	//assuming viewport.MaxDepth is 1 and viewport.MinDepth is 0

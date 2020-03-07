@@ -13,11 +13,12 @@
 #include "Camera.h"
 
 HWND gHwnd = NULL; // Handle to the window
-const LPCTSTR WindowName = L"WPWIV"; // name of the window (not the title)
-const LPCTSTR WindowTitle = L"WPWIV_1.0"; // title of the window
+const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
+const LPCTSTR WindowTitle = L"POM_1.0"; // title of the window
 IDirectInputDevice8* gDIKeyboard;
 IDirectInputDevice8* gDIMouse;
 DIMOUSESTATE gMouseLastState;
+POINT gMouseLastCursorPos;
 BYTE gKeyboardLastState[256];
 bool gMouseAcquired = false;
 LPDIRECTINPUT8 gDirectInput;
@@ -46,7 +47,7 @@ Mesh gQuad(L"fullscreen_quad", Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
-Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred_ms.hlsl"); // using multisampled srv
+Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred.hlsl"); // using multisampled srv
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
@@ -63,8 +64,8 @@ Sampler gSampler = {
 	1.f,
 	{0.f, 0.f, 0.f, 0.f}
 };
-Texture gTextureAlbedo("foam.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::STENCIL_MS, gSampler, Format::R8G8B8A8_UNORM, Format::D24_UNORM_S8_UINT, 4);
+Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
+RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM);
 
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
@@ -160,16 +161,12 @@ void DetectInput()
 	memset(keyboardCurrState, 0, sizeof(keyboardCurrState));//initialization is important, sometimes the value of unpressed key will not be changed
 
 	gDIKeyboard->Acquire();
-
 	gDIKeyboard->GetDeviceState(sizeof(keyboardCurrState), (LPVOID)&keyboardCurrState);
 
-	POINT currentCursorPos = {};
-	GetCursorPos(&currentCursorPos);
-	ScreenToClient(gHwnd, &currentCursorPos);
-
-	int mouseX = currentCursorPos.x;
-	int mouseY = currentCursorPos.y;
-
+	POINT mouseCurrentCursorPos = {};
+	GetCursorPos(&mouseCurrentCursorPos);
+	ScreenToClient(gHwnd, &mouseCurrentCursorPos);
+	
 	//keyboard control
 	//this is handled in mainloop, no need to do this here again
 	//if (KEYDOWN(keyboardCurrState, DIK_ESCAPE))
@@ -177,8 +174,7 @@ void DetectInput()
 	//	PostMessage(hwnd, WM_DESTROY, 0, 0);
 	//}
 
-	//mouse control
-	if (KEYDOWN(keyboardCurrState, DIK_C))//control camera
+	if (KEYDOWN(keyboardCurrState, DIK_C)) // hold c to operate camera
 	{
 		if (!gMouseAcquired)
 		{
@@ -194,30 +190,57 @@ void DetectInput()
 
 	if (gMouseAcquired)
 	{
-		DIMOUSESTATE mouseCurrState;
-		gDIMouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouseCurrState);
-		if (mouseCurrState.lX != 0)
+		// camera control
+		bool orbit = false;
+		bool pan = false;
+
+		// mouse control
+		DIMOUSESTATE mouseCurrentState = {};
+		gDIMouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouseCurrentState);
+
+		// c + scroll to zoom
+		if (mouseCurrentState.lZ != 0)
 		{
-			gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrState.lX * 0.1);
-		}
-		if (mouseCurrState.lY != 0)
-		{
-			float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrState.lY * 0.1;
-			if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89 - EPSILON;
-			if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89 + EPSILON;
-			gMainCamera.SetVerticalAngle(tempVerticalAngle);
-		}
-		if (mouseCurrState.lZ != 0)
-		{
-			float tempDistance = gMainCamera.GetDistance() - mouseCurrState.lZ * 0.01;
+			float tempDistance = gMainCamera.GetDistance() - mouseCurrentState.lZ * 0.01;
 			if (tempDistance < 0 + EPSILON) tempDistance = 0.1 + EPSILON;
 			gMainCamera.SetDistance(tempDistance);
 		}
-		gMouseLastState = mouseCurrState;
+
+		// c + left button + drag to orbit
+		if (BUTTONDOWN(mouseCurrentState.rgbButtons[0]))
+		{
+			if (mouseCurrentState.lX != 0)
+			{
+				gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrentState.lX * 0.1);
+			}
+			if (mouseCurrentState.lY != 0)
+			{
+				float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrentState.lY * 0.1;
+				if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89 - EPSILON;
+				if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89 + EPSILON;
+				gMainCamera.SetVerticalAngle(tempVerticalAngle);
+			}
+		}
+
+		// c + mid button + drag to pan
+		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
+		{
+			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.01f;
+			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.01f;
+			XMVECTOR originalTarget = XMLoadFloat3(&gMainCamera.GetTarget());
+			XMVECTOR right = XMLoadFloat3(&gMainCamera.GetRight());
+			XMVECTOR up = XMLoadFloat3(&gMainCamera.GetRealUp());
+			XMFLOAT3 newTarget = {};
+			XMStoreFloat3(&newTarget, originalTarget + right * dX + up * dy);
+			gMainCamera.SetTarget(newTarget);
+		}
+
+		gMouseLastState = mouseCurrentState;
 		gMainCamera.Update();
 		gUpdateCamera = gRenderer.mFrameCount;
 	}
 	
+	gMouseLastCursorPos = mouseCurrentCursorPos;
 	memcpy(gKeyboardLastState, keyboardCurrState, sizeof(gKeyboardLastState));
 }
 
