@@ -28,7 +28,7 @@ int gUpdateCamera = 0;
 int gUpdateSettings = 0;
 
 const int gWidth = 1024;
-const int gHeight = 768;
+const int gHeight = 1024;
 const int gWidthDeferred = 1024;
 const int gHeightDeferred = 1024;
 const int gFrameCount = 3;
@@ -43,6 +43,7 @@ Pass gPassDefault(L"default pass");
 Pass gPassDeferred(L"deferred pass");
 OrbitCamera gMainCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 0.1f, 1000.0f);
 Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
+Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Mesh gQuad(L"fullscreen_quad", Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
@@ -65,7 +66,9 @@ Sampler gSampler = {
 	{0.f, 0.f, 0.f, 0.f}
 };
 Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM);
+Texture gTextureNormal("brick_normal.jpg", L"normal", gSampler, true, Format::R8G8B8A8_UNORM);
+Texture gTextureHeight("brick_height.jpg", L"height", gSampler, true, Format::R8G8B8A8_UNORM);
+RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, 4);
 
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
@@ -80,10 +83,12 @@ void CreateLevel()
 
 	// B. Pass
 	gPassDefault.SetCamera(&gMainCamera);
-	gPassDefault.AddMesh(&gQuad);
+	gPassDefault.AddMesh(&gCube);
 	gPassDefault.AddShader(&gStandardVS);
 	gPassDefault.AddShader(&gStandardPS);
 	gPassDefault.AddTexture(&gTextureAlbedo);
+	gPassDefault.AddTexture(&gTextureNormal);
+	gPassDefault.AddTexture(&gTextureHeight);
 	gPassDefault.AddRenderTexture(&gRenderTexture);
 
 	gPassDeferred.SetCamera(&gDummyCamera);
@@ -108,11 +113,14 @@ void CreateLevel()
 	gLevelDefault.AddPass(&gPassDefault); // pass
 	gLevelDefault.AddPass(&gPassDeferred);
 	gLevelDefault.AddMesh(&gQuad); // mesh
+	gLevelDefault.AddMesh(&gCube);
 	gLevelDefault.AddShader(&gStandardVS); // vertex shader
 	gLevelDefault.AddShader(&gDeferredVS);
 	gLevelDefault.AddShader(&gStandardPS); // pixel shader
 	gLevelDefault.AddShader(&gDeferredPS);
 	gLevelDefault.AddTexture(&gTextureAlbedo); // texture
+	gLevelDefault.AddTexture(&gTextureNormal); // texture
+	gLevelDefault.AddTexture(&gTextureHeight); // texture
 	gLevelDefault.AddTexture(&gRenderTexture);
 
 	// F. Renderer
@@ -211,13 +219,13 @@ void DetectInput()
 		{
 			if (mouseCurrentState.lX != 0)
 			{
-				gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrentState.lX * 0.1);
+				gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrentState.lX * -0.1f);
 			}
 			if (mouseCurrentState.lY != 0)
 			{
-				float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrentState.lY * 0.1;
-				if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89 - EPSILON;
-				if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89 + EPSILON;
+				float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrentState.lY * 0.1f;
+				if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89.f - EPSILON;
+				if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89.f + EPSILON;
 				gMainCamera.SetVerticalAngle(tempVerticalAngle);
 			}
 		}
@@ -225,8 +233,8 @@ void DetectInput()
 		// c + mid button + drag to pan
 		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
 		{
-			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.01f;
-			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.01f;
+			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.001f;
+			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.001f;
 			XMVECTOR originalTarget = XMLoadFloat3(&gMainCamera.GetTarget());
 			XMVECTOR right = XMLoadFloat3(&gMainCamera.GetRight());
 			XMVECTOR up = XMLoadFloat3(&gMainCamera.GetRealUp());
@@ -361,16 +369,37 @@ void UpdateUI()
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
-	static int mode = gSceneDefault.mSceneUniform.sceneMode;
-	bool needToUpdateSceneUniform = false;
+	static int mode = gSceneDefault.mSceneUniform.sceneMode = 1;
+	static int marchStep = gSceneDefault.mSceneUniform.marchStep = 10;
+	static float marchScale = gSceneDefault.mSceneUniform.marchScale = 0.07f;
+	static float marchBias = gSceneDefault.mSceneUniform.marchBias = 0.3f;
+	static bool needToUpdateSceneUniform = true;
 
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 
 	ImGui::Begin("Control Panel ");
 
-	if (ImGui::Combo("mode", &mode, "default\0debug"))
+	if (ImGui::Combo("mode", &mode, "default\0pom\0albedo\0normal\0height"))
 	{
 		gSceneDefault.mSceneUniform.sceneMode = mode;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("marchStep", &marchStep, 0, 50))
+	{
+		gSceneDefault.mSceneUniform.marchStep = marchStep;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("marchScale", &marchScale, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.marchScale = marchScale;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("marchBias", &marchBias, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.marchBias = marchBias;
 		needToUpdateSceneUniform = true;
 	}
 
@@ -379,7 +408,10 @@ void UpdateUI()
 	ImGui::End();
 
 	if (needToUpdateSceneUniform)
+	{
 		gUpdateSettings = gRenderer.mFrameCount;
+		needToUpdateSceneUniform = false;
+	}
 }
 
 void Cleanup()

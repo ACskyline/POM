@@ -24,7 +24,15 @@ const D3D12_INPUT_ELEMENT_DESC VertexInputLayout[] =
 {
 	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+	{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	{ "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+};
+
+struct Vertex {
+	XMFLOAT3 pos;
+	XMFLOAT2 uv;
+	XMFLOAT3 nor;
+	XMFLOAT4 tan;
 };
 
 enum class ResourceLayout {
@@ -42,15 +50,6 @@ enum class ResourceLayout {
 	PRESENT,
 	UPLOAD, // D3D12_RESOURCE_STATE_GENERIC_READ is a logically OR'd combination of other read-state bits. This is the required starting state for an upload heap.
 	COUNT
-};
-
-struct Vertex {
-	Vertex() : Vertex(0, 0, 0, 0, 0, 0, 0, 0) {}
-	Vertex(float x, float y, float z, float u, float v) : Vertex(x, y, z, u, v, 0, 0, 0) {}
-	Vertex(float x, float y, float z, float u, float v, float nx, float ny, float nz) : pos(x, y, z), texCoord(u, v), nor(nx, ny, nz) {}
-	XMFLOAT3 pos;
-	XMFLOAT2 texCoord;
-	XMFLOAT3 nor;
 };
 
 struct Viewport {

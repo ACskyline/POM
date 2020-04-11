@@ -7,7 +7,7 @@ class Texture;
 class Mesh
 {
 public:
-	enum class MeshType { CIRCLE, PLANE, CUBE, WAVE_PARTICLE, TILEABLE_SURFACE, FULLSCREEN_QUAD, COUNT };
+	enum class MeshType { PLANE, CUBE, FULLSCREEN_QUAD, COUNT };
 
 	struct ObjectUniform
 	{
@@ -20,19 +20,6 @@ public:
 		const XMFLOAT3& position,
 		const XMFLOAT3& rotation,
 		const XMFLOAT3& scale);
-	Mesh(const wstring& debugName,
-		const MeshType &type,
-		int waveParticleCountOrCircleSegment,
-		const XMFLOAT3&position,
-		const XMFLOAT3&rotation,
-		const XMFLOAT3&scale);
-	Mesh(const wstring& debugName,
-		const MeshType&type,
-		int cellCountX,
-		int cellCountZ,
-		const XMFLOAT3&position,
-		const XMFLOAT3&rotation,
-		const XMFLOAT3&scale);
 	~Mesh();
 
 	void ResetMesh(MeshType type,
@@ -97,10 +84,7 @@ private:
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandleVec;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandleVec;
 
-	void InitCube();
-	void InitPlane();
-	void InitWaveParticles(int waveParticleCount);
-	void InitWaterSurface(int cellCountX, int cellCountZ);
-	void InitFullScreenQuad();
-	void InitCircle(int segment);
+	void SetCube();
+	void SetPlane();
+	void SetFullScreenQuad();
 };

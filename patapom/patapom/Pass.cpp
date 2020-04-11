@@ -74,9 +74,7 @@ void Pass::UpdateUniformBuffer(int frameIndex, Camera* camera)
 		camera = mCamera;
 	camera->Update();
 	mPassUniform.mPassIndex = 1;//TODO: create a class static counter so that we can save an unique id for each frame
-	mPassUniform.mCameraPosX = camera->GetPosition().x;
-	mPassUniform.mCameraPosY = camera->GetPosition().y;
-	mPassUniform.mCameraPosZ = camera->GetPosition().z;
+	mPassUniform.mCameraPos = camera->GetPosition();
 	mPassUniform.mViewProj = camera->GetViewProjMatrix();
 	mPassUniform.mViewProjInv = camera->GetViewProjInvMatrix();
 

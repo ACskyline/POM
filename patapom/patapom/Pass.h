@@ -15,9 +15,7 @@ public:
 	struct PassUniform
 	{	
 		uint32_t mPassIndex;
-		float mCameraPosX;
-		float mCameraPosY;
-		float mCameraPosZ;
+		XMFLOAT3 mCameraPos;
 		XMFLOAT4X4 mViewProj;
 		XMFLOAT4X4 mViewProjInv;
 	};

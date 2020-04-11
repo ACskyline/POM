@@ -14,56 +14,15 @@ Mesh::Mesh(const wstring& debugName,
 {
 	if (mType == MeshType::PLANE)
 	{
-		InitPlane();
+		SetPlane();
 	}
 	else if (mType == MeshType::CUBE)
 	{
-		InitCube();
+		SetCube();
 	}
 	else if (mType == MeshType::FULLSCREEN_QUAD)
 	{
-		InitFullScreenQuad();
-	}
-}
-
-Mesh::Mesh(const wstring& debugName,
-	const MeshType& type,
-	int waveParticleCountOrSegment,
-	const XMFLOAT3& position,
-	const XMFLOAT3& rotation,
-	const XMFLOAT3& scale) :
-	mDebugName(debugName),
-	mType(type),
-	mPosition(position),
-	mScale(scale),
-	mRotation(rotation)
-{
-	if (mType == MeshType::WAVE_PARTICLE)
-	{
-		InitWaveParticles(waveParticleCountOrSegment);
-	}
-	else if (mType == MeshType::CIRCLE)
-	{
-		InitCircle(waveParticleCountOrSegment);
-	}
-}
-
-Mesh::Mesh(const wstring& debugName,
-	const MeshType& type,
-	int cellCountX,
-	int cellCountZ,
-	const XMFLOAT3& position,
-	const XMFLOAT3& rotation,
-	const XMFLOAT3& scale) :
-	mDebugName(debugName),
-	mType(type),
-	mPosition(position),
-	mScale(scale),
-	mRotation(rotation)
-{
-	if (mType == MeshType::TILEABLE_SURFACE)
-	{
-		InitWaterSurface(cellCountX, cellCountZ);
+		SetFullScreenQuad();
 	}
 }
 
@@ -83,11 +42,15 @@ void Mesh::ResetMesh(MeshType type,
 	mRotation = rotation;
 	if (mType == MeshType::PLANE)
 	{
-
+		SetPlane();
 	}
 	else if (mType == MeshType::CUBE)
 	{
-		InitCube();
+		SetCube();
+	}
+	else if(mType == MeshType::FULLSCREEN_QUAD)
+	{
+		SetFullScreenQuad();
 	}
 }
 
@@ -281,47 +244,60 @@ int Mesh::GetTextureCount()
 	return mTextureVec.size();
 }
 
-void Mesh::InitCube()
+void Mesh::SetCube()
 {
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	mVertexVec.resize(24);
 
+	// CW
+	// i+1-----i+2
+	// |        |
+	// |        |
+	// i-------i+3
+
+	// uv
+	// 0,1------1,1
+	//  |        |
+	//  |        |
+	//  |        |
+	// 0.0------1,0
+
 	// front face
-	mVertexVec[0] = { -0.5f,  0.5f, -0.5f, 0.0f, 0.0f };
-	mVertexVec[1] = { 0.5f, -0.5f, -0.5f, 1.0f, 1.0f };
-	mVertexVec[2] = { -0.5f, -0.5f, -0.5f, 0.0f, 1.0f };
-	mVertexVec[3] = { 0.5f,  0.5f, -0.5f, 1.0f, 0.0f };
+	mVertexVec[0] = { {-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[3] = { {0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	// right side face
-	mVertexVec[4] = { 0.5f, -0.5f, -0.5f, 0.0f, 1.0f };
-	mVertexVec[5] = { 0.5f,  0.5f,  0.5f, 1.0f, 0.0f };
-	mVertexVec[6] = { 0.5f, -0.5f,  0.5f, 1.0f, 1.0f };
-	mVertexVec[7] = { 0.5f,  0.5f, -0.5f, 0.0f, 0.0f };
+	mVertexVec[4] = { {0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
+	mVertexVec[5] = { {0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
+	mVertexVec[6] = { {0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
+	mVertexVec[7] = { {0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
 
 	// left side face
-	mVertexVec[8] = { -0.5f,  0.5f,  0.5f, 0.0f, 0.0f };
-	mVertexVec[9] = { -0.5f, -0.5f, -0.5f, 1.0f, 1.0f };
-	mVertexVec[10] = { -0.5f, -0.5f,  0.5f, 0.0f, 1.0f };
-	mVertexVec[11] = { -0.5f,  0.5f, -0.5f, 1.0f, 0.0f };
+	mVertexVec[8] = { {-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f, 1.0f} };
+	mVertexVec[9] = { {-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f, 1.0f} };
+	mVertexVec[10] = { {-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f, 1.0f} };
+	mVertexVec[11] = { {-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f, 1.0f} };
 
 	// back face
-	mVertexVec[12] = { 0.5f,  0.5f,  0.5f, 0.0f, 0.0f };
-	mVertexVec[13] = { -0.5f, -0.5f,  0.5f, 1.0f, 1.0f };
-	mVertexVec[14] = { 0.5f, -0.5f,  0.5f, 0.0f, 1.0f };
-	mVertexVec[15] = { -0.5f,  0.5f,  0.5f, 1.0f, 0.0f };
+	mVertexVec[12] = { {0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[13] = { {0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[14] = { {-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[15] = { {-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f} };
 
 	// top face
-	mVertexVec[16] = { -0.5f,  0.5f, -0.5f, 0.0f, 1.0f };
-	mVertexVec[17] = { 0.5f,  0.5f,  0.5f, 1.0f, 0.0f };
-	mVertexVec[18] = { 0.5f,  0.5f, -0.5f, 1.0f, 1.0f };
-	mVertexVec[19] = { -0.5f,  0.5f,  0.5f, 0.0f, 0.0f };
+	mVertexVec[16] = { {-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[17] = { {-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[18] = { {0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[19] = { {0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	// bottom face
-	mVertexVec[20] = { 0.5f, -0.5f,  0.5f, 0.0f, 0.0f };
-	mVertexVec[21] = { -0.5f, -0.5f, -0.5f, 1.0f, 1.0f };
-	mVertexVec[22] = { 0.5f, -0.5f, -0.5f, 0.0f, 1.0f };
-	mVertexVec[23] = { -0.5f, -0.5f,  0.5f, 1.0f, 0.0f };
+	mVertexVec[20] = { {-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[21] = { {-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[22] = { {0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[23] = { {0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	mIndexVec.resize(36);
 
@@ -332,8 +308,8 @@ void Mesh::InitCube()
 	mIndexVec[2] = 2;
 	// second triangle
 	mIndexVec[3] = 0;
-	mIndexVec[4] = 3;
-	mIndexVec[5] = 1;
+	mIndexVec[4] = 2;
+	mIndexVec[5] = 3;
 
 	// left face 
 	// first triangle
@@ -342,8 +318,8 @@ void Mesh::InitCube()
 	mIndexVec[8] = 6;
 	// second triangle
 	mIndexVec[9] = 4;
-	mIndexVec[10] = 7;
-	mIndexVec[11] = 5;
+	mIndexVec[10] = 6;
+	mIndexVec[11] = 7;
 
 	// right face 
 	// first triangle
@@ -352,8 +328,8 @@ void Mesh::InitCube()
 	mIndexVec[14] = 10;
 	// second triangle
 	mIndexVec[15] = 8;
-	mIndexVec[16] = 11;
-	mIndexVec[17] = 9;
+	mIndexVec[16] = 10;
+	mIndexVec[17] = 11;
 
 	// back face 
 	// first triangle
@@ -362,8 +338,8 @@ void Mesh::InitCube()
 	mIndexVec[20] = 14;
 	// second triangle
 	mIndexVec[21] = 12;
-	mIndexVec[22] = 15;
-	mIndexVec[23] = 13;
+	mIndexVec[22] = 14;
+	mIndexVec[23] = 15;
 
 	// top face 
 	// first triangle
@@ -372,8 +348,8 @@ void Mesh::InitCube()
 	mIndexVec[26] = 18;
 	// second triangle
 	mIndexVec[27] = 16;
-	mIndexVec[28] = 19;
-	mIndexVec[29] = 17;
+	mIndexVec[28] = 18;
+	mIndexVec[29] = 19;
 
 	// bottom face
 	// first triangle
@@ -382,25 +358,23 @@ void Mesh::InitCube()
 	mIndexVec[32] = 22;
 	// second triangle
 	mIndexVec[33] = 20;
-	mIndexVec[34] = 23;
-	mIndexVec[35] = 21;
+	mIndexVec[34] = 22;
+	mIndexVec[35] = 23;
 }
 
-void Mesh::InitPlane()
+void Mesh::SetPlane()
 {
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	mVertexVec.resize(4);
 
-	// front face
-	mVertexVec[0] = { -0.5f,  0.f, -0.5f, 0.0f, 1.0f };
-	mVertexVec[1] = { -0.5f, 0.f, 0.5f, 0.0f, 0.0f };
-	mVertexVec[2] = { 0.5f, 0.f, 0.5f, 1.0f, 0.0f };
-	mVertexVec[3] = { 0.5f,  0.f, -0.5f, 1.0f, 1.0f };
+	mVertexVec[0] = { {-0.5f,  0.0f, -0.5f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-0.5f, 0.0f, 0.5f}, {0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {0.5f, 0.0f, 0.5f}, {1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[3] = { {0.5f,  0.0f, -0.5f}, {1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	mIndexVec.resize(6);
 
-	// front face 
 	// first triangle
 	mIndexVec[0] = 0;
 	mIndexVec[1] = 1;
@@ -411,81 +385,19 @@ void Mesh::InitPlane()
 	mIndexVec[5] = 3;
 }
 
-void Mesh::InitWaveParticles(int waveParticleCount)
-{
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-
-	mVertexVec.resize(waveParticleCount);
-	mIndexVec.resize(waveParticleCount);
-
-	for (int i = 0; i < waveParticleCount; i++)
-	{
-		int index = i;
-		XMFLOAT2 position = { rand() / (float)RAND_MAX * 2.f - 1.f, rand() / (float)RAND_MAX * 2.f - 1.f };
-		XMFLOAT2 direction = { rand() / (float)RAND_MAX * 2.f - 1.f, rand() / (float)RAND_MAX * 2.f - 1.f };
-		XMStoreFloat2(&direction, XMVector2Normalize(XMLoadFloat2(&direction)));
-		float height = rand() / (float)RAND_MAX * 0.1f + 0.2f;
-		float radius = rand() / (float)RAND_MAX * 0.05f + 0.1f;
-		float beta = rand() / (float)RAND_MAX;
-		float speed = rand() / (float)RAND_MAX;
-		mVertexVec[index] = { position.x, position.y, height, direction.x, direction.y, radius, beta, speed };
-		mIndexVec[index] = index;
-	}
-}
-
-void Mesh::InitWaterSurface(int cellCountX, int cellCountZ)
-{
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST;
-
-	int cellCount = cellCountX * cellCountZ;
-	int vertexCount = (cellCountX + 1) * (cellCountZ + 1);
-	mVertexVec.resize(vertexCount);
-	mIndexVec.resize(cellCount * 4);
-
-	for (int i = 0; i <= cellCountX; i++)
-	{
-		for (int j = 0; j <= cellCountZ; j++)
-		{
-			int vIndex = i * (cellCountZ + 1) + j;
-			// make the border wider so that it can sample outside of [0, 1] and return border color which is set to transparent black
-			float ui = i;
-			float vj = j;
-			if (i == 0) ui-= EPSILON;
-			else if (i == cellCountX) ui+= EPSILON;
-			if (j == 0) vj-= EPSILON;
-			else if (j == cellCountZ) vj+= EPSILON;
-			mVertexVec[vIndex] = { i / (float)cellCountX, 0, j / (float)cellCountZ, ui / (float)cellCountX, vj / (float)cellCountZ };
-		}
-	}
-
-	for (int i = 0; i < cellCountX; i++)
-	{
-		for (int j = 0; j < cellCountZ; j++)
-		{
-			int cIndex = i * cellCountZ + j;
-			mIndexVec[cIndex * 4 + 0] = i * (cellCountZ + 1) + j;
-			mIndexVec[cIndex * 4 + 1] = i * (cellCountZ + 1) + j + 1;
-			mIndexVec[cIndex * 4 + 2] = (i + 1) * (cellCountZ + 1) + j + 1;
-			mIndexVec[cIndex * 4 + 3] = (i + 1) * (cellCountZ + 1) + j;
-		}
-	}
-}
-
-void Mesh::InitFullScreenQuad()
+void Mesh::SetFullScreenQuad()
 {
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	mVertexVec.resize(4);
 
-	// front face
-	mVertexVec[0] = { -1.f,  -1.f, 0.5f, 0.0f, 1.0f };
-	mVertexVec[1] = { -1.f, 1.f, 0.5f, 0.0f, 0.0f };
-	mVertexVec[2] = { 1.f, 1.f, 0.5f, 1.0f, 0.0f };
-	mVertexVec[3] = { 1.f,  -1.f, 0.5f, 1.0f, 1.0f };
+	mVertexVec[0] = { {-1.f,  -1.f, 0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-1.f, 1.f, 0.5f}, {0.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {1.f, 1.f, 0.5f}, {1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[3] = { {1.f,  -1.f, 0.5f}, {1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	mIndexVec.resize(6);
 
-	// front face 
 	// first triangle
 	mIndexVec[0] = 0;
 	mIndexVec[1] = 1;
@@ -494,32 +406,4 @@ void Mesh::InitFullScreenQuad()
 	mIndexVec[3] = 0;
 	mIndexVec[4] = 2;
 	mIndexVec[5] = 3;
-}
-
-void Mesh::InitCircle(int segment)
-{
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-	float angle = 360.0 / segment;
-
-	mVertexVec.resize(3 * segment);
-
-	for (int i = 0; i < segment; i++)
-	{
-		float sini = 0, cosi = 0, sinj = 0, cosj = 0;
-		XMScalarSinCos(&sini, &cosi, XMConvertToRadians(angle * i));
-		XMScalarSinCos(&sinj, &cosj, XMConvertToRadians(angle * (i + 1)));
-		mVertexVec[i * 3 + 0] = { 0.f, 0.5f, 0.f, 0.5f, 0.5f };
-		mVertexVec[i * 3 + 1] = { cosj, sinj, 0.5f, cosj * 0.5f + 0.5f, sinj * 0.5f + 0.5f };
-		mVertexVec[i * 3 + 2] = { cosi, sini, 0.5f, cosi * 0.5f + 0.5f, sini * 0.5f + 0.5f };
-	}
-
-	mIndexVec.resize(3 * segment);
-
-	for (int i = 0; i < segment; i++)
-	{
-		mIndexVec[i * 3 + 0] = i * 3 + 0;
-		mIndexVec[i * 3 + 1] = i * 3 + 1;
-		mIndexVec[i * 3 + 2] = i * 3 + 2;
-	}
 }

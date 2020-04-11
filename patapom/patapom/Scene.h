@@ -10,6 +10,9 @@ public:
 	struct SceneUniform
 	{
 		uint32_t sceneMode;
+		int32_t marchStep;
+		float marchScale;
+		float marchBias;
 	};
 
 	Scene(const wstring& debugName = L"unnamed scene");
