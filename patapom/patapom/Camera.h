@@ -32,11 +32,19 @@ public:
 	XMFLOAT3 GetTarget();
 	Viewport GetViewport();
 	ScissorRect GetScissorRect();
+	XMFLOAT4X4 GetViewMatrix();
+	XMFLOAT4X4 GetViewInvMatrix();
+	XMFLOAT4X4 GetProjMatrix();
+	XMFLOAT4X4 GetProjInvMatrix();
 	XMFLOAT4X4 GetViewProjMatrix();
 	XMFLOAT4X4 GetViewProjInvMatrix();
 	XMFLOAT3 GetRight();
 	XMFLOAT3 GetForward();
 	XMFLOAT3 GetRealUp();
+	float GetNearClipPlane();
+	float GetFarClipPlane();
+	float GetWidth();
+	float GetHeight();
 	void SetTarget(XMFLOAT3 target);
 
 	XMFLOAT3 ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane = false);
@@ -50,6 +58,10 @@ protected:
 	XMFLOAT3 mPosition;
 	XMFLOAT3 mTarget;
 	XMFLOAT3 mUp;
+	XMFLOAT4X4 mView;
+	XMFLOAT4X4 mViewInv;
+	XMFLOAT4X4 mProj;
+	XMFLOAT4X4 mProjInv;
 	XMFLOAT4X4 mViewProj;
 	XMFLOAT4X4 mViewProjInv;
 	Viewport mViewport;

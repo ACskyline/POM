@@ -1,4 +1,4 @@
-#include "GlobalInclude.hlsli"
+#include "GlobalInclude.hlsl"
 
 Texture2DMS<float4> gbuffer : register(t0, SPACE(PASS));
 

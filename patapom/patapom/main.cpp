@@ -11,6 +11,7 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include "Camera.h"
+#include "Light.h"
 
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
@@ -27,10 +28,12 @@ bool gRunning = true; // we will exit the program when this becomes false
 int gUpdateCamera = 0;
 int gUpdateSettings = 0;
 
-const int gWidth = 1024;
-const int gHeight = 1024;
-const int gWidthDeferred = 1024;
-const int gHeightDeferred = 1024;
+const int gWidth = 960;
+const int gHeight = 960;
+const int gWidthDeferred = 960;
+const int gHeightDeferred = 960;
+const int gWidthShadow = 960;
+const int gHeightShadow = 960;
 const int gFrameCount = 3;
 const int gMultiSampleCount = 4;
 Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
@@ -41,14 +44,28 @@ Level gLevelDefault("default level");
 Scene gSceneDefault(L"default scene");
 Pass gPassDefault(L"default pass");
 Pass gPassDeferred(L"deferred pass");
+Pass gPassSky(L"sky pass");
+Pass gPassRedLightShadow(L"red light shadow");
+Pass gPassGreenLightShadow(L"green light shadow");
+Pass gPassBlueLightShadow(L"blue light shadow");
 OrbitCamera gMainCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 0.1f, 1000.0f);
 Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
-Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
-Mesh gQuad(L"fullscreen_quad", Mesh::MeshType::FULLSCREEN_QUAD, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
+Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
+Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
+Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 2, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Mesh gFullscreenTriangle(L"fullscreen_triangle", Mesh::MeshType::FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "ball.obj");
+Mesh gPlaneX(L"planeX", Mesh::MeshType::PLANE, XMFLOAT3(-3, 0, 0), XMFLOAT3(0, 0, -90), XMFLOAT3(6, 1, 6));
+Mesh gPlaneY(L"planeY", Mesh::MeshType::PLANE, XMFLOAT3(0, -3, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(6, 1, 6));
+Mesh gPlaneZ(L"planeZ", Mesh::MeshType::PLANE, XMFLOAT3(0, 0, -3), XMFLOAT3(90, 0, 0), XMFLOAT3(6, 1, 6));
+Mesh gSky(L"sky", Mesh::MeshType::SKY_FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
 Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred.hlsl"); // using multisampled srv
+Shader gSkyVS(Shader::ShaderType::VERTEX_SHADER, L"vs_sky.hlsl");
+Shader gSkyPS(Shader::ShaderType::PIXEL_SHADER, L"ps_sky.hlsl");
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
@@ -65,11 +82,32 @@ Sampler gSampler = {
 	1.f,
 	{0.f, 0.f, 0.f, 0.f}
 };
+Sampler gSamplerShadow = {
+	Sampler::Filter::POINT,
+	Sampler::Filter::POINT,
+	Sampler::Filter::POINT,
+	Sampler::AddressMode::WRAP,
+	Sampler::AddressMode::WRAP,
+	Sampler::AddressMode::WRAP,
+	0.f,
+	false,
+	1.f,
+	false,
+	CompareOp::NEVER,
+	0.f,
+	1.f,
+	{0.f, 0.f, 0.f, 0.f}
+};
 Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
 Texture gTextureNormal("brick_normal.jpg", L"normal", gSampler, true, Format::R8G8B8A8_UNORM);
 Texture gTextureHeight("brick_height.jpg", L"height", gSampler, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTexture(L"rt0", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, 4);
-
+RenderTexture gRenderTextureGbuffer(L"gbuffer", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, Format::D16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0, 4);
+RenderTexture gRenderTextureRedLight(L"red light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
+RenderTexture gRenderTextureGreenLight(L"green light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
+RenderTexture gRenderTextureBlueLight(L"blue light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
+Light gLightRed("light red", XMFLOAT3(0.8f, 0.2f, 0.2f), XMFLOAT3(8, 0, 0), &gCameraRedLight, &gRenderTextureRedLight);
+Light gLightGreen("light green", XMFLOAT3(0.2f, 0.8f, 0.2f), XMFLOAT3(0, 8, 0), &gCameraGreenLight, &gRenderTextureGreenLight);
+Light gLightBlue("light blue", XMFLOAT3(0.2f, 0.2f, 0.8f), XMFLOAT3(0, 0, 8), &gCameraBlueLight, &gRenderTextureBlueLight);
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
 bool show_demo_window = true;
@@ -82,28 +120,72 @@ void CreateLevel()
 	// mesh.AddTexture(...);
 
 	// B. Pass
+	gPassRedLightShadow.SetCamera(&gCameraRedLight);
+	gPassRedLightShadow.AddMesh(&gCube);
+	gPassRedLightShadow.AddMesh(&gMesh);
+	gPassRedLightShadow.AddMesh(&gPlaneX);
+	gPassRedLightShadow.AddMesh(&gPlaneY);
+	gPassRedLightShadow.AddMesh(&gPlaneZ);
+	gPassRedLightShadow.AddShader(&gStandardVS);
+	gPassRedLightShadow.AddRenderTexture(&gRenderTextureRedLight, BlendState::NoBlend(), DepthStencilState::Less());
+
+	gPassGreenLightShadow.SetCamera(&gCameraGreenLight);
+	gPassGreenLightShadow.AddMesh(&gCube);
+	gPassGreenLightShadow.AddMesh(&gMesh);
+	gPassGreenLightShadow.AddMesh(&gPlaneX);
+	gPassGreenLightShadow.AddMesh(&gPlaneY);
+	gPassGreenLightShadow.AddMesh(&gPlaneZ);
+	gPassGreenLightShadow.AddShader(&gStandardVS);
+	gPassGreenLightShadow.AddRenderTexture(&gRenderTextureGreenLight, BlendState::NoBlend(), DepthStencilState::Less());
+
+	gPassBlueLightShadow.SetCamera(&gCameraBlueLight);
+	gPassBlueLightShadow.AddMesh(&gCube);
+	gPassBlueLightShadow.AddMesh(&gMesh);
+	gPassBlueLightShadow.AddMesh(&gPlaneX);
+	gPassBlueLightShadow.AddMesh(&gPlaneY);
+	gPassBlueLightShadow.AddMesh(&gPlaneZ);
+	gPassBlueLightShadow.AddShader(&gStandardVS);
+	gPassBlueLightShadow.AddRenderTexture(&gRenderTextureBlueLight, BlendState::NoBlend(), DepthStencilState::Less());
+
 	gPassDefault.SetCamera(&gMainCamera);
 	gPassDefault.AddMesh(&gCube);
+	gPassDefault.AddMesh(&gMesh);
+	gPassDefault.AddMesh(&gPlaneX);
+	gPassDefault.AddMesh(&gPlaneY);
+	gPassDefault.AddMesh(&gPlaneZ);
 	gPassDefault.AddShader(&gStandardVS);
 	gPassDefault.AddShader(&gStandardPS);
 	gPassDefault.AddTexture(&gTextureAlbedo);
 	gPassDefault.AddTexture(&gTextureNormal);
 	gPassDefault.AddTexture(&gTextureHeight);
-	gPassDefault.AddRenderTexture(&gRenderTexture);
+	gPassDefault.AddRenderTexture(&gRenderTextureGbuffer, BlendState::NoBlend(), DepthStencilState::Less());
+
+	gPassSky.SetCamera(&gMainCamera);
+	gPassSky.AddMesh(&gSky);
+	gPassSky.AddShader(&gSkyVS);
+	gPassSky.AddShader(&gSkyPS);
+	gPassSky.AddRenderTexture(&gRenderTextureGbuffer, BlendState::NoBlend(), DepthStencilState::LessEqual()); // less equal for screen space sky
 
 	gPassDeferred.SetCamera(&gDummyCamera);
-	gPassDeferred.AddMesh(&gQuad);
+	gPassDeferred.AddMesh(&gFullscreenTriangle);
 	gPassDeferred.AddShader(&gDeferredVS);
 	gPassDeferred.AddShader(&gDeferredPS);
-	gPassDeferred.AddTexture(&gRenderTexture);
+	gPassDeferred.AddTexture(&gRenderTextureGbuffer);
 	
 	// C. Frame
 	gRenderer.mFrames.resize(gFrameCount);
 	// renderer.mFrames[i].AddTexture(...);
 
 	// D. Scene
+	gSceneDefault.AddPass(&gPassRedLightShadow);
+	gSceneDefault.AddPass(&gPassGreenLightShadow);
+	gSceneDefault.AddPass(&gPassBlueLightShadow);
 	gSceneDefault.AddPass(&gPassDefault);
+	gSceneDefault.AddPass(&gPassSky);
 	gSceneDefault.AddPass(&gPassDeferred);
+	gSceneDefault.AddLight(&gLightRed);
+	gSceneDefault.AddLight(&gLightGreen);
+	gSceneDefault.AddLight(&gLightBlue);
 	// scene.AddTexture(...);
 
 	// E. Level
@@ -111,17 +193,31 @@ void CreateLevel()
 	gLevelDefault.AddCamera(&gDummyCamera);
 	gLevelDefault.AddScene(&gSceneDefault); // scene
 	gLevelDefault.AddPass(&gPassDefault); // pass
+	gLevelDefault.AddPass(&gPassSky);
 	gLevelDefault.AddPass(&gPassDeferred);
-	gLevelDefault.AddMesh(&gQuad); // mesh
+	gLevelDefault.AddPass(&gPassRedLightShadow);
+	gLevelDefault.AddPass(&gPassGreenLightShadow);
+	gLevelDefault.AddPass(&gPassBlueLightShadow);
+	gLevelDefault.AddMesh(&gFullscreenTriangle); // mesh
 	gLevelDefault.AddMesh(&gCube);
+	gLevelDefault.AddMesh(&gSky);
+	gLevelDefault.AddMesh(&gMesh);
+	gLevelDefault.AddMesh(&gPlaneX);
+	gLevelDefault.AddMesh(&gPlaneY);
+	gLevelDefault.AddMesh(&gPlaneZ);
 	gLevelDefault.AddShader(&gStandardVS); // vertex shader
 	gLevelDefault.AddShader(&gDeferredVS);
+	gLevelDefault.AddShader(&gSkyVS);
 	gLevelDefault.AddShader(&gStandardPS); // pixel shader
 	gLevelDefault.AddShader(&gDeferredPS);
+	gLevelDefault.AddShader(&gSkyPS);
 	gLevelDefault.AddTexture(&gTextureAlbedo); // texture
 	gLevelDefault.AddTexture(&gTextureNormal); // texture
 	gLevelDefault.AddTexture(&gTextureHeight); // texture
-	gLevelDefault.AddTexture(&gRenderTexture);
+	gLevelDefault.AddTexture(&gRenderTextureRedLight);
+	gLevelDefault.AddTexture(&gRenderTextureGreenLight);
+	gLevelDefault.AddTexture(&gRenderTextureBlueLight);
+	gLevelDefault.AddTexture(&gRenderTextureGbuffer);
 
 	// F. Renderer
 	gRenderer.SetLevel(&gLevelDefault);
@@ -163,7 +259,7 @@ bool InitDirectInput(HINSTANCE hInstance)
 	return true;
 }
 
-void DetectInput()
+void UpdateDetectInput()
 {
 	BYTE keyboardCurrState[256];
 	memset(keyboardCurrState, 0, sizeof(keyboardCurrState));//initialization is important, sometimes the value of unpressed key will not be changed
@@ -233,8 +329,8 @@ void DetectInput()
 		// c + mid button + drag to pan
 		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
 		{
-			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.001f;
-			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.001f;
+			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.005f;
+			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.005f;
 			XMVECTOR originalTarget = XMLoadFloat3(&gMainCamera.GetTarget());
 			XMVECTOR right = XMLoadFloat3(&gMainCamera.GetRight());
 			XMVECTOR up = XMLoadFloat3(&gMainCamera.GetRealUp());
@@ -296,12 +392,18 @@ bool InitImgui()
 	return true;
 }
 
-void Update()
+void UpdateGameLogic()
 {
-	// game logic updates
+	// update game logic (before waiting for the current frame to finish)
+}
+
+void UpdateResourcesGPU()
+{
+	// update per frame resource (after waiting for the current frame to finish)
 	if (gUpdateCamera > 0)
 	{
 		gPassDefault.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gMainCamera);
+		gPassSky.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gMainCamera);
 		gUpdateCamera--;
 	}
 
@@ -312,19 +414,35 @@ void Update()
 	}
 }
 
-void Record()
+void WaitForCurrentFrame()
 {
 	if (!gRenderer.WaitForFrame(gRenderer.mCurrentFrameIndex))
 		debugbreak(gRunning = false);
+}
 
+void Record()
+{
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
 
-	gRenderTexture.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	
+	gRenderTextureRedLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGreenLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureBlueLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassRedLightShadow);
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassGreenLightShadow);
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassBlueLightShadow);
+	
+	gRenderTextureRedLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGreenLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureBlueLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
 	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault);
+	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassSky, false, false, false);
 
-	gRenderTexture.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	
 	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDeferred);
 
@@ -355,12 +473,17 @@ void Present()
 		debugbreak(gRunning = false);
 }
 
+void DrawBegin()
+{
+	WaitForCurrentFrame();
+}
+
 void Draw()
 {
-	gRenderer.mFrameCountTotal++;
 	Record();
 	Submit();
 	Present();
+	gRenderer.mFrameCountTotal++;
 }
 
 void UpdateUI()
@@ -369,37 +492,91 @@ void UpdateUI()
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
-	static int mode = gSceneDefault.mSceneUniform.sceneMode = 1;
-	static int marchStep = gSceneDefault.mSceneUniform.marchStep = 10;
-	static float marchScale = gSceneDefault.mSceneUniform.marchScale = 0.07f;
-	static float marchBias = gSceneDefault.mSceneUniform.marchBias = 0.3f;
+	static int mode = gSceneDefault.mSceneUniform.mode = 1;
+	static int pomMarchStep = gSceneDefault.mSceneUniform.pomMarchStep = 10;
+	static float pomScale = gSceneDefault.mSceneUniform.pomScale = 0.07f;
+	static float pomBias = gSceneDefault.mSceneUniform.pomBias = 0.3f;
+	static float skyScatterG = gSceneDefault.mSceneUniform.skyScatterG = 0.975f;
+	static int skyMarchStep = gSceneDefault.mSceneUniform.skyMarchStep = 10;
+	static int skyMarchStepTr = gSceneDefault.mSceneUniform.skyMarchStepTr = 5;
+	static XMFLOAT3 sunRadiance = gSceneDefault.mSceneUniform.sunRadiance = XMFLOAT3(6.639f, 3.718f, 5.777f);
+	static float sunAzimuth = gSceneDefault.mSceneUniform.sunAzimuth = 0.080f;
+	static float sunAltitude = gSceneDefault.mSceneUniform.sunAltitude = 0.116f;
 	static bool needToUpdateSceneUniform = true;
 
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 
 	ImGui::Begin("Control Panel ");
 
-	if (ImGui::Combo("mode", &mode, "default\0pom\0albedo\0normal\0height"))
+	if (ImGui::Combo("mode", &mode, "default\0pom\0albedo\0normal\0height\0uv\0redlight\0greenlight\0bluelight"))
 	{
-		gSceneDefault.mSceneUniform.sceneMode = mode;
+		gSceneDefault.mSceneUniform.mode = mode;
 		needToUpdateSceneUniform = true;
 	}
 
-	if (ImGui::SliderInt("marchStep", &marchStep, 0, 50))
+	if (ImGui::SliderInt("pomMarchStep", &pomMarchStep, 0, 50))
 	{
-		gSceneDefault.mSceneUniform.marchStep = marchStep;
+		gSceneDefault.mSceneUniform.pomMarchStep = pomMarchStep;
 		needToUpdateSceneUniform = true;
 	}
 
-	if (ImGui::SliderFloat("marchScale", &marchScale, 0.0f, 1.0f))
+	if (ImGui::SliderFloat("pomScale", &pomScale, 0.0f, 1.0f))
 	{
-		gSceneDefault.mSceneUniform.marchScale = marchScale;
+		gSceneDefault.mSceneUniform.pomScale = pomScale;
 		needToUpdateSceneUniform = true;
 	}
 
-	if (ImGui::SliderFloat("marchBias", &marchBias, 0.0f, 1.0f))
+	if (ImGui::SliderFloat("pomBias", &pomBias, 0.0f, 1.0f))
 	{
-		gSceneDefault.mSceneUniform.marchBias = marchBias;
+		gSceneDefault.mSceneUniform.pomBias = pomBias;
+		needToUpdateSceneUniform = true;
+	}
+	
+	if (ImGui::SliderFloat("skyScatterG", &skyScatterG, -2.0f, 2.0f))
+	{
+		gSceneDefault.mSceneUniform.skyScatterG = skyScatterG;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("skyMarchStep", &skyMarchStep, 0, 50))
+	{
+		gSceneDefault.mSceneUniform.skyMarchStep = skyMarchStep;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("skyMarchStepTr", &skyMarchStepTr, 0, 50))
+	{
+		gSceneDefault.mSceneUniform.skyMarchStepTr = skyMarchStepTr;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("sunRadianceR", &sunRadiance.x, 0.0f, 10.0f))
+	{
+		gSceneDefault.mSceneUniform.sunRadiance.x = sunRadiance.x;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("sunRadianceG", &sunRadiance.y, 0.0f, 10.0f))
+	{
+		gSceneDefault.mSceneUniform.sunRadiance.y = sunRadiance.y;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("sunRadianceB", &sunRadiance.z, 0.0f, 10.0f))
+	{
+		gSceneDefault.mSceneUniform.sunRadiance.z = sunRadiance.z;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("sunAzimuth", &sunAzimuth, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.sunAzimuth = sunAzimuth;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.sunAltitude = sunAltitude;
 		needToUpdateSceneUniform = true;
 	}
 
@@ -546,8 +723,10 @@ void MainLoop()
 		
 		{
 			UpdateUI();
-			DetectInput();
-			Update();
+			UpdateDetectInput();
+			UpdateGameLogic();
+			DrawBegin();
+			UpdateResourcesGPU();
 			Draw();
 		}
 	}

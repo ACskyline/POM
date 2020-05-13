@@ -60,7 +60,7 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 		D3D_COMPILE_STANDARD_FILE_INCLUDE,
 		"main",
 		shaderType.c_str(),
-		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
+		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES,
 		0,
 		&mShader,
 		&errorBuff);

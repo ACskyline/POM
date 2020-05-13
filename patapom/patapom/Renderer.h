@@ -106,20 +106,19 @@ struct BlendState {
 	uint8_t mWriteMask;
 	float mBlendConstants[4]; // D3D12 set this constant using OMSetBlendFactor, Vulkan put it in VkPipelineColorBlendStateCreateInfo 
 
-	D3D12_RENDER_TARGET_BLEND_DESC mImpl; // TODO: hide API specific implementation in Renderer
-	static BlendState Default()
+	static BlendState NoBlend()
 	{
-		return {
+		return BlendState{
 			false,
-				false,
-				BlendState::BlendFactor::ZERO,
-				BlendState::BlendFactor::ZERO,
-				BlendState::BlendOp::ADD,
-				BlendState::BlendFactor::ZERO,
-				BlendState::BlendFactor::ZERO,
-				BlendState::BlendOp::ADD,
-				BlendState::LogicOp::NOOP,
-				BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
+			false,
+			BlendState::BlendFactor::ZERO,
+			BlendState::BlendFactor::ZERO,
+			BlendState::BlendOp::ADD,
+			BlendState::BlendFactor::ZERO,
+			BlendState::BlendFactor::ZERO,
+			BlendState::BlendOp::ADD,
+			BlendState::LogicOp::NOOP,
+			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
 		};
 	}
 };
@@ -145,15 +144,35 @@ struct DepthStencilState {
 	float mDepthBoundMin; // D3D12 set this bound using OMSetDepthBounds, Vulkan put it in VkPipelineDepthStencilStateCreateInfo 
 	float mDepthBoundMax; // same as above
 
-	D3D12_DEPTH_STENCIL_DESC mImpl; // TODO: hide API specific implementation in Renderer
-	static DepthStencilState Default()
+	static DepthStencilState Less()
 	{
-		return {
+		return DepthStencilState {
 			true,
 			true,
 			false,
 			false,
 			CompareOp::LESS,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
+	static DepthStencilState LessEqual()
+	{
+		return DepthStencilState{
+			true,
+			true,
+			false,
+			false,
+			CompareOp::LESS_EQUAL,
 			DepthStencilState::StencilOpSet {
 				DepthStencilState::StencilOp::KEEP,
 				DepthStencilState::StencilOp::KEEP,
@@ -293,8 +312,8 @@ public:
 		Format colorBufferFormat = Format::R8G8B8A8_UNORM,
 		Format depthStencilBufferFormat = Format::D24_UNORM_S8_UINT,
 		DebugMode debugMode = DebugMode::OFF,
-		BlendState blendState = BlendState::Default(),
-		DepthStencilState depthStencilState = DepthStencilState::Default());
+		BlendState blendState = BlendState::NoBlend(),
+		DepthStencilState depthStencilState = DepthStencilState::Less());
 	void CreateDepthStencilBuffers(Format format);
 	void CreatePreResolveBuffers(Format format);
 	void CreateColorBuffers();
@@ -302,6 +321,7 @@ public:
 	void WaitAllFrames();
 	bool WaitForFrame(int frameINdex);
 
+	// explicit on command list for future multi thread support
 	bool RecordBegin(int frameIndex, ID3D12GraphicsCommandList* commandList);
 	bool ResolveFrame(int frameIndex, ID3D12GraphicsCommandList* commandList);
 	bool RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList);
@@ -321,7 +341,7 @@ public:
 		ID3D12RootSignature** rootSignature,
 		int maxTextureCount[(int)UNIFORM_REGISTER_SPACE::COUNT]);
 	void CreatePSO(
-		vector<RenderTexture*>& renderTextureVec,
+		Pass& pass,
 		ID3D12PipelineState** pso,
 		ID3D12RootSignature* rootSignature,
 		D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
@@ -331,6 +351,7 @@ public:
 		Shader* geometryShader,
 		Shader* pixelShader,
 		const wstring& name);
+	// explicit on command list for future multi thread support
 	void RecordPass(
 		ID3D12GraphicsCommandList* commandList,
 		Pass& pass,

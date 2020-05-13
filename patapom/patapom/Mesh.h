@@ -7,7 +7,7 @@ class Texture;
 class Mesh
 {
 public:
-	enum class MeshType { PLANE, CUBE, FULLSCREEN_QUAD, COUNT };
+	enum class MeshType { PLANE, CUBE, FULLSCREEN_QUAD, FULLSCREEN_TRIANGLE, SKY_FULLSCREEN_TRIANGLE, MESH, COUNT };
 
 	struct ObjectUniform
 	{
@@ -19,7 +19,8 @@ public:
 		const MeshType& type,
 		const XMFLOAT3& position,
 		const XMFLOAT3& rotation,
-		const XMFLOAT3& scale);
+		const XMFLOAT3& scale,
+		const string& fileName = "null");
 	~Mesh();
 
 	void ResetMesh(MeshType type,
@@ -32,7 +33,7 @@ public:
 		int frameCount, 
 		DescriptorHeap& cbvSrvUavDescriptorHeap, 
 		DescriptorHeap& samplerDescriptorHeap);
-
+	
 	void CreateUniformBuffer(int frameCount);
 	void UpdateUniformBuffer(int frameIndex);
 
@@ -58,6 +59,14 @@ public:
 	int GetTextureCount();
 	
 private:
+	struct Point
+	{
+		uint32_t VI;
+		uint32_t TI;
+		uint32_t NI;
+	};
+
+	string mFileName;
 	wstring mDebugName;
 	MeshType mType;
 	XMFLOAT3 mPosition;
@@ -86,5 +95,18 @@ private:
 
 	void SetCube();
 	void SetPlane();
-	void SetFullScreenQuad();
+	void SetFullscreenQuad();
+	void SetFullscreenTriangle();
+	void SetSkyFullscreenTriangle();
+	void SetMesh();
+
+	void AssembleObjMesh(
+		const vector<XMFLOAT3> &vecPos,
+		const vector<XMFLOAT2> &vecUV,
+		const vector<XMFLOAT3> &vecNor,
+		const vector<Point> &vecPoint);
+	
+	void ParseObjFace(
+		stringstream &ss, 
+		vector<Point>& tempVecPoint);
 };

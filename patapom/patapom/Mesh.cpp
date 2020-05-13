@@ -1,16 +1,20 @@
 #include "Mesh.h"
 #include "Texture.h"
+#include <fstream>
+#include <sstream>
 
 Mesh::Mesh(const wstring& debugName,
 	const MeshType& type,
 	const XMFLOAT3& position,
 	const XMFLOAT3& rotation,
-	const XMFLOAT3& scale) :
+	const XMFLOAT3& scale,
+	const string& fileName) :
 	mDebugName(debugName),
 	mType(type),
 	mPosition(position),
 	mScale(scale),
-	mRotation(rotation)
+	mRotation(rotation),
+	mFileName(fileName)
 {
 	if (mType == MeshType::PLANE)
 	{
@@ -22,7 +26,19 @@ Mesh::Mesh(const wstring& debugName,
 	}
 	else if (mType == MeshType::FULLSCREEN_QUAD)
 	{
-		SetFullScreenQuad();
+		SetFullscreenQuad();
+	}
+	else if (mType == MeshType::FULLSCREEN_TRIANGLE)
+	{
+		SetFullscreenTriangle();
+	}
+	else if (mType == MeshType::SKY_FULLSCREEN_TRIANGLE)
+	{
+		SetSkyFullscreenTriangle();
+	}
+	else if (mType == MeshType::MESH)
+	{
+		SetMesh();
 	}
 }
 
@@ -50,7 +66,19 @@ void Mesh::ResetMesh(MeshType type,
 	}
 	else if(mType == MeshType::FULLSCREEN_QUAD)
 	{
-		SetFullScreenQuad();
+		SetFullscreenQuad();
+	}
+	else if (mType == MeshType::FULLSCREEN_TRIANGLE)
+	{
+		SetFullscreenTriangle();
+	}
+	else if (mType == MeshType::SKY_FULLSCREEN_TRIANGLE)
+	{
+		SetSkyFullscreenTriangle();
+	}
+	else if (mType == MeshType::MESH)
+	{
+		SetMesh();
 	}
 }
 
@@ -106,7 +134,7 @@ void Mesh::CreateUniformBuffer(int frameCount)
 
 		fatalAssertf(SUCCEEDED(hr), "create object uniform buffer failed");
 		wstring name(L": object uniform buffer ");
-		mUniformBufferVec[i]->SetName((mDebugName + name + to_wstring(i)).data());
+		mUniformBufferVec[i]->SetName((mDebugName + name + to_wstring(i)).c_str());
 	}
 }
 
@@ -385,7 +413,7 @@ void Mesh::SetPlane()
 	mIndexVec[5] = 3;
 }
 
-void Mesh::SetFullScreenQuad()
+void Mesh::SetFullscreenQuad()
 {
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -406,4 +434,304 @@ void Mesh::SetFullScreenQuad()
 	mIndexVec[3] = 0;
 	mIndexVec[4] = 2;
 	mIndexVec[5] = 3;
+}
+
+void Mesh::SetFullscreenTriangle()
+{
+	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	mVertexVec.resize(3);
+
+	mVertexVec[0] = { {-1.f, -1.f, 0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-1.f, 3.f, 0.5f}, {0.0f, 2.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {3.f, -1.f, 0.5f}, {2.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	
+	mIndexVec.resize(3);
+
+	mIndexVec[0] = 0;
+	mIndexVec[1] = 1;
+	mIndexVec[2] = 2;
+}
+
+void Mesh::SetSkyFullscreenTriangle()
+{
+	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	mVertexVec.resize(3);
+
+	mVertexVec[0] = { {-1.f, -1.f, 1.0f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-1.f, 3.f, 1.0f}, {0.0f, 2.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {3.f, -1.f, 1.0f}, {2.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+
+	mIndexVec.resize(3);
+
+	mIndexVec[0] = 0;
+	mIndexVec[1] = 1;
+	mIndexVec[2] = 2;
+}
+
+void Mesh::SetMesh()
+{
+	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+	fstream file;
+	file.open(mFileName, ios::in);
+	fatalAssertf(file.is_open(), "can't open file %s", mFileName.c_str());
+	file.seekg(0, ios::end);
+	int length = file.tellg();
+	file.seekg(0, ios::beg);
+	char* buf = new char[length];
+	file.read(buf, length);
+	file.close();
+
+	stringstream ss;
+	ss.write(buf, length); // well, if you want the ease to use, you gonna suffer the overhead of copying
+	delete buf;
+
+	vector<XMFLOAT3> vecPos;
+	vector<XMFLOAT3> vecNor;
+	vector<XMFLOAT2> vecUV;
+	vector<Point> vecPoint;
+
+	string str;
+	while (getline(ss, str))
+	{
+		if (str.substr(0, 2) == "v ")
+		{
+			stringstream ss;
+			ss << str.substr(2);
+			XMFLOAT3 v;
+			ss >> v.x;
+			ss >> v.y;
+			ss >> v.z;
+			vecPos.push_back(v);
+		}
+		else if (str.substr(0, 3) == "vt ")
+		{
+			stringstream ss;
+			ss << str.substr(3);
+			XMFLOAT2 v;
+			ss >> v.x;
+			ss >> v.y;
+			vecUV.push_back(v);
+		}
+		else if (str.substr(0, 3) == "vn ")
+		{
+			stringstream ss;
+			ss << str.substr(3);
+			XMFLOAT3 v;
+			ss >> v.x;
+			ss >> v.y;
+			ss >> v.z;
+			vecNor.push_back(v);
+		}
+		else if (str.substr(0, 2) == "f ")
+		{
+			stringstream ss;
+			vector<Point> tempVecPoint;
+			ss << str.substr(2);
+
+			//Parsing
+			ParseObjFace(ss, tempVecPoint);
+
+			//if there are more than 3 vertices for one face then split it in to several triangles
+			for (int i = 0; i < tempVecPoint.size(); i++)
+			{
+				if (i >= 3)
+				{
+					vecPoint.push_back(tempVecPoint.at(0));
+					vecPoint.push_back(tempVecPoint.at(i - 1));
+				}
+				vecPoint.push_back(tempVecPoint.at(i));
+			}
+
+		}
+		else if (str[0] == '#')
+		{
+			//comment
+		}
+		else
+		{
+			//others
+		}
+	}
+
+	AssembleObjMesh(vecPos, vecUV, vecNor, vecPoint);
+}
+
+void Mesh::ParseObjFace(stringstream &ss, vector<Point>& tempVecPoint)
+{
+	char discard;
+	char peek;
+	uint32_t data;
+	Point tempPoint;
+	bool next;
+
+	//One vertex in one loop
+	do
+	{
+		next = false;
+		tempPoint = { 0, 0, 0 };
+
+		if (!next)
+		{
+			ss >> peek;
+			if (!ss.eof() && peek >= '0' && peek <= '9')
+			{
+				ss.putback(peek);
+				ss >> data;
+				tempPoint.VI = data;//index start at 1 in an .obj file but at 0 in an array
+				ss >> discard;
+				if (!ss.eof())
+				{
+					if (discard == '/')
+					{
+						//do nothing, this is the normal case, we move on to the next property
+					}
+					else
+					{
+						//this happens when the current property is the last property of this point on the face
+						//the discard is actually the starting number of the next point, so we put it back and move on
+						ss.putback(discard);
+						next = true;
+					}
+				}
+				else
+					next = true;
+			}
+			else
+				next = true;
+		}
+
+		if (!next)
+		{
+			ss >> peek;
+			if (!ss.eof() && peek >= '0' && peek <= '9')
+			{
+				ss.putback(peek);
+				ss >> data;
+				tempPoint.TI = data;//index start at 1 in an .obj file but at 0 in an array
+				ss >> discard;
+				if (!ss.eof())
+				{
+					if (discard == '/')
+					{
+						//do nothing, this is the normal case, we move on to the next property
+					}
+					else
+					{
+						//this happens when the current property is the last property of this point on the face
+						//the discard is actually the starting number of the next point, so we put it back and move on
+						ss.putback(discard);
+						next = true;
+					}
+				}
+				else
+					next = true;
+			}
+			else
+				next = true;
+		}
+
+		if (!next)
+		{
+			ss >> peek;
+			if (!ss.eof() && peek >= '0' && peek <= '9')
+			{
+				ss.putback(peek);
+				ss >> data;
+				tempPoint.NI = data;//index start at 1 in an .obj file but at 0 in an array
+				//normally we don't need the code below because normal index usually is the last property, but hey, better safe than sorry
+				ss >> discard;
+				if (!ss.eof())
+				{
+					if (discard == '/')
+					{
+						//do nothing, this is the normal case, we move on to the next property
+					}
+					else
+					{
+						//this happens when the current property is the last property of this point on the face
+						//the discard is actually the starting number of the next point, so we put it back and move on
+						ss.putback(discard);
+						next = true;
+					}
+				}
+				else
+					next = true;
+			}
+			else
+				next = true;
+		}
+
+		tempVecPoint.push_back(tempPoint);
+	} while (!ss.eof());
+}
+
+void Mesh::AssembleObjMesh(
+	const vector<XMFLOAT3> &vecPos,
+	const vector<XMFLOAT2> &vecUV,
+	const vector<XMFLOAT3> &vecNor,
+	const vector<Point> &vecPoint)
+{
+	uint32_t n = static_cast<uint32_t>(vecPoint.size());
+
+	mVertexVec.resize(n);
+	mIndexVec.resize(n);
+
+	for (uint32_t i = 0; i < n; i += 3)
+	{
+		XMFLOAT3 p0 = vecPos[vecPoint[i].VI - 1];
+		XMFLOAT3 p1 = vecPos[vecPoint[i + 1].VI - 1];
+		XMFLOAT3 p2 = vecPos[vecPoint[i + 2].VI - 1];
+
+		XMFLOAT2 w0 = vecUV[vecPoint[i].TI - 1];
+		XMFLOAT2 w1 = vecUV[vecPoint[i + 1].TI - 1];
+		XMFLOAT2 w2 = vecUV[vecPoint[i + 2].TI - 1];
+
+		float x1 = p1.x - p0.x;
+		float x2 = p2.x - p0.x;
+		float y1 = p1.y - p0.y;
+		float y2 = p2.y - p0.y;
+		float z1 = p1.z - p0.z;
+		float z2 = p2.z - p0.z;
+
+		float s1 = w1.x - w0.x;
+		float s2 = w2.x - w0.x;
+		float t1 = w1.y - w0.y;
+		float t2 = w2.y - w0.y;
+
+		float r = 1.0f / (s1 * t2 - s2 * t1);
+		XMFLOAT3 sdir(
+			(t2 * x1 - t1 * x2) * r,
+			(t2 * y1 - t1 * y2) * r,
+			(t2 * z1 - t1 * z2) * r);
+		XMFLOAT3 tdir(
+			(s1 * x2 - s2 * x1) * r,
+			(s1 * y2 - s2 * y1) * r,
+			(s1 * z2 - s2 * z1) * r);
+
+		XMStoreFloat3(&sdir, XMVector3Normalize(XMLoadFloat3(&sdir)));
+		XMStoreFloat3(&tdir, XMVector3Normalize(XMLoadFloat3(&tdir)));
+
+		for (uint32_t j = i; j < i + 3; j++)
+		{
+			XMFLOAT3 pos(0, 0, 0);
+			XMFLOAT3 nor(0, 0, 0);
+			XMFLOAT2 uv(0, 0);
+
+			if (vecPoint[j].VI > 0) pos = vecPos[vecPoint[j].VI - 1];//index start at 1 in an .obj file but at 0 in an array, 0 was used to mark not-have-pos
+			if (vecPoint[j].NI > 0) nor = vecNor[vecPoint[j].NI - 1];//index start at 1 in an .obj file but at 0 in an array, 0 was used to mark not-have-nor
+			if (vecPoint[j].TI > 0) uv = vecUV[vecPoint[j].TI - 1];//index start at 1 in an .obj file but at 0 in an array, 0 was used to mark not-have-uv
+
+			//The order is fixed, it is the same in the shaders. The only way to tell the direction when reconstructing tangent is the sign component.
+			float dotProduct = 0;
+			XMStoreFloat(&dotProduct, XMVector3Dot(XMVector3Cross(XMLoadFloat3(&nor), XMLoadFloat3(&sdir)), XMLoadFloat3(&tdir)));
+			float sign = dotProduct > 0.0f ? 1.0f : -1.0f;
+			XMFLOAT4 tan(sdir.x, sdir.y, sdir.z, sign);
+
+			mVertexVec[j] = { pos, uv, nor, tan };
+			mIndexVec[j] = j;//this way, all 3 vertices on every triangle are unique, even though they belong to the same polygon, which increase storing space but allow for finer control
+		}
+	}
 }

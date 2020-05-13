@@ -44,6 +44,7 @@ protected:
 	string mFileName;
 	wstring mDebugName;
 	bool mUseMipmap;
+	bool mInitialized;
 	int mWidth;
 	int mHeight;
 	int mMipLevelCount;
@@ -57,6 +58,7 @@ protected:
 	ResourceLayout mTextureBufferLayout;
 };
 
+// TODO: add support to only enable depthStencil buffer
 class RenderTexture : public Texture
 {
 public:
@@ -68,9 +70,20 @@ public:
 		ReadFrom readFrom,
 		Sampler sampler,
 		Format renderTargetFormat,
-		int multiSampleCount = 1,
-		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
-		BlendState blendState = BlendState::Default());
+		XMFLOAT4 colorClearValue,
+		int multiSampleCount = 1);
+	
+	// only enable depthStencil buffer
+	RenderTexture(
+		const wstring& debugName,
+		int width,
+		int height,
+		ReadFrom readFrom,
+		Sampler sampler,
+		Format depthStencilFormat,
+		float depthClearValue,
+		uint8_t stencilClearValue,
+		int multiSampleCount = 1);
 
 	// enable both color and depthStencil buffer
 	RenderTexture(
@@ -81,12 +94,10 @@ public:
 		Sampler sampler,
 		Format renderTargetFormat,
 		Format depthStencilFormat,
-		int multiSampleCount = 1,
 		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
 		float depthClearValue = 1.f,
 		uint8_t stencilClearValue = 0,
-		BlendState blendState = BlendState::Default(),
-		DepthStencilState depthStencilState = DepthStencilState::Default());
+		int multiSampleCount = 1);
 
 	virtual ~RenderTexture();
 
@@ -97,17 +108,14 @@ public:
 	bool ReadFromColor();
 	bool IsMultiSampleUsed();
 	bool IsResolveNeeded();
+	bool IsRenderTargetUsed();
 	bool IsDepthStencilUsed();
 	ID3D12Resource* GetRenderTargetBuffer();
 	ID3D12Resource* GetDepthStencilBuffer();
 	D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc();
 	D3D12_DEPTH_STENCIL_VIEW_DESC GetDsvDesc();
-	D3D12_RENDER_TARGET_BLEND_DESC GetRenderTargetBlendDesc();
-	D3D12_DEPTH_STENCIL_DESC GetDepthStencilDesc();
 	Format GetRenderTargetFormat();
 	Format GetDepthStencilFormat();
-	BlendState GetBlendState();
-	DepthStencilState GetDepthStencilState();
 	int GetMultiSampleCount();
 
 	void MakeReadyToWrite(ID3D12GraphicsCommandList* commandList);
@@ -128,15 +136,14 @@ protected:
 		int height,
 		ReadFrom readFrom,
 		Sampler sampler,
+		bool useRenderTarget,
 		bool useDepthStencil,
 		Format renderTargetFormat,
 		Format depthStencilFormat,
-		int multiSampleCount,
 		XMFLOAT4 colorClearValue,
 		float depthClearValue,
 		uint8_t stencilClearValue,
-		BlendState blendState,
-		DepthStencilState depthStencilState);
+		int multiSampleCount);
 	
 	// TODO: hide API specific implementation in Renderer
 	bool TransitionDepthStencilLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout);
@@ -146,6 +153,7 @@ protected:
 
 private:
 	ReadFrom mReadFrom;
+	bool mUseRenderTarget;
 	bool mUseDepthStencil;
 	int mMultiSampleCount;
 	ID3D12Resource* mRenderTargetBuffer; // TODO: hide API specific implementation in Renderer
@@ -157,7 +165,4 @@ private:
 	ResourceLayout mDepthStencilBufferLayout;
 	Format mDepthStencilFormat;
 	Format mRenderTargetFormat;
-
-	BlendState mBlendState;
-	DepthStencilState mDepthStencilState;
 };

@@ -14,10 +14,14 @@ class Pass
 public:
 	struct PassUniform
 	{	
-		uint32_t mPassIndex;
-		XMFLOAT3 mCameraPos;
 		XMFLOAT4X4 mViewProj;
 		XMFLOAT4X4 mViewProjInv;
+		uint32_t mPassIndex;
+		XMFLOAT3 mEyePos;
+		float mNearClipPlane;
+		float mFarClipPlane;
+		float mWidth;
+		float mHeight;
 	};
 
 	Pass(const wstring& debugName = L"unnamed pass");
@@ -27,13 +31,15 @@ public:
 	void SetCamera(Camera* camera);
 	void AddMesh(Mesh* mesh);
 	void AddTexture(Texture* texture);
-	void AddRenderTexture(RenderTexture* renderTexture);
+	void AddRenderTexture(RenderTexture* renderTexture, const BlendState& blendState, const DepthStencilState& depthStencilState);
 	void AddShader(Shader* shader);
 
 	int GetTextureCount();
 	int GetRenderTextureCount();
-	vector<Texture*>& GetTextureVec();
-	vector<RenderTexture*>& GetRenderTextureVec();
+	vector<Texture*>& GetTextures();
+	vector<RenderTexture*>& GetRenderTextures();
+	vector<BlendState>& GetBlendStates();
+	vector<DepthStencilState>& GetDepthStencilStates();
 	RenderTexture* GetRenderTexture(int i);
 	Camera* GetCamera();
 	Scene* GetScene();
@@ -49,6 +55,7 @@ public:
 	bool IsStencilReferenceUsed();
 	float* GetConstantBlendFactors();
 	uint32_t GetStencilReference();
+	const wstring& GetDebugName();
 
 	void InitPass(
 		Renderer* renderer,
@@ -70,6 +77,8 @@ private:
 	vector<Mesh*> mMeshes;
 	vector<Texture*> mTextures;
 	vector<RenderTexture*> mRenderTextures;
+	vector<BlendState> mBlendStates; // matches mRenderTextures
+	vector<DepthStencilState> mDepthStencilStates; // matches mRenderTextures
 	Shader* mShaders[Shader::ShaderType::COUNT];
 
 	// one for each frame

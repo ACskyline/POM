@@ -1,4 +1,7 @@
-#include "GlobalInclude.hlsli"
+#include "GlobalInclude.hlsl"
+#include "Lighting.hlsl"
+
+#define SUN_RADIANCE_SCALING_FACTOR 0.05
 
 Texture2D albedoTex : register(t0, SPACE(PASS));
 SamplerState albedoSampler : register(s0, SPACE(PASS));
@@ -17,12 +20,11 @@ PS_OUTPUT main(VS_OUTPUT input)
     float3 norWorld = normalize(input.norWorld);
     float3 tanWorld = normalize(input.tanWorld);
     float3 bitanWorld = normalize(input.bitanWorld);
-    float3 lightPosWorld = float3(2.0f, 2.0f, 2.0f);
-    float3 eyeDir = normalize(eyePos - posWorld);
-    float3 lightDir = normalize(lightPosWorld - posWorld);
+    float3 eyeDir = normalize(pEyePos - posWorld);
+    float3 sunDir = GetSunDir(sSunAzimuth, sSunAltitude);
     float3 col = 0.0f.xxx;
     
-    if (mode == 0)
+    if (sMode == 0)
     {
         float4 albedoCol = albedoTex.Sample(albedoSampler, uv);
         float4 normalCol = normalTex.Sample(normalSampler, uv);
@@ -30,27 +32,29 @@ PS_OUTPUT main(VS_OUTPUT input)
         float3x3 tanToWorld = float3x3(tanWorld, bitanWorld, norWorld);
         float3 mappedNormal = normalize(mul(paintedNormal, tanToWorld));
         
-        float3 halfDir = normalize((eyeDir + lightDir) / 2.0f);
-        float atten = exp(-length(lightPosWorld - posWorld) / 8.0f); // exponential fake light attenuation
+        float3 halfDir = normalize(eyeDir + sunDir);
         
-        //col = albedoCol * (dot(mappedNormal, lightDir) * 0.5f + 0.5f) * atten; // half lambert
-        col = albedoCol * saturate(pow(dot(halfDir, mappedNormal), 5.0f)) * atten; // blinn phong
+        //col = albedoCol * (dot(mappedNormal, sunDir) * 0.5f + 0.5f) * atten; // half lambert
+        if (dot(sunDir, mappedNormal) > 0.0f)
+            col = albedoCol * saturate(pow(dot(halfDir, mappedNormal), 5.0f)); // blinn phong
     }
-    else if(mode == 1)
+    else if (sMode == 1)
     {
-        float3 marchVec = marchScale * (eyeDir / dot(eyeDir, norWorld)); // normalize on normal direction and then scale it
+        float3 marchVec = sPomScale * (eyeDir / dot(eyeDir, norWorld)); // normalize on normal direction and then scale it
         float3 marchUV = marchVec - dot(marchVec, norWorld) * norWorld;
         float2 projectedMarchUV = float2(dot(marchUV, tanWorld), dot(marchUV, bitanWorld));
-        float curHeight = 1.0f - marchBias;
+        float curHeight = 1.0f - sPomBias;
         float curRefHeight = curHeight;
-        float prevHeight = 1.0f - marchBias;
+        float prevHeight = 1.0f - sPomBias;
         float prevRefHeight = prevHeight;
-        float deltaHeight = -abs(dot(marchVec, norWorld)) / (float) marchStep;
+        float deltaHeight = -abs(dot(marchVec, norWorld)) / (float) sPomMarchStep; // change to marching inwards
+        float3 deltaPos = -marchVec / (float) sPomMarchStep; // change to marching inwards
+        float3 pomPosWorld = posWorld;
         float2 curUV = uv;
         float2 prevUV = curUV;
-        float2 deltaUV = -projectedMarchUV / (float)marchStep;
+        float2 deltaUV = -projectedMarchUV / (float) sPomMarchStep; // change to marching inwards
         [loop]
-        for (uint i = 0; i < marchStep; i++)
+        for (uint i = 0; i < sPomMarchStep; i++)
         {
             float refHeight = heightTex.Sample(heightSampler, curUV);
             curRefHeight = refHeight;
@@ -65,33 +69,63 @@ PS_OUTPUT main(VS_OUTPUT input)
                 prevUV = curUV;
                 curHeight += deltaHeight;
                 curUV += deltaUV;
+                pomPosWorld += deltaPos;
             }
         }
 
+        posWorld = pomPosWorld;
         float deltaHeightPrevAbs = abs(prevHeight - prevRefHeight);
         float deltaHeightCurAbs = abs(curHeight - curRefHeight);
         curUV = lerp(prevUV, curUV, deltaHeightPrevAbs / (deltaHeightPrevAbs + deltaHeightCurAbs));
-        float pomScale = dot(eyeDir, norWorld);
-        uv = lerp(uv, curUV, sin(Half_Pi * pomScale));
+        float viewPomScale = dot(eyeDir, norWorld);
+        uv = lerp(uv, curUV, sin(HALF_PI * viewPomScale));
         float4 albedoCol = albedoTex.Sample(albedoSampler, uv);
         float4 normalCol = normalTex.Sample(normalSampler, uv);
         float3 paintedNormal = normalCol.rgb * 2.0f - 1.0f;
         float3x3 tanToWorld = float3x3(tanWorld, bitanWorld, norWorld);
         float3 mappedNormal = normalize(mul(paintedNormal, tanToWorld));
         
-        float3 halfDir = normalize((eyeDir + lightDir) / 2.0f);
-        float atten = exp(-length(lightPosWorld - posWorld) / 8.0f); // exponential fake light attenuation
+        // sun light
+        // TODO: add support for sun light shadow map
+        float3 halfDir = normalize(eyeDir + sunDir);
+        float brdf = saturate(pow(dot(halfDir, mappedNormal), 5.0f)); // TODO: add support for GGX, blinn phong for now
+        if (dot(sunDir, mappedNormal) > 0.0f)
+            col += albedoCol.rgb * brdf * sSunRadiance * SUN_RADIANCE_SCALING_FACTOR;
+    
+        SurfaceData sd;
+        sd.albedo = albedoCol;
+        sd.posWorld = posWorld;
+        sd.normalWorld = mappedNormal;
+        sd.geomNormalWorld = norWorld;
+        sd.eyeDirWorld = eyeDir;
+        sd.sunDirWorld = sunDir;
         
-        //col = albedoCol * (dot(mappedNormal, lightDir) * 0.5f + 0.5f) * atten; // half lambert
-        col = albedoCol * saturate(pow(dot(halfDir, mappedNormal), 5.0f)) * atten; // blinn phong
-        //col = float3(uv, 0.0f);
+        // scene lights
+        col += albedoCol.rgb * brdf * Lighting(sd);
     }
-    else if(mode == 2)
+    else if (sMode == 2) // albedo
         col = albedoTex.Sample(albedoSampler, uv).rgb;
-    else if (mode == 3)
-        col = normalTex.Sample(normalSampler, uv).rgb;
-    else if (mode == 4)
+    else if (sMode == 3) // normal
+    {
+        float4 albedoCol = albedoTex.Sample(albedoSampler, uv);
+        float4 normalCol = normalTex.Sample(normalSampler, uv);
+        float3 paintedNormal = normalCol.rgb * 2.0f - 1.0f;
+        float3x3 tanToWorld = float3x3(tanWorld, bitanWorld, norWorld);
+        float3 mappedNormal = normalize(mul(paintedNormal, tanToWorld));
+        
+        col = mappedNormal * 0.5f + 0.5f;
+        //col = normalTex.Sample(normalSampler, uv).rgb;
+    }
+    else if (sMode == 4) // height
         col = heightTex.Sample(heightSampler, uv).rgb;
+    else if (sMode == 5) // uv
+        col = float3(uv.xy, 0.0f);
+    else if (sMode == 6) // sunDir
+        col = sunDir * 0.5f + 0.5f;
+    else if (sMode == 7) // debug
+        col = 0.0f.xxx;
+    else if (sMode == 8) // debug
+        col = 0.0f.xxx;
     
     output.col0 = float4(col, 1.0f);
     return output;

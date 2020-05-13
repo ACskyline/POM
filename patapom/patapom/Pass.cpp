@@ -39,9 +39,15 @@ void Pass::AddTexture(Texture* texture)
 	mTextures.push_back(texture);
 }
 
-void Pass::AddRenderTexture(RenderTexture* renderTexture)
+void Pass::AddRenderTexture(RenderTexture* renderTexture, const BlendState& blendState, const DepthStencilState& depthStencilState)
 {
+	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mBlendEnable), "render texture does not have render target buffer but trying to enable blend!");
+	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mLogicOpEnable), "render texture does not have render target buffer but trying to enable logic op!");
+	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthWriteEnable), "render texture does not have depth stencil buffer but trying to enable depth write!");
+	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthTestEnable), "render texture does not have depth stencil buffer but trying to enable depth test!");
 	mRenderTextures.push_back(renderTexture);
+	mBlendStates.push_back(blendState);
+	mDepthStencilStates.push_back(depthStencilState);
 }
 
 void Pass::AddShader(Shader* shader)
@@ -64,7 +70,7 @@ void Pass::CreateUniformBuffer(int frameCount)
 
 		fatalAssertf(!CheckError(hr, mRenderer->mDevice), "create pass uniform buffer failed");
 		wstring name(L": pass uniform buffer ");
-		mUniformBuffers[i]->SetName((mDebugName + name + to_wstring(i)).data());
+		mUniformBuffers[i]->SetName((mDebugName + name + to_wstring(i)).c_str());
 	}
 }
 
@@ -73,10 +79,14 @@ void Pass::UpdateUniformBuffer(int frameIndex, Camera* camera)
 	if (camera == nullptr)
 		camera = mCamera;
 	camera->Update();
-	mPassUniform.mPassIndex = 1;//TODO: create a class static counter so that we can save an unique id for each frame
-	mPassUniform.mCameraPos = camera->GetPosition();
 	mPassUniform.mViewProj = camera->GetViewProjMatrix();
 	mPassUniform.mViewProjInv = camera->GetViewProjInvMatrix();
+	mPassUniform.mPassIndex = 1;//TODO: create a class static counter so that we can save an unique id for each frame
+	mPassUniform.mEyePos = camera->GetPosition();
+	mPassUniform.mNearClipPlane = camera->GetNearClipPlane();
+	mPassUniform.mFarClipPlane = camera->GetFarClipPlane();
+	mPassUniform.mWidth = camera->GetWidth();
+	mPassUniform.mHeight = camera->GetHeight();
 
 	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
 	void* cpuAddress;
@@ -138,6 +148,11 @@ uint32_t Pass::GetStencilReference()
 	return mStencilReference;
 }
 
+const wstring& Pass::GetDebugName()
+{
+	return mDebugName;
+}
+
 void Pass::InitPass(
 	Renderer* renderer,
 	int frameCount,
@@ -146,6 +161,12 @@ void Pass::InitPass(
 	DescriptorHeap& rtvDescriptorHeap,
 	DescriptorHeap& dsvDescriptorHeap)
 {
+	fatalAssertf(mMeshes.size() != 0, "no mesh in this pass!");
+	fatalAssertf(mRenderTextures.size() == mBlendStates.size() && mRenderTextures.size() == mDepthStencilStates.size(), "size of render texture, blend state and depth stencil state don't match!");
+	// revisit the two asserts below after adding support for compute shaders
+	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr, "no vertex shader in this pass!");
+	assertf(mShaders[Shader::PIXEL_SHADER] != nullptr, "no pixel shader in this pass!");
+
 	mRenderer = renderer;
 
 	// 1. create uniform buffers 
@@ -169,6 +190,7 @@ void Pass::InitPass(
 	}
 
 	// 3. create root signature
+	// ordered in scene/frame/pass/object
 	int maxTextureCount[(int)UNIFORM_REGISTER_SPACE::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mTextures.size(), GetMaxMeshTextureCount() };
 	mRenderer->CreateGraphicsRootSignature(&mRootSignature, maxTextureCount);
 
@@ -189,7 +211,7 @@ void Pass::InitPass(
 	for(int i = 0; i < mRenderTextures.size() && i < 8; i++) // only the first 8 targets will be used
 	{
 		// these values are set using OMSet... functions in D3D12, so we cache them here
-		const BlendState& blendState = mRenderTextures[i]->GetBlendState();
+		const BlendState& blendState = mBlendStates[i];
 		if (!mConstantBlendFactorsUsed && (
 				blendState.mSrcBlend == BlendState::BlendFactor::CONSTANT ||
 				blendState.mSrcBlend == BlendState::BlendFactor::INV_CONSTANT ||
@@ -204,7 +226,7 @@ void Pass::InitPass(
 			memcpy(mBlendConstants, blendState.mBlendConstants, sizeof(blendState.mBlendConstants));
 		}
 
-		const DepthStencilState& depthStencilState = mRenderTextures[i]->GetDepthStencilState();
+		const DepthStencilState& depthStencilState = mDepthStencilStates[i];
 		if (!mStencilReferenceUsed && (
 			depthStencilState.mFrontStencilOpSet.mDepthFailOp == DepthStencilState::StencilOp::REPLACE ||
 			depthStencilState.mFrontStencilOpSet.mFailOp == DepthStencilState::StencilOp::REPLACE ||
@@ -226,10 +248,10 @@ void Pass::InitPass(
 	}
 	
 	// create PSO
-	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // TODO: add support for other primitive types
+	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
 	mRenderer->CreatePSO(
-		mRenderTextures,
+		*this,
 		&mPso,
 		mRootSignature,
 		mPrimitiveType,
@@ -251,14 +273,24 @@ int Pass::GetRenderTextureCount()
 	return mRenderTextures.size();
 }
 
-vector<Texture*>& Pass::GetTextureVec()
+vector<Texture*>& Pass::GetTextures()
 {
 	return mTextures;
 }
 
-vector<RenderTexture*>& Pass::GetRenderTextureVec()
+vector<RenderTexture*>& Pass::GetRenderTextures()
 {
 	return mRenderTextures;
+}
+
+vector<BlendState>& Pass::GetBlendStates()
+{
+	return mBlendStates;
+}
+
+vector<DepthStencilState>& Pass::GetDepthStencilStates()
+{
+	return mDepthStencilStates;
 }
 
 RenderTexture* Pass::GetRenderTexture(int i)

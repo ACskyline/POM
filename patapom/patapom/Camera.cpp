@@ -66,23 +66,52 @@ void Camera::UpdateScissorRect()
 
 void Camera::UpdateMatrices()
 {
+	XMMATRIX view = XMMatrixLookAtLH(
+		XMLoadFloat3(&mPosition), 
+		XMLoadFloat3(&mTarget), 
+		XMLoadFloat3(&mUp));
+
+	XMMATRIX proj = XMMatrixPerspectiveFovLH(
+		XMConvertToRadians(mFov),
+		mWidth / mHeight,
+		mNearClipPlane,
+		mFarClipPlane);
+
+	// mView
+	XMStoreFloat4x4(
+		&mView,
+		view);
+
+	// mViewInv
+	XMStoreFloat4x4(
+		&mViewInv,
+		XMMatrixInverse(
+			nullptr, 
+			view));
+
+	// mProj
+	XMStoreFloat4x4(
+		&mProj,
+		proj);
+
+	// mProjInv
+	XMStoreFloat4x4(
+		&mProjInv,
+		XMMatrixInverse(
+			nullptr,
+			proj));
+
+	// mViewProj
 	XMStoreFloat4x4(
 		&mViewProj,
-		XMMatrixLookAtLH(
-			XMLoadFloat3(&mPosition),
-			XMLoadFloat3(&mTarget),
-			XMLoadFloat3(&mUp)) *
-		XMMatrixPerspectiveFovLH(
-			XMConvertToRadians(mFov),
-			mWidth / mHeight,
-			mNearClipPlane,
-			mFarClipPlane));
+		view * proj);
 
+	// mViewProjInv
 	XMStoreFloat4x4(
 		&mViewProjInv,
 		XMMatrixInverse(
 			nullptr,
-			XMLoadFloat4x4(&mViewProj)));
+			view * proj));
 }
 
 void Camera::InitCamera()
@@ -122,6 +151,26 @@ ScissorRect Camera::GetScissorRect()
 	return mScissorRect;
 }
 
+XMFLOAT4X4 Camera::GetViewMatrix()
+{
+	return mView;
+}
+
+XMFLOAT4X4 Camera::GetViewInvMatrix()
+{
+	return mViewInv;
+}
+
+XMFLOAT4X4 Camera::GetProjMatrix()
+{
+	return mProj;
+}
+
+XMFLOAT4X4 Camera::GetProjInvMatrix()
+{
+	return mProjInv;
+}
+
 XMFLOAT4X4 Camera::GetViewProjMatrix()
 {
 	return mViewProj;
@@ -158,6 +207,26 @@ XMFLOAT3 Camera::GetRealUp()
 	XMVECTOR right = XMLoadFloat3(&GetRight());
 	XMStoreFloat3(&result, XMVector3Cross(right, forward));
 	return result;
+}
+
+float Camera::GetNearClipPlane()
+{
+	return mNearClipPlane;
+}
+
+float Camera::GetFarClipPlane()
+{
+	return mFarClipPlane;
+}
+
+float Camera::GetWidth()
+{
+	return mWidth;
+}
+
+float Camera::GetHeight()
+{
+	return mHeight;
 }
 
 void Camera::SetTarget(XMFLOAT3 target)

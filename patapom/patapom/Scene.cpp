@@ -1,6 +1,7 @@
 #include "Scene.h"
 #include "Pass.h"
 #include "Texture.h"
+#include "Light.h"
 
 Scene::Scene(const wstring& debugName) : 
 	mRenderer(nullptr), mDebugName(debugName)
@@ -21,6 +22,17 @@ void Scene::AddPass(Pass* pass)
 void Scene::AddTexture(Texture* texture)
 {
 	mTextures.push_back(texture);
+}
+
+void Scene::AddLight(Light* light)
+{
+	light->SetScene(this);
+	mLights.push_back(light);
+	if (light->GetRenderTexture() != nullptr)
+	{
+		light->SetTextureIndex(static_cast<int32_t>(mTextures.size()));
+		mTextures.push_back(light->GetRenderTexture());
+	}
 }
 
 int Scene::GetTextureCount()
@@ -83,12 +95,26 @@ void Scene::CreateUniformBuffer(int frameCount)
 
 		fatalAssertf(SUCCEEDED(hr), "create scene uniform buffer failed");
 		wstring name(L": scene uniform buffer ");
-		mUniformBuffers[i]->SetName((mDebugName + name + to_wstring(i)).data());
+		mUniformBuffers[i]->SetName((mDebugName + name + to_wstring(i)).c_str());
 	}
 }
 
 void Scene::UpdateUniformBuffer(int frameIndex)
 {
+	mSceneUniform.lightCount = mLights.size();
+	for(int i = 0;i<mLights.size() && i<MAX_LIGHTS_PER_SCENE;i++)
+	{
+		mSceneUniform.lights[i].view = mLights[i]->GetViewMatrix();
+		mSceneUniform.lights[i].viewInv = mLights[i]->GetViewInvMatrix();
+		mSceneUniform.lights[i].proj = mLights[i]->GetProjMatrix();
+		mSceneUniform.lights[i].projInv = mLights[i]->GetProjInvMatrix();
+		mSceneUniform.lights[i].color = mLights[i]->GetColor();
+		mSceneUniform.lights[i].position = mLights[i]->GetPosition();
+		mSceneUniform.lights[i].nearClipPlane = mLights[i]->GetNearClipPlane();
+		mSceneUniform.lights[i].farClipPlane = mLights[i]->GetFarClipPlane();
+		mSceneUniform.lights[i].textureIndex = mLights[i]->GetTextureIndex();
+	}
+
 	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
 	void* cpuAddress;
 	mUniformBuffers[frameIndex]->Map(0, &readRange, &cpuAddress);

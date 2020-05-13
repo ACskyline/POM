@@ -69,6 +69,9 @@
     <ClCompile Include="Level.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Light.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h">
@@ -125,6 +128,9 @@
     <ClInclude Include="Level.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Light.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="ps.hlsl">
@@ -142,9 +148,18 @@
     <FxCompile Include="ps_deferred_ms.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
+    <FxCompile Include="vs_sky.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_sky.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="Lighting.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="GlobalInclude.hlsli">
+    <None Include="GlobalInclude.hlsl">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>

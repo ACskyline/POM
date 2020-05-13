@@ -144,7 +144,7 @@ D3D12_DEPTH_STENCIL_DESC Renderer::TranslateDepthStencilState(DepthStencilState 
 	result.FrontFace = Renderer::TranslateStencilOpSet(state.mFrontStencilOpSet);
 	result.BackFace = Renderer::TranslateStencilOpSet(state.mBackStencilOpSet);
 	return result;
-} 	
+}
 
 D3D12_RENDER_TARGET_BLEND_DESC Renderer::TranslateBlendState(BlendState state)
 {
@@ -830,7 +830,7 @@ void Renderer::CreateDepthStencilBuffers(Format format)
 
 		assertf(SUCCEEDED(hr), "create swap chain depth stencil buffer %d failed", i);
 		wstring name(L"swap chain depth stencil buffer : ");
-		mDepthStencilBuffers[i]->SetName((name + to_wstring(i)).data());
+		mDepthStencilBuffers[i]->SetName((name + to_wstring(i)).c_str());
 		mDsvHandles[i] = mDsvDescriptorHeap.AllocateDsv(mDepthStencilBuffers[i], dsViewDesc, 1);
 	}
 }
@@ -889,7 +889,7 @@ void Renderer::CreatePreResolveBuffers(Format format)
 
 		assertf(SUCCEEDED(hr), "create swap chain pre resolve buffer %d failed", i);
 		wstring name(L"swap chain pre resolve buffer : ");
-		mPreResolveColorBuffers[i]->SetName((name + to_wstring(i)).data());
+		mPreResolveColorBuffers[i]->SetName((name + to_wstring(i)).c_str());
 		mPreResolvedRtvHandles[i] = mRtvDescriptorHeap.AllocateRtv(mPreResolveColorBuffers[i], 1);
 	}
 }
@@ -1313,7 +1313,7 @@ void Renderer::CreateDescriptorHeap(DescriptorHeap& descriptorHeap, int size)
 }
 
 void Renderer::CreatePSO(
-	vector<RenderTexture*>& renderTextures,
+	Pass& pass,
 	ID3D12PipelineState** pso,
 	ID3D12RootSignature* rootSignature,
 	D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
@@ -1330,12 +1330,17 @@ void Renderer::CreatePSO(
 	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
 	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	int multiSampleCount = -1;
+	vector<RenderTexture*>& renderTextures = pass.GetRenderTextures();
+	vector<BlendState>& blendStates = pass.GetBlendStates();
+	vector<DepthStencilState>& depthStencilStates = pass.GetDepthStencilStates();
+
+	fatalAssertf(renderTextures.size() == blendStates.size() && renderTextures.size() == depthStencilStates.size(), "size of render texture, blend state and depth stencil state don't match!");
 
 	if (renderTextures.size() > 0) 
 	{ 
 		// if render textures are used
 		rtvFormatVec.resize(renderTextures.size());
-		depthStencilDesc = renderTextures[0]->GetDepthStencilDesc();
+		depthStencilDesc = TranslateDepthStencilState(depthStencilStates[0]);
 		multiSampleCount = renderTextures[0]->GetMultiSampleCount();
 		if (renderTextures.size() > 1)
 			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, add it as a member variable to pass class
@@ -1344,7 +1349,7 @@ void Renderer::CreatePSO(
 		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
 		{
 			// render targets recording
-			blendDesc.RenderTarget[i] = renderTextures[i]->GetRenderTargetBlendDesc();
+			blendDesc.RenderTarget[i] = TranslateBlendState(blendStates[i]);
 			rtvFormatVec[i] = Renderer::TranslateFormat(renderTextures[i]->GetRenderTargetFormat());
 		}
 
@@ -1515,17 +1520,20 @@ void Renderer::RecordPass(
 		for (int i = 0; i < frameRtvHandles.size(); i++)
 		{
 			// clear the render target buffer
-			if(clearColor)
-				commandList->ClearRenderTargetView(frameRtvHandles[i], clearColorValueV, 0, nullptr);
-			
-			// clear the depth/stencil buffer
-			if((clearDepth || clearStencil) && 
-				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsDepthStencilUsed()) ||
+			if (clearColor &&
+				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsRenderTargetUsed()) ||
 				(pass.GetRenderTextureCount() <= 0)))
-			{
-				D3D12_CLEAR_FLAGS flag = clearDepth ? (clearStencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH) : D3D12_CLEAR_FLAG_STENCIL;
-				commandList->ClearDepthStencilView(frameDsvHandles[i], flag, clearDepthValue, clearStencilValue, 0, nullptr);
-			}
+				commandList->ClearRenderTargetView(frameRtvHandles[i], clearColorValueV, 0, nullptr);
+
+		}
+
+		// clear the depth/stencil buffer
+		if ((clearDepth || clearStencil) &&
+			((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(dsvIndex)->IsDepthStencilUsed()) ||
+			(pass.GetRenderTextureCount() <= 0)))
+		{
+			D3D12_CLEAR_FLAGS flag = clearDepth ? (clearStencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH) : D3D12_CLEAR_FLAG_STENCIL;
+			commandList->ClearDepthStencilView(frameDsvHandles[dsvIndex], flag, clearDepthValue, clearStencilValue, 0, nullptr);
 		}
 	}
 
@@ -1614,6 +1622,7 @@ void Renderer::CreateGraphicsRootSignature(
 				rootParameterArr[slot].DescriptorTable.pDescriptorRanges = &samplerTableRanges[uSpace]; // the pointer to the beginning of our ranges array
 				rootParameterArr[slot].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			}
+			// TODO: add buffer support in the future
 			else
 			{
 				fatalf("root parameter is wrong");

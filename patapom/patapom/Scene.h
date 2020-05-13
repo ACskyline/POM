@@ -3,22 +3,52 @@
 #include "GlobalInclude.h"
 
 class Texture;
+class Light;
+
+const uint32_t MAX_LIGHTS_PER_SCENE = 10;
+
+struct LightData {
+	XMFLOAT4X4 view;
+	XMFLOAT4X4 viewInv;
+	XMFLOAT4X4 proj;
+	XMFLOAT4X4 projInv;
+	XMFLOAT3 color = { 0, 0, 0 };
+	float nearClipPlane = 0.0f;
+	XMFLOAT3 position = { 0, 0, 0 };
+	float farClipPlane = 0.0f;
+	int32_t textureIndex = -1;
+	uint32_t PADDING0;
+	uint32_t PADDING1;
+	uint32_t PADDING2;
+};
 
 class Scene
 {
 public:
 	struct SceneUniform
 	{
-		uint32_t sceneMode;
-		int32_t marchStep;
-		float marchScale;
-		float marchBias;
+		uint32_t mode;
+		uint32_t pomMarchStep;
+		float pomScale;
+		float pomBias;
+		float skyScatterG;
+		uint32_t skyMarchStep;
+		uint32_t skyMarchStepTr;
+		float sunAzimuth; // horizontal
+		float sunAltitude; // vertical
+		XMFLOAT3 sunRadiance;
+		uint32_t lightCount;
+		uint32_t PADDING_0;
+		uint32_t PADDING_1;
+		uint32_t PADDING_2;
+		LightData lights[MAX_LIGHTS_PER_SCENE];
 	};
 
 	Scene(const wstring& debugName = L"unnamed scene");
 	~Scene();
 	void AddPass(Pass* pass);
 	void AddTexture(Texture* texture);
+	void AddLight(Light* light);
 	
 	int GetTextureCount();
 	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
@@ -41,10 +71,12 @@ private:
 	Renderer* mRenderer;
 	vector<Pass*> mPasses;
 	vector<Texture*> mTextures;
+	vector<Light*> mLights;
 
 	// one for each frame
 	// TODO: hide API specific implementation in Renderer
 	vector<ID3D12Resource*> mUniformBuffers;
+	vector<ID3D12Resource*> mLightBuffers;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandles;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandles;
 };
