@@ -58,6 +58,8 @@ protected:
 	ResourceLayout mTextureBufferLayout;
 };
 
+// RenderTexture only supports reading from a single buffer, either mRenderTargetBuffer or mDepthStencilBuffer.
+// Because it is easier to manage texture slots and handle srv this way. If you want to read from both buffer, try to bind 2 render textures.
 // TODO: add support to only enable depthStencil buffer
 class RenderTexture : public Texture
 {
@@ -95,7 +97,7 @@ public:
 		Format renderTargetFormat,
 		Format depthStencilFormat,
 		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
-		float depthClearValue = 1.f,
+		float depthClearValue = REVERSED_Z_SWITCH(0.0f, 1.f),
 		uint8_t stencilClearValue = 0,
 		int multiSampleCount = 1);
 

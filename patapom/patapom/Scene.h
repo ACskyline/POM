@@ -31,16 +31,27 @@ public:
 		uint32_t pomMarchStep;
 		float pomScale;
 		float pomBias;
+		//
 		float skyScatterG;
 		uint32_t skyMarchStep;
 		uint32_t skyMarchStepTr;
 		float sunAzimuth; // horizontal
+		//
 		float sunAltitude; // vertical
 		XMFLOAT3 sunRadiance;
+		//
 		uint32_t lightCount;
-		uint32_t PADDING_0;
-		uint32_t PADDING_1;
-		uint32_t PADDING_2;
+		uint32_t lightDebugOffset;
+		uint32_t lightDebugCount;
+		float fresnel;
+		//
+		XMFLOAT4 standardColor;
+		//
+		float roughness;
+		float useStandardTextures;
+		float metallic;
+		float reflection;
+		//
 		LightData lights[MAX_LIGHTS_PER_SCENE];
 	};
 
@@ -51,6 +62,7 @@ public:
 	void AddLight(Light* light);
 	
 	int GetTextureCount();
+	int GetLightCount();
 	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSamplerDescriptorHeapTableHandle(int frameIndex);

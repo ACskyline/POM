@@ -45,8 +45,10 @@ public:
 	float GetFarClipPlane();
 	float GetWidth();
 	float GetHeight();
+	float GetFov();
 	void SetTarget(XMFLOAT3 target);
-
+	void AddPass(Pass* pass);
+	void UpdatePassUniformBuffer(int frameIndex);
 	XMFLOAT3 ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane = false);
 
 protected:
@@ -66,6 +68,7 @@ protected:
 	XMFLOAT4X4 mViewProjInv;
 	Viewport mViewport;
 	ScissorRect mScissorRect;
+	vector<Pass*> mPasses;
 
 	virtual void UpdatePosition();
 	void UpdateViewport();

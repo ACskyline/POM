@@ -415,14 +415,27 @@ void Mesh::SetPlane()
 
 void Mesh::SetFullscreenQuad()
 {
+	// CW
+	// i+1-----i+2
+	// |        |
+	// |        |
+	// i-------i+3
+
+	// uv
+	// 0,1------1,1
+	//  |        |
+	//  |        |
+	//  |        |
+	// 0.0------1,0
+
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	mVertexVec.resize(4);
 
-	mVertexVec[0] = { {-1.f,  -1.f, 0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[0] = { {-1.f, -1.f, 0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 	mVertexVec[1] = { {-1.f, 1.f, 0.5f}, {0.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 	mVertexVec[2] = { {1.f, 1.f, 0.5f}, {1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-	mVertexVec[3] = { {1.f,  -1.f, 0.5f}, {1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[3] = { {1.f, -1.f, 0.5f}, {1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 
 	mIndexVec.resize(6);
 
@@ -436,15 +449,29 @@ void Mesh::SetFullscreenQuad()
 	mIndexVec[5] = 3;
 }
 
-void Mesh::SetFullscreenTriangle()
+void Mesh::SetFullscreenTriangleDepth(float d)
 {
+	// CW
+	// i+1
+	// |  \
+	// |    \    
+	// |      \
+	// i-------i+2
+
+	// uv
+	// 0,2
+	//  |  \
+	//  |    \   
+	//  |      \
+	// 0,0------2,0
+
 	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 	mVertexVec.resize(3);
 
-	mVertexVec[0] = { {-1.f, -1.f, 0.5f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-	mVertexVec[1] = { {-1.f, 3.f, 0.5f}, {0.0f, 2.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-	mVertexVec[2] = { {3.f, -1.f, 0.5f}, {2.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[0] = { {-1.f, -1.f, d}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[1] = { {-1.f, 3.f, d}, {0.0f, 2.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
+	mVertexVec[2] = { {3.f, -1.f, d}, {2.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
 	
 	mIndexVec.resize(3);
 
@@ -453,21 +480,14 @@ void Mesh::SetFullscreenTriangle()
 	mIndexVec[2] = 2;
 }
 
+void Mesh::SetFullscreenTriangle()
+{
+	SetFullscreenTriangleDepth(0.5f);
+}
+
 void Mesh::SetSkyFullscreenTriangle()
 {
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-	mVertexVec.resize(3);
-
-	mVertexVec[0] = { {-1.f, -1.f, 1.0f}, {0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-	mVertexVec[1] = { {-1.f, 3.f, 1.0f}, {0.0f, 2.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-	mVertexVec[2] = { {3.f, -1.f, 1.0f}, {2.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f, 1.0f} };
-
-	mIndexVec.resize(3);
-
-	mIndexVec[0] = 0;
-	mIndexVec[1] = 1;
-	mIndexVec[2] = 2;
+	SetFullscreenTriangleDepth(REVERSED_Z_SWITCH(0.0f, 1.0f));
 }
 
 void Mesh::SetMesh()
@@ -486,7 +506,7 @@ void Mesh::SetMesh()
 
 	stringstream ss;
 	ss.write(buf, length); // well, if you want the ease to use, you gonna suffer the overhead of copying
-	delete buf;
+	delete[] buf;
 
 	vector<XMFLOAT3> vecPos;
 	vector<XMFLOAT3> vecNor;

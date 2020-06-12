@@ -381,6 +381,7 @@ RenderTexture::~RenderTexture()
 
 void RenderTexture::Release()
 {
+	SAFE_RELEASE(mRenderTargetBuffer);
 	SAFE_RELEASE(mDepthStencilBuffer);
 }
 

@@ -40,6 +40,11 @@ int Scene::GetTextureCount()
 	return mTextures.size();
 }
 
+int Scene::GetLightCount()
+{
+	return mLights.size();
+}
+
 D3D12_GPU_DESCRIPTOR_HANDLE Scene::GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex)
 {
 	return mCbvSrvUavDescriptorHeapTableHandles[frameIndex];

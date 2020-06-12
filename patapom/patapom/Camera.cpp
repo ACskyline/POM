@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Pass.h"
 
 Camera::Camera(const XMFLOAT3 &position,
 	const XMFLOAT3 &target,
@@ -229,9 +230,27 @@ float Camera::GetHeight()
 	return mHeight;
 }
 
+float Camera::GetFov()
+{
+	return mFov;
+}
+
 void Camera::SetTarget(XMFLOAT3 target)
 {
 	mTarget = target;
+}
+
+void Camera::AddPass(Pass* pass)
+{
+	mPasses.push_back(pass);
+}
+
+void Camera::UpdatePassUniformBuffer(int frameIndex)
+{
+	for(auto pass : mPasses)
+	{
+		pass->UpdateUniformBuffer(frameIndex, this);
+	}
 }
 
 XMFLOAT3 Camera::ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane)

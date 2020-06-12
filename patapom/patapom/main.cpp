@@ -12,6 +12,7 @@
 #include "Texture.h"
 #include "Camera.h"
 #include "Light.h"
+#include "Renderer.h"
 
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
@@ -35,36 +36,38 @@ const int gHeightDeferred = 960;
 const int gWidthShadow = 960;
 const int gHeightShadow = 960;
 const int gFrameCount = 3;
-const int gMultiSampleCount = 4;
+const int gMultiSampleCount = 1; // msaa doesn't work on deferred back buffer
 Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
 Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
 
 Renderer gRenderer;
 Level gLevelDefault("default level");
 Scene gSceneDefault(L"default scene");
-Pass gPassDefault(L"default pass");
-Pass gPassDeferred(L"deferred pass");
+Pass gPassPom(L"pom pass");
+Pass gPassStandard(L"standard pass");
+Pass gPassDeferred(L"deferred pass", true, false);
 Pass gPassSky(L"sky pass");
-Pass gPassRedLightShadow(L"red light shadow");
-Pass gPassGreenLightShadow(L"green light shadow");
-Pass gPassBlueLightShadow(L"blue light shadow");
-OrbitCamera gMainCamera(4.f, 0.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 0.1f, 1000.0f);
-Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 0.1f, 1000.0f);
-Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
-Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
-Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 0.1f, 100.f);
-Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 2, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Pass gPassRedLightShadow(L"red light shadow", false);
+Pass gPassGreenLightShadow(L"green light shadow", false);
+Pass gPassBlueLightShadow(L"blue light shadow", false);
+OrbitCamera gMainCamera(4.f, 90.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 100.0f, 0.1f);
+Camera gDummyCamera(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 100.0f, 0.1f);
+Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
+Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
+Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
+Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Mesh gFullscreenTriangle(L"fullscreen_triangle", Mesh::MeshType::FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
-Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "ball.obj");
+Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 2, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "ball.obj");
 Mesh gPlaneX(L"planeX", Mesh::MeshType::PLANE, XMFLOAT3(-3, 0, 0), XMFLOAT3(0, 0, -90), XMFLOAT3(6, 1, 6));
 Mesh gPlaneY(L"planeY", Mesh::MeshType::PLANE, XMFLOAT3(0, -3, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(6, 1, 6));
 Mesh gPlaneZ(L"planeZ", Mesh::MeshType::PLANE, XMFLOAT3(0, 0, -3), XMFLOAT3(90, 0, 0), XMFLOAT3(6, 1, 6));
 Mesh gSky(L"sky", Mesh::MeshType::SKY_FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, L"vs.hlsl");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, L"ps.hlsl");
+Shader gPomPS(Shader::ShaderType::PIXEL_SHADER, L"ps_pom.hlsl");
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
 Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred.hlsl"); // using multisampled srv
-Shader gSkyVS(Shader::ShaderType::VERTEX_SHADER, L"vs_sky.hlsl");
+Shader gSkyVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
 Shader gSkyPS(Shader::ShaderType::PIXEL_SHADER, L"ps_sky.hlsl");
 Sampler gSampler = {
 	Sampler::Filter::LINEAR,
@@ -82,7 +85,7 @@ Sampler gSampler = {
 	1.f,
 	{0.f, 0.f, 0.f, 0.f}
 };
-Sampler gSamplerShadow = {
+Sampler gSamplerPoint = {
 	Sampler::Filter::POINT,
 	Sampler::Filter::POINT,
 	Sampler::Filter::POINT,
@@ -101,18 +104,19 @@ Sampler gSamplerShadow = {
 Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
 Texture gTextureNormal("brick_normal.jpg", L"normal", gSampler, true, Format::R8G8B8A8_UNORM);
 Texture gTextureHeight("brick_height.jpg", L"height", gSampler, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTextureGbuffer(L"gbuffer", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSampler, Format::R8G8B8A8_UNORM, Format::D16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0, 4);
-RenderTexture gRenderTextureRedLight(L"red light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
-RenderTexture gRenderTextureGreenLight(L"green light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
-RenderTexture gRenderTextureBlueLight(L"blue light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerShadow, Format::D16_UNORM, 1.0f, 0);
-Light gLightRed("light red", XMFLOAT3(0.8f, 0.2f, 0.2f), XMFLOAT3(8, 0, 0), &gCameraRedLight, &gRenderTextureRedLight);
-Light gLightGreen("light green", XMFLOAT3(0.2f, 0.8f, 0.2f), XMFLOAT3(0, 8, 0), &gCameraGreenLight, &gRenderTextureGreenLight);
-Light gLightBlue("light blue", XMFLOAT3(0.2f, 0.2f, 0.8f), XMFLOAT3(0, 0, 8), &gCameraBlueLight, &gRenderTextureBlueLight);
+Texture gTextureProbe("probe.jpg", L"probe", gSampler, true, Format::R8G8B8A8_UNORM);
+RenderTexture gRenderTextureGbuffer0(L"gbuffer0", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureGbuffer1(L"gbuffer1", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureGbuffer2(L"gbuffer2", gWidthDeferred, gHeightDeferred, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureDbuffer(L"dbuffer", gWidthDeferred, gHeightDeferred, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, REVERSED_Z_SWITCH(0.0f, 1.0f), 0);
+RenderTexture gRenderTextureRedLight(L"red light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, REVERSED_Z_SWITCH(0.0f, 1.0f), 0);
+RenderTexture gRenderTextureGreenLight(L"green light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, REVERSED_Z_SWITCH(0.0f, 1.0f), 0);
+RenderTexture gRenderTextureBlueLight(L"blue light rt", gWidthShadow, gHeightShadow, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, REVERSED_Z_SWITCH(0.0f, 1.0f), 0);
+Light gLightRed("light red", XMFLOAT3(0.8f, 0.1f, 0.1f), XMFLOAT3(8, 0, 0), &gCameraRedLight, &gRenderTextureRedLight);
+Light gLightGreen("light green", XMFLOAT3(0.1f, 0.8f, 0.1f), XMFLOAT3(0, 8, 0), &gCameraGreenLight, &gRenderTextureGreenLight);
+Light gLightBlue("light blue", XMFLOAT3(0.1f, 0.1f, 0.8f), XMFLOAT3(0, 0, 8), &gCameraBlueLight, &gRenderTextureBlueLight);
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
-bool show_demo_window = true;
-bool show_another_window = false;
-ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 void CreateLevel()
 {
@@ -127,7 +131,7 @@ void CreateLevel()
 	gPassRedLightShadow.AddMesh(&gPlaneY);
 	gPassRedLightShadow.AddMesh(&gPlaneZ);
 	gPassRedLightShadow.AddShader(&gStandardVS);
-	gPassRedLightShadow.AddRenderTexture(&gRenderTextureRedLight, BlendState::NoBlend(), DepthStencilState::Less());
+	gPassRedLightShadow.AddRenderTexture(&gRenderTextureRedLight, BlendState::NoBlend(), REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
 
 	gPassGreenLightShadow.SetCamera(&gCameraGreenLight);
 	gPassGreenLightShadow.AddMesh(&gCube);
@@ -136,7 +140,7 @@ void CreateLevel()
 	gPassGreenLightShadow.AddMesh(&gPlaneY);
 	gPassGreenLightShadow.AddMesh(&gPlaneZ);
 	gPassGreenLightShadow.AddShader(&gStandardVS);
-	gPassGreenLightShadow.AddRenderTexture(&gRenderTextureGreenLight, BlendState::NoBlend(), DepthStencilState::Less());
+	gPassGreenLightShadow.AddRenderTexture(&gRenderTextureGreenLight, BlendState::NoBlend(), REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
 
 	gPassBlueLightShadow.SetCamera(&gCameraBlueLight);
 	gPassBlueLightShadow.AddMesh(&gCube);
@@ -145,33 +149,52 @@ void CreateLevel()
 	gPassBlueLightShadow.AddMesh(&gPlaneY);
 	gPassBlueLightShadow.AddMesh(&gPlaneZ);
 	gPassBlueLightShadow.AddShader(&gStandardVS);
-	gPassBlueLightShadow.AddRenderTexture(&gRenderTextureBlueLight, BlendState::NoBlend(), DepthStencilState::Less());
+	gPassBlueLightShadow.AddRenderTexture(&gRenderTextureBlueLight, BlendState::NoBlend(), REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
 
-	gPassDefault.SetCamera(&gMainCamera);
-	gPassDefault.AddMesh(&gCube);
-	gPassDefault.AddMesh(&gMesh);
-	gPassDefault.AddMesh(&gPlaneX);
-	gPassDefault.AddMesh(&gPlaneY);
-	gPassDefault.AddMesh(&gPlaneZ);
-	gPassDefault.AddShader(&gStandardVS);
-	gPassDefault.AddShader(&gStandardPS);
-	gPassDefault.AddTexture(&gTextureAlbedo);
-	gPassDefault.AddTexture(&gTextureNormal);
-	gPassDefault.AddTexture(&gTextureHeight);
-	gPassDefault.AddRenderTexture(&gRenderTextureGbuffer, BlendState::NoBlend(), DepthStencilState::Less());
+	gPassStandard.SetCamera(&gMainCamera);
+	gPassStandard.AddMesh(&gMesh);
+	gPassStandard.AddShader(&gStandardVS);
+	gPassStandard.AddShader(&gStandardPS);
+	gPassStandard.AddTexture(&gTextureAlbedo);
+	gPassStandard.AddTexture(&gTextureNormal);
+	gPassStandard.AddRenderTexture(&gRenderTextureDbuffer, REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
+	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer1, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer2, BlendState::NoBlend());
 
+	gPassPom.SetCamera(&gMainCamera);
+	gPassPom.AddMesh(&gCube);
+	gPassPom.AddMesh(&gPlaneX);
+	gPassPom.AddMesh(&gPlaneY);
+	gPassPom.AddMesh(&gPlaneZ);
+	gPassPom.AddShader(&gStandardVS);
+	gPassPom.AddShader(&gPomPS);
+	gPassPom.AddTexture(&gTextureAlbedo);
+	gPassPom.AddTexture(&gTextureNormal);
+	gPassPom.AddTexture(&gTextureHeight); 
+	gPassPom.AddRenderTexture(&gRenderTextureDbuffer, REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
+	gPassPom.AddRenderTexture(&gRenderTextureGbuffer0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&gRenderTextureGbuffer1, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&gRenderTextureGbuffer2, BlendState::NoBlend());
+
+	// render to back buffer
+	gPassDeferred.SetCamera(&gMainCamera);
+	gPassDeferred.AddMesh(&gFullscreenTriangle);
+	gPassDeferred.AddShader(&gDeferredVS);
+	gPassDeferred.AddShader(&gDeferredPS);
+	gPassDeferred.AddTexture(&gRenderTextureGbuffer0);
+	gPassDeferred.AddTexture(&gRenderTextureGbuffer1);
+	gPassDeferred.AddTexture(&gRenderTextureGbuffer2);
+	gPassDeferred.AddTexture(&gRenderTextureDbuffer);
+	gPassDeferred.AddTexture(&gTextureProbe);
+
+	// render to back buffer
 	gPassSky.SetCamera(&gMainCamera);
 	gPassSky.AddMesh(&gSky);
 	gPassSky.AddShader(&gSkyVS);
 	gPassSky.AddShader(&gSkyPS);
-	gPassSky.AddRenderTexture(&gRenderTextureGbuffer, BlendState::NoBlend(), DepthStencilState::LessEqual()); // less equal for screen space sky
+	gPassSky.AddRenderTexture(&gRenderTextureDbuffer, REVERSED_Z_SWITCH(DepthStencilState::GreaterEqualNoWrite(), DepthStencilState::LessEqualNoWrite()));
 
-	gPassDeferred.SetCamera(&gDummyCamera);
-	gPassDeferred.AddMesh(&gFullscreenTriangle);
-	gPassDeferred.AddShader(&gDeferredVS);
-	gPassDeferred.AddShader(&gDeferredPS);
-	gPassDeferred.AddTexture(&gRenderTextureGbuffer);
-	
 	// C. Frame
 	gRenderer.mFrames.resize(gFrameCount);
 	// renderer.mFrames[i].AddTexture(...);
@@ -180,7 +203,8 @@ void CreateLevel()
 	gSceneDefault.AddPass(&gPassRedLightShadow);
 	gSceneDefault.AddPass(&gPassGreenLightShadow);
 	gSceneDefault.AddPass(&gPassBlueLightShadow);
-	gSceneDefault.AddPass(&gPassDefault);
+	gSceneDefault.AddPass(&gPassStandard);
+	gSceneDefault.AddPass(&gPassPom);
 	gSceneDefault.AddPass(&gPassSky);
 	gSceneDefault.AddPass(&gPassDeferred);
 	gSceneDefault.AddLight(&gLightRed);
@@ -191,8 +215,12 @@ void CreateLevel()
 	// E. Level
 	gLevelDefault.AddCamera(&gMainCamera); // camera
 	gLevelDefault.AddCamera(&gDummyCamera);
+	gLevelDefault.AddCamera(&gCameraRedLight);
+	gLevelDefault.AddCamera(&gCameraGreenLight);
+	gLevelDefault.AddCamera(&gCameraBlueLight);
 	gLevelDefault.AddScene(&gSceneDefault); // scene
-	gLevelDefault.AddPass(&gPassDefault); // pass
+	gLevelDefault.AddPass(&gPassStandard); // pass
+	gLevelDefault.AddPass(&gPassPom);
 	gLevelDefault.AddPass(&gPassSky);
 	gLevelDefault.AddPass(&gPassDeferred);
 	gLevelDefault.AddPass(&gPassRedLightShadow);
@@ -209,15 +237,20 @@ void CreateLevel()
 	gLevelDefault.AddShader(&gDeferredVS);
 	gLevelDefault.AddShader(&gSkyVS);
 	gLevelDefault.AddShader(&gStandardPS); // pixel shader
+	gLevelDefault.AddShader(&gPomPS); 
 	gLevelDefault.AddShader(&gDeferredPS);
 	gLevelDefault.AddShader(&gSkyPS);
 	gLevelDefault.AddTexture(&gTextureAlbedo); // texture
 	gLevelDefault.AddTexture(&gTextureNormal); // texture
 	gLevelDefault.AddTexture(&gTextureHeight); // texture
+	gLevelDefault.AddTexture(&gTextureProbe); // texture
 	gLevelDefault.AddTexture(&gRenderTextureRedLight);
 	gLevelDefault.AddTexture(&gRenderTextureGreenLight);
 	gLevelDefault.AddTexture(&gRenderTextureBlueLight);
-	gLevelDefault.AddTexture(&gRenderTextureGbuffer);
+	gLevelDefault.AddTexture(&gRenderTextureGbuffer0);
+	gLevelDefault.AddTexture(&gRenderTextureGbuffer1);
+	gLevelDefault.AddTexture(&gRenderTextureGbuffer2);
+	gLevelDefault.AddTexture(&gRenderTextureDbuffer);
 
 	// F. Renderer
 	gRenderer.SetLevel(&gLevelDefault);
@@ -402,8 +435,8 @@ void UpdateResourcesGPU()
 	// update per frame resource (after waiting for the current frame to finish)
 	if (gUpdateCamera > 0)
 	{
-		gPassDefault.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gMainCamera);
-		gPassSky.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex, &gMainCamera);
+		// TODO: store a list of passes in camera and automate this shit
+		gMainCamera.UpdatePassUniformBuffer(gRenderer.mCurrentFrameIndex);
 		gUpdateCamera--;
 	}
 
@@ -425,27 +458,36 @@ void Record()
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
 
-	gRenderTextureGbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	
 	gRenderTextureRedLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	gRenderTextureGreenLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	gRenderTextureBlueLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassRedLightShadow);
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassGreenLightShadow);
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassBlueLightShadow);
+	gRenderer.RecordPass(gPassRedLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
+	gRenderer.RecordPass(gPassGreenLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
+	gRenderer.RecordPass(gPassBlueLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
 	
 	gRenderTextureRedLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	gRenderTextureGreenLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	gRenderTextureBlueLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDefault);
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassSky, false, false, false);
+	gRenderTextureGbuffer0.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer1.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer2.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureDbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderTextureGbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderer.RecordPass(gPassStandard, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderer.RecordPass(gPassPom, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+
+	gRenderTextureGbuffer0.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer1.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureGbuffer2.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderTextureDbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+
+	gRenderer.RecordPass(gPassDeferred, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
 	
-	gRenderer.RecordPass(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], gPassDeferred);
-
+	gRenderTextureDbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderer.RecordPass(gPassSky, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+	
 	gRenderer.ResolveFrame(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
 	///////// IMGUI PIPELINE /////////
@@ -492,7 +534,7 @@ void UpdateUI()
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
-	static int mode = gSceneDefault.mSceneUniform.mode = 1;
+	static int mode = gSceneDefault.mSceneUniform.mode = 0;
 	static int pomMarchStep = gSceneDefault.mSceneUniform.pomMarchStep = 10;
 	static float pomScale = gSceneDefault.mSceneUniform.pomScale = 0.07f;
 	static float pomBias = gSceneDefault.mSceneUniform.pomBias = 0.3f;
@@ -502,13 +544,21 @@ void UpdateUI()
 	static XMFLOAT3 sunRadiance = gSceneDefault.mSceneUniform.sunRadiance = XMFLOAT3(6.639f, 3.718f, 5.777f);
 	static float sunAzimuth = gSceneDefault.mSceneUniform.sunAzimuth = 0.080f;
 	static float sunAltitude = gSceneDefault.mSceneUniform.sunAltitude = 0.116f;
+	static int lightDebugOffset = gSceneDefault.mSceneUniform.lightDebugOffset = 0;
+	static int lightDebugCount = gSceneDefault.mSceneUniform.lightDebugCount = 0;
+	static float fresnel = gSceneDefault.mSceneUniform.fresnel = 0.9f;
+	static float roughness = gSceneDefault.mSceneUniform.roughness = 0.265f;
+	static bool useStandardTextures = gSceneDefault.mSceneUniform.useStandardTextures = false;
+	static XMFLOAT4 standardColor = gSceneDefault.mSceneUniform.standardColor = XMFLOAT4(0.9f, 0.8f, 0.05f, 1.0f);
+	static float metallic = gSceneDefault.mSceneUniform.metallic = 1.0f;
+	static float reflection = gSceneDefault.mSceneUniform.reflection = 0.005f;
 	static bool needToUpdateSceneUniform = true;
 
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 
 	ImGui::Begin("Control Panel ");
 
-	if (ImGui::Combo("mode", &mode, "default\0pom\0albedo\0normal\0height\0uv\0redlight\0greenlight\0bluelight"))
+	if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
 	{
 		gSceneDefault.mSceneUniform.mode = mode;
 		needToUpdateSceneUniform = true;
@@ -577,6 +627,54 @@ void UpdateUI()
 	if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
 	{
 		gSceneDefault.mSceneUniform.sunAltitude = sunAltitude;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("lightDebugOffset", &lightDebugOffset, 0, gSceneDefault.GetLightCount() - 1))
+	{
+		gSceneDefault.mSceneUniform.lightDebugOffset = lightDebugOffset;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("lightDebugCount", &lightDebugCount, 0, gSceneDefault.GetLightCount()))
+	{
+		gSceneDefault.mSceneUniform.lightDebugCount = lightDebugCount;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("fresnel", &fresnel, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.fresnel = fresnel;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.roughness = roughness;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::Checkbox("useStandardTextures", &useStandardTextures))
+	{
+		gSceneDefault.mSceneUniform.useStandardTextures = useStandardTextures ? 1.0f : 0.0f;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::ColorEdit4("standardColor", (float*)&standardColor))
+	{
+		gSceneDefault.mSceneUniform.standardColor = standardColor;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.metallic = metallic;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderFloat("reflection", &reflection, 0.0f, 1.0f))
+	{
+		gSceneDefault.mSceneUniform.reflection = reflection;
 		needToUpdateSceneUniform = true;
 	}
 

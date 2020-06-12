@@ -1114,6 +1114,7 @@ void Renderer::UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& sr
 	delete[] layouts;
 	delete[] numRows;
 	delete[] rowSizesInBytes;
+	delete[] data;
 }
 
 //mainly for vertex buffer and index buffer for now
@@ -1148,7 +1149,7 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 bool Renderer::TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
 {
 	// TODO: this is currently not thread safe, improve it
-	assertf(oldLayout != newLayout, "new layout is the same as the current layout");
+	assertf2(oldLayout != newLayout, "new layout is the same as the current layout");
 	if (oldLayout == newLayout)
 		return false;
 	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateResourceLayout(oldLayout), Renderer::TranslateResourceLayout(newLayout));
@@ -1325,10 +1326,10 @@ void Renderer::CreatePSO(
 	const wstring& name)
 {
 	// initialize
-	vector<DXGI_FORMAT> rtvFormatVec(1, DXGI_FORMAT_UNKNOWN);
+	vector<DXGI_FORMAT> rtvFormatVec;
 	DXGI_FORMAT dsvFormat = DXGI_FORMAT_UNKNOWN;
 	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = Renderer::TranslateDepthStencilState(DepthStencilState::None());
 	int multiSampleCount = -1;
 	vector<RenderTexture*>& renderTextures = pass.GetRenderTextures();
 	vector<BlendState>& blendStates = pass.GetBlendStates();
@@ -1336,42 +1337,68 @@ void Renderer::CreatePSO(
 
 	fatalAssertf(renderTextures.size() == blendStates.size() && renderTextures.size() == depthStencilStates.size(), "size of render texture, blend state and depth stencil state don't match!");
 
+	int renderTargetCount = 0;
+	int depthStencilCount = 0;
+	int depthStencilIndex = -1;
 	if (renderTextures.size() > 0) 
 	{ 
 		// if render textures are used
-		rtvFormatVec.resize(renderTextures.size());
-		depthStencilDesc = TranslateDepthStencilState(depthStencilStates[0]);
+		depthStencilDesc = Renderer::TranslateDepthStencilState(depthStencilStates[0]);
 		multiSampleCount = renderTextures[0]->GetMultiSampleCount();
 		if (renderTextures.size() > 1)
-			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, add it as a member variable to pass class
+			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, TODO: add it as a member variable to pass class
 
 		// assign to render textures parameter
-		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
+		for (int i = 0; i < renderTextures.size(); i++) // only the first 8 targets will be used
 		{
-			// render targets recording
-			blendDesc.RenderTarget[i] = TranslateBlendState(blendStates[i]);
-			rtvFormatVec[i] = Renderer::TranslateFormat(renderTextures[i]->GetRenderTargetFormat());
+			if (renderTextures[i]->IsRenderTargetUsed())
+			{
+				if (renderTargetCount < 8)
+				{
+					// render targets recording
+					blendDesc.RenderTarget[renderTargetCount] = Renderer::TranslateBlendState(blendStates[i]);
+					rtvFormatVec.push_back(Renderer::TranslateFormat(renderTextures[i]->GetRenderTargetFormat()));
+				}
+				renderTargetCount++;
+			}
 		}
 
-		for (int i = 0; i < renderTextures.size() && i < 8; i++) // only the first 8 targets will be used
+		for (int i = 0; i < renderTextures.size(); i++) // only the first 8 targets will be used
 		{
 			if (renderTextures[i]->IsDepthStencilUsed())
 			{
 				//!!!* only the first usable depth stencil buffer will be used *!!!//
-				dsvFormat = Renderer::TranslateFormat(renderTextures[i]->GetDepthStencilFormat());
-				break;
+				if (depthStencilCount == 0)
+				{
+					dsvFormat = Renderer::TranslateFormat(renderTextures[i]->GetDepthStencilFormat());
+					depthStencilIndex = i;
+				}
+				depthStencilCount++;
 			}
 		}
 	}
-	else
+
+	fatalAssertf(renderTargetCount == pass.GetRenderTargetCount(), "render target count mismatch!");
+	fatalAssertf(depthStencilCount == pass.GetDepthStencilCount(), "depth stencil count mismatch!");
+	fatalAssertf(depthStencilIndex == pass.GetDepthStencilIndex(), "depth stencil index mismatch!");
+
+	if (renderTargetCount == 0 && pass.UseRenderTarget())
 	{
 		// use backbuffer parameters
-		rtvFormatVec[0] = Renderer::TranslateFormat(mColorBufferFormat);
-		dsvFormat = Renderer::TranslateFormat(mDepthStencilBufferFormat);
+		rtvFormatVec.clear();
+		rtvFormatVec.push_back(Renderer::TranslateFormat(mColorBufferFormat));
 		blendDesc.RenderTarget[0] = Renderer::TranslateBlendState(mBlendState);
-		depthStencilDesc = Renderer::TranslateDepthStencilState(mDepthStencilState);
-		multiSampleCount = mMultiSampleCount;
 	}
+
+	if (depthStencilCount == 0 && pass.UseDepthStencil())
+	{
+		// use backbuffer parameters
+		dsvFormat = Renderer::TranslateFormat(mDepthStencilBufferFormat);
+		depthStencilDesc = Renderer::TranslateDepthStencilState(mDepthStencilState);
+	}
+
+	if (multiSampleCount < 0)
+		multiSampleCount = mMultiSampleCount;
 
 	// create PSO
 	CreatePSO(
@@ -1459,7 +1486,6 @@ void Renderer::CreatePSO(
 	psoDesc.DSVFormat = dsvFormat;
 
 	// create the pso
-	// TODO: failure here
 	HRESULT hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(pso));
 	fatalAssert(!CheckError(hr));
 
@@ -1467,8 +1493,8 @@ void Renderer::CreatePSO(
 }
 
 void Renderer::RecordPass(
-	ID3D12GraphicsCommandList* commandList,
 	Pass& pass,
+	ID3D12GraphicsCommandList* commandList,
 	bool clearColor,
 	bool clearDepth,
 	bool clearStencil,
@@ -1480,32 +1506,63 @@ void Renderer::RecordPass(
 	commandList->SetPipelineState(pass.GetPso());
 
 	// set the render target for the output merger stage (the output of the pipeline), viewports and scissor rects
-	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameRtvHandles = pass.GetRtvHandles(mCurrentFrameIndex);
-	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameDsvHandles = pass.GetDsvHandles(mCurrentFrameIndex);//!!!* only the first depth stencil buffer will be used *!!!//
-	fatalAssert(pass.GetRenderTextureCount() == frameRtvHandles.size() && frameRtvHandles.size() == frameDsvHandles.size());
-	int dsvIndex = -1;
+	const vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& passRtvHandles = pass.GetRtvHandles(mCurrentFrameIndex);
+	const vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& passDsvHandles = pass.GetDsvHandles(mCurrentFrameIndex);//!!!* only the first depth stencil buffer will be used *!!!//
+	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameRtvHandles;
+	CD3DX12_CPU_DESCRIPTOR_HANDLE frameDsvHandle;
+	fatalAssert(pass.GetRenderTextureCount() == passRtvHandles.size());
+	fatalAssert(pass.GetRenderTextureCount() == passDsvHandles.size());
+	
+	int renderTargetCount = 0;
+	for (int i = 0; i < pass.GetRenderTextureCount(); i++)
+	{
+		if (pass.GetRenderTexture(i)->IsRenderTargetUsed())
+		{
+			if(renderTargetCount < 8)
+				frameRtvHandles.push_back(passRtvHandles[i]);
+			renderTargetCount++;
+		}
+	}
+
 	//!!!* only the first usable depth stencil buffer will be used *!!!//
+	int depthStencilCount = 0;
+	int depthStencilIndex = -1;
 	for(int i = 0;i< pass.GetRenderTextureCount();i++)
 	{
 		if(pass.GetRenderTexture(i)->IsDepthStencilUsed())
 		{
-			dsvIndex = i;
-			break;
+			if (depthStencilCount == 0)
+			{
+				frameDsvHandle = passDsvHandles[i];
+				depthStencilIndex = i;
+			}
+			depthStencilCount++;
 		}
 	}
-	// if none are bound, use swap chain back buffer instead
-	if (frameRtvHandles.size() == 0)
-		frameRtvHandles.push_back(IsResolveNeeded() ? mPreResolvedRtvHandles[mCurrentFrameIndex] : mRtvHandles[mCurrentFrameIndex]);
-	if (frameDsvHandles.size() == 0)
+
+	fatalAssert(renderTargetCount == pass.GetRenderTargetCount());
+	fatalAssert(depthStencilCount == pass.GetDepthStencilCount());
+	fatalAssert(depthStencilIndex == pass.GetDepthStencilIndex());
+
+	// if the pass has outputs but none are bound, use swap chain back buffer instead
+	if (pass.GetRenderTargetCount() == 0 && pass.UseRenderTarget())
 	{
-		frameDsvHandles.push_back(mDsvHandles[mCurrentFrameIndex]); 
+		frameRtvHandles.clear();
+		frameRtvHandles.push_back(IsResolveNeeded() ? mPreResolvedRtvHandles[mCurrentFrameIndex] : mRtvHandles[mCurrentFrameIndex]);
+	}
+
+	if (pass.GetDepthStencilCount() == 0 && pass.UseDepthStencil())
+	{
+		frameDsvHandle = mDsvHandles[mCurrentFrameIndex]; 
 		// assuming backbuffer always supports depth stencil buffer
 		fatalAssert(mDepthStencilBuffers[mCurrentFrameIndex]);
-		dsvIndex = 0;
+		depthStencilIndex = 0;
 	}
-	vector<D3D12_VIEWPORT> frameViewPorts(frameRtvHandles.size(), TranslateViewport(pass.GetCamera()->GetViewport()));
-	vector<D3D12_RECT> frameScissorRects(frameRtvHandles.size(), TranslateScissorRect(pass.GetCamera()->GetScissorRect()));
-	commandList->OMSetRenderTargets(frameRtvHandles.size(), frameRtvHandles.data(), FALSE, dsvIndex >= 0 ? &frameDsvHandles[dsvIndex] : nullptr);
+
+	int numViewPorts = frameRtvHandles.size() > 0 ? frameRtvHandles.size() : 1;
+	vector<D3D12_VIEWPORT> frameViewPorts(numViewPorts, TranslateViewport(pass.GetCamera()->GetViewport()));
+	vector<D3D12_RECT> frameScissorRects(numViewPorts, TranslateScissorRect(pass.GetCamera()->GetScissorRect()));
+	commandList->OMSetRenderTargets(frameRtvHandles.size(), frameRtvHandles.data(), FALSE, depthStencilIndex >= 0 ? &frameDsvHandle : nullptr);
 	commandList->RSSetViewports(frameViewPorts.size(), frameViewPorts.data()); // set the viewports
 	commandList->RSSetScissorRects(frameScissorRects.size(), frameScissorRects.data()); // set the scissor rects
 	if (pass.IsConstantBlendFactorsUsed())
@@ -1514,26 +1571,25 @@ void Renderer::RecordPass(
 		commandList->OMSetStencilRef(pass.GetStencilReference());
 
 	// Clear the render targets
-	if (clearColor || clearDepth || clearStencil)
+	if (clearColor)
 	{
+		fatalAssert(pass.UseRenderTarget());
 		const float clearColorValueV[] = { clearColorValue.x, clearColorValue.y, clearColorValue.z, clearColorValue.w };
 		for (int i = 0; i < frameRtvHandles.size(); i++)
 		{
 			// clear the render target buffer
-			if (clearColor &&
-				((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(i)->IsRenderTargetUsed()) ||
-				(pass.GetRenderTextureCount() <= 0)))
-				commandList->ClearRenderTargetView(frameRtvHandles[i], clearColorValueV, 0, nullptr);
-
+			commandList->ClearRenderTargetView(frameRtvHandles[i], clearColorValueV, 0, nullptr);
 		}
+	}
 
+	if (clearDepth || clearStencil)
+	{
+		fatalAssert(pass.UseDepthStencil());
 		// clear the depth/stencil buffer
-		if ((clearDepth || clearStencil) &&
-			((pass.GetRenderTextureCount() > 0 && pass.GetRenderTexture(dsvIndex)->IsDepthStencilUsed()) ||
-			(pass.GetRenderTextureCount() <= 0)))
+		if (clearDepth || clearStencil)
 		{
 			D3D12_CLEAR_FLAGS flag = clearDepth ? (clearStencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH) : D3D12_CLEAR_FLAG_STENCIL;
-			commandList->ClearDepthStencilView(frameDsvHandles[dsvIndex], flag, clearDepthValue, clearStencilValue, 0, nullptr);
+			commandList->ClearDepthStencilView(frameDsvHandle, flag, clearDepthValue, clearStencilValue, 0, nullptr);
 		}
 	}
 

@@ -96,6 +96,7 @@ private:
 	void SetCube();
 	void SetPlane();
 	void SetFullscreenQuad();
+	void SetFullscreenTriangleDepth(float d);
 	void SetFullscreenTriangle();
 	void SetSkyFullscreenTriangle();
 	void SetMesh();

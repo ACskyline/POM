@@ -144,6 +144,27 @@ struct DepthStencilState {
 	float mDepthBoundMin; // D3D12 set this bound using OMSetDepthBounds, Vulkan put it in VkPipelineDepthStencilStateCreateInfo 
 	float mDepthBoundMax; // same as above
 
+	static DepthStencilState None()
+	{
+		return DepthStencilState{
+			false,
+			false,
+			false,
+			false,
+			CompareOp::LESS,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
 	static DepthStencilState Less()
 	{
 		return DepthStencilState {
@@ -165,6 +186,27 @@ struct DepthStencilState {
 		};
 	}
 
+	static DepthStencilState Greater()
+	{
+		return DepthStencilState{
+			true,
+			true,
+			false,
+			false,
+			CompareOp::GREATER,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
 	static DepthStencilState LessEqual()
 	{
 		return DepthStencilState{
@@ -173,6 +215,69 @@ struct DepthStencilState {
 			false,
 			false,
 			CompareOp::LESS_EQUAL,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
+	static DepthStencilState GreaterEqual()
+	{
+		return DepthStencilState{
+			true,
+			true,
+			false,
+			false,
+			CompareOp::GREATER_EQUAL,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
+	static DepthStencilState LessEqualNoWrite()
+	{
+		return DepthStencilState{
+			true,
+			false,
+			false,
+			false,
+			CompareOp::LESS_EQUAL,
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER },
+			DepthStencilState::StencilOpSet {
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				DepthStencilState::StencilOp::KEEP,
+				CompareOp::NEVER }
+		};
+	}
+
+	static DepthStencilState GreaterEqualNoWrite()
+	{
+		return DepthStencilState{
+			true,
+			false,
+			false,
+			false,
+			CompareOp::GREATER_EQUAL,
 			DepthStencilState::StencilOpSet {
 				DepthStencilState::StencilOp::KEEP,
 				DepthStencilState::StencilOp::KEEP,
@@ -313,7 +418,7 @@ public:
 		Format depthStencilBufferFormat = Format::D24_UNORM_S8_UINT,
 		DebugMode debugMode = DebugMode::OFF,
 		BlendState blendState = BlendState::NoBlend(),
-		DepthStencilState depthStencilState = DepthStencilState::Less());
+		DepthStencilState depthStencilState = REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
 	void CreateDepthStencilBuffers(Format format);
 	void CreatePreResolveBuffers(Format format);
 	void CreateColorBuffers();
@@ -353,13 +458,13 @@ public:
 		const wstring& name);
 	// explicit on command list for future multi thread support
 	void RecordPass(
-		ID3D12GraphicsCommandList* commandList,
 		Pass& pass,
+		ID3D12GraphicsCommandList* commandList,
 		bool clearColor = true,
 		bool clearDepth = true,
 		bool clearStencil = true,
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
-		float clearDepthValue = 1.0f,
+		float clearDepthValue = REVERSED_Z_SWITCH(0.0f, 1.0f),
 		uint8_t clearStencilValue = 0);
 
 	IDXGIFactory4* mDxgiFactory;

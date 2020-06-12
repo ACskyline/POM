@@ -14,6 +14,7 @@ Level::Level(const std::string& name) :
 
 Level::~Level()
 {
+	Release();
 }
 
 void Level::AddPass(Pass* pass)

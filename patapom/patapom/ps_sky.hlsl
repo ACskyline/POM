@@ -1,3 +1,9 @@
+#define VS_OUTPUT_LITE
+
+#ifndef PS_OUTPUT_COUNT
+#define PS_OUTPUT_COUNT 1
+#endif
+
 #include "GlobalInclude.hlsl"
 
 #define SUN_DISTANCE 1000.0f
@@ -186,15 +192,9 @@ PS_OUTPUT main(VS_OUTPUT input)
     float sunRadius = SUN_RADIUS;
         
     PS_OUTPUT output;
-    float2 uv = input.uv;
     
-    float2 posNDC = float2(1.0f, -1.0f) * (input.pos.xy / float2(pWidth, pHeight) * 2.0f - 1.0f); // flip y
-    float4 posWorldNear = mul(pViewProjInv, float4(posNDC, 0.0f, 1.0f) * pNearClipPlane);
-    
-    float3 norWorld = normalize(input.norWorld);
-    float3 tanWorld = normalize(input.tanWorld);
-    float3 bitanWorld = normalize(input.bitanWorld);
-    
+    float2 posNDC = ScreenToNDC(input.pos.xy, float2(pWidth, pHeight)); // flip y
+    float4 posWorldNear = mul(pViewProjInv, float4(posNDC, 0.0f, 1.0f) * pNearClipPlane);   
     float3 dirWorldNear = normalize(posWorldNear.xyz - pEyePos);
     
     if (IntersectSphereFast(pEyePos, dirWorldNear, earthPos, earthRadius)) // earth
@@ -206,5 +206,6 @@ PS_OUTPUT main(VS_OUTPUT input)
         if (IntersectSphere(pEyePos, dirWorldNear, earthPos, earthRadius + atmosphereThickness, atmosphereEntrance, atmosphereExit))
             output.col0 = float4(MarchSky(earthPos, earthRadius, atmosphereThickness, sunDir, sunRadiance, pEyePos, atmosphereExit, dirWorldNear), 1.0f);
     }
+    output.col0.xyz = GammaCorrect(output.col0.xyz);
     return output;
 }

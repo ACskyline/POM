@@ -4,9 +4,13 @@
 #include "Scene.h"
 #include "Mesh.h"
 
-Pass::Pass(const wstring& debugName) : 
+Pass::Pass(const wstring& debugName,
+	bool outputRenderTarget,
+	bool outputDepthStencil) : 
 	mRenderer(nullptr), mDebugName(debugName), 
-	mConstantBlendFactorsUsed(false), mStencilReferenceUsed(false)
+	mConstantBlendFactorsUsed(false), mStencilReferenceUsed(false),
+	mRenderTargetCount(0), mDepthStencilCount(0), mDepthStencilIndex(-1),
+	mUseRenderTarget(outputRenderTarget), mUseDepthStencil(outputDepthStencil)
 {
 	for(int i = 0;i<Shader::ShaderType::COUNT;i++)
 	{
@@ -27,6 +31,7 @@ void Pass::SetScene(Scene* scene)
 void Pass::SetCamera(Camera* camera)
 {
 	mCamera = camera;
+	mCamera->AddPass(this);
 }
 
 void Pass::AddMesh(Mesh* mesh)
@@ -48,6 +53,24 @@ void Pass::AddRenderTexture(RenderTexture* renderTexture, const BlendState& blen
 	mRenderTextures.push_back(renderTexture);
 	mBlendStates.push_back(blendState);
 	mDepthStencilStates.push_back(depthStencilState);
+	if (renderTexture->IsRenderTargetUsed())
+		mRenderTargetCount++;
+	if (renderTexture->IsDepthStencilUsed())
+	{
+		if (mDepthStencilCount == 0)
+			mDepthStencilIndex = mRenderTextures.size() - 1;
+		mDepthStencilCount++;
+	}
+}
+
+void Pass::AddRenderTexture(RenderTexture* renderTexture, const BlendState& blendState)
+{
+	AddRenderTexture(renderTexture, blendState, DepthStencilState::None());
+}
+
+void Pass::AddRenderTexture(RenderTexture* renderTexture, const DepthStencilState& depthStencilState)
+{
+	AddRenderTexture(renderTexture, BlendState::NoBlend(), depthStencilState);
 }
 
 void Pass::AddShader(Shader* shader)
@@ -81,12 +104,17 @@ void Pass::UpdateUniformBuffer(int frameIndex, Camera* camera)
 	camera->Update();
 	mPassUniform.mViewProj = camera->GetViewProjMatrix();
 	mPassUniform.mViewProjInv = camera->GetViewProjInvMatrix();
-	mPassUniform.mPassIndex = 1;//TODO: create a class static counter so that we can save an unique id for each frame
+	mPassUniform.mView = camera->GetViewMatrix();
+	mPassUniform.mViewInv = camera->GetViewInvMatrix();
+	mPassUniform.mProj = camera->GetProjMatrix();
+	mPassUniform.mProjInv = camera->GetProjInvMatrix();
+	mPassUniform.mPassIndex = 1; // TODO: create a class static counter so that we can save an unique id for each frame
 	mPassUniform.mEyePos = camera->GetPosition();
 	mPassUniform.mNearClipPlane = camera->GetNearClipPlane();
 	mPassUniform.mFarClipPlane = camera->GetFarClipPlane();
 	mPassUniform.mWidth = camera->GetWidth();
 	mPassUniform.mHeight = camera->GetHeight();
+	mPassUniform.mFov = camera->GetFov();
 
 	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
 	void* cpuAddress;
@@ -208,7 +236,7 @@ void Pass::InitPass(
 	// populate output merger stage parameter with render texture attributes
 	mConstantBlendFactorsUsed = false;
 	mStencilReferenceUsed = false;
-	for(int i = 0; i < mRenderTextures.size() && i < 8; i++) // only the first 8 targets will be used
+	for(int i = 0; i < mRenderTextures.size(); i++) // only the first 8 targets will be used
 	{
 		// these values are set using OMSet... functions in D3D12, so we cache them here
 		const BlendState& blendState = mBlendStates[i];
@@ -296,6 +324,31 @@ vector<DepthStencilState>& Pass::GetDepthStencilStates()
 RenderTexture* Pass::GetRenderTexture(int i)
 {
 	return mRenderTextures[i];
+}
+
+int Pass::GetRenderTargetCount()
+{
+	return mRenderTargetCount;
+}
+
+int Pass::GetDepthStencilCount()
+{
+	return mDepthStencilCount;
+}
+
+int Pass::GetDepthStencilIndex()
+{
+	return mDepthStencilIndex;
+}
+
+bool Pass::UseRenderTarget()
+{
+	return mUseRenderTarget;
+}
+
+bool Pass::UseDepthStencil()
+{
+	return mUseDepthStencil;
 }
 
 Camera* Pass::GetCamera()

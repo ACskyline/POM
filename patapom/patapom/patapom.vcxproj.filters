@@ -145,16 +145,16 @@
     <FxCompile Include="ps_deferred.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
-    <FxCompile Include="ps_deferred_ms.hlsl">
-      <Filter>Resource Files</Filter>
-    </FxCompile>
-    <FxCompile Include="vs_sky.hlsl">
-      <Filter>Resource Files</Filter>
-    </FxCompile>
     <FxCompile Include="ps_sky.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
     <FxCompile Include="Lighting.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pom.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="Pom.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
   </ItemGroup>
