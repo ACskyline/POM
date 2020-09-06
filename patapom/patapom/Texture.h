@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GlobalInclude.h"
+#include "Renderer.h"
 
 class Texture
 {
@@ -21,6 +22,8 @@ public:
 	Sampler GetSampler();
 	string GetName();
 	wstring GetDebugName();
+	int GetWidth(int mipLevel = 0);
+	int GetHeight(int mipLevel = 0);
 
 	virtual void InitTexture(Renderer* renderer);
 	virtual void CreateTextureBuffer();
@@ -30,6 +33,7 @@ public:
 
 	bool TransitionTextureLayoutSingleTime(ResourceLayout newLayout);
 	bool TransitionTextureLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout);
+	bool TransitionTextureSubresourceLayout(ID3D12GraphicsCommandList* commandList, uint8_t subresource, ResourceLayout oldLayout, ResourceLayout newLayout);
 
 protected:
 	Texture(
@@ -58,9 +62,9 @@ protected:
 	ResourceLayout mTextureBufferLayout;
 };
 
-// RenderTexture only supports reading from a single buffer, either mRenderTargetBuffer or mDepthStencilBuffer.
+// RenderTexture only supports reading from a one buffer, either mRenderTargetBuffer or mDepthStencilBuffer.
 // Because it is easier to manage texture slots and handle srv this way. If you want to read from both buffer, try to bind 2 render textures.
-// TODO: add support to only enable depthStencil buffer
+// TODO: add support to read from both color and depth stencil buffers (not necessarily read both in the same pass, but at least in different passes)
 class RenderTexture : public Texture
 {
 public:
@@ -69,6 +73,7 @@ public:
 		const wstring& debugName,
 		int width,
 		int height,
+		int mipLevelCount,
 		ReadFrom readFrom,
 		Sampler sampler,
 		Format renderTargetFormat,
@@ -80,6 +85,7 @@ public:
 		const wstring& debugName,
 		int width,
 		int height,
+		int mipLevelCount,
 		ReadFrom readFrom,
 		Sampler sampler,
 		Format depthStencilFormat,
@@ -92,6 +98,7 @@ public:
 		const wstring& debugName,
 		int width,
 		int height,
+		int mipLevelCount,
 		ReadFrom readFrom,
 		Sampler sampler,
 		Format renderTargetFormat,
@@ -114,8 +121,8 @@ public:
 	bool IsDepthStencilUsed();
 	ID3D12Resource* GetRenderTargetBuffer();
 	ID3D12Resource* GetDepthStencilBuffer();
-	D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc();
-	D3D12_DEPTH_STENCIL_VIEW_DESC GetDsvDesc();
+	D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc(int mipSlice);
+	D3D12_DEPTH_STENCIL_VIEW_DESC GetDsvDesc(int mipSlice);
 	Format GetRenderTargetFormat();
 	Format GetDepthStencilFormat();
 	int GetMultiSampleCount();
@@ -136,6 +143,7 @@ protected:
 		const wstring& debugName,
 		int width,
 		int height,
+		int mipmapCount,
 		ReadFrom readFrom,
 		Sampler sampler,
 		bool useRenderTarget,
@@ -161,8 +169,8 @@ private:
 	ID3D12Resource* mRenderTargetBuffer; // TODO: hide API specific implementation in Renderer
 	ID3D12Resource* mDepthStencilBuffer;
 
-	View mRtv;
-	View mDsv;
+	View mRtvMip0;
+	View mDsvMip0;
 	ResourceLayout mRenderTargetBufferLayout;
 	ResourceLayout mDepthStencilBufferLayout;
 	Format mDepthStencilFormat;

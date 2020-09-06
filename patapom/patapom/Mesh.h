@@ -1,13 +1,19 @@
 #pragma once
 
 #include "GlobalInclude.h"
-
-class Texture;
+#include "Renderer.h"
 
 class Mesh
 {
 public:
-	enum class MeshType { PLANE, CUBE, FULLSCREEN_QUAD, FULLSCREEN_TRIANGLE, SKY_FULLSCREEN_TRIANGLE, MESH, COUNT };
+	enum class MeshType { 
+		PLANE, 
+		CUBE, 
+		FULLSCREEN_QUAD, 
+		FULLSCREEN_TRIANGLE, 
+		SKY_FULLSCREEN_TRIANGLE, // z value is at the farthest
+		MESH, 
+		COUNT };
 
 	struct ObjectUniform
 	{

@@ -1,6 +1,10 @@
 #include "Camera.h"
 #include "Pass.h"
 
+Camera::Camera()
+{
+}
+
 Camera::Camera(const XMFLOAT3 &position,
 	const XMFLOAT3 &target,
 	const XMFLOAT3 &up,
@@ -247,9 +251,12 @@ void Camera::AddPass(Pass* pass)
 
 void Camera::UpdatePassUniformBuffer(int frameIndex)
 {
+	Update();
+	PassUniformDefault passUniform;
+	passUniform.Update(this);
 	for(auto pass : mPasses)
 	{
-		pass->UpdateUniformBuffer(frameIndex, this);
+		pass->UpdateUniformBuffer(frameIndex, &passUniform);
 	}
 }
 

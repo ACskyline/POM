@@ -2,8 +2,10 @@
 
 #include "GlobalInclude.h"
 
+class Pass;
 class Texture;
 class Light;
+class DescriptorHeap;
 
 const uint32_t MAX_LIGHTS_PER_SCENE = 10;
 
@@ -50,7 +52,17 @@ public:
 		float roughness;
 		float useStandardTextures;
 		float metallic;
-		float reflection;
+		float specularity;
+		//
+		uint32_t sampleNumIBL;
+		uint32_t showReferenceIBL;
+		uint32_t useSceneLight;
+		uint32_t useSunLight;
+		//
+		uint32_t useIBL;
+		uint32_t prefilteredEnvMapLevelCount;
+		uint32_t PADDING_1;
+		uint32_t PADDING_2;
 		//
 		LightData lights[MAX_LIGHTS_PER_SCENE];
 	};

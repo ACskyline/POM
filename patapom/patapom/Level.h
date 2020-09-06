@@ -2,10 +2,13 @@
 
 #include "GlobalInclude.h"
 
+class Pass;
 class Scene;
 class Mesh;
 class Texture;
+class Shader;
 class Camera;
+class DescriptorHeap;
 
 class Level
 {

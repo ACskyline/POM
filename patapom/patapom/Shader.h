@@ -2,6 +2,7 @@
 
 #include <D3Dcompiler.h>
 #include "GlobalInclude.h"
+#include "Renderer.h"
 
 class Shader
 {

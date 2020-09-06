@@ -1,10 +1,14 @@
 #pragma once
 
 #include "GlobalInclude.h"
+#include "Renderer.h"
+
+class Pass;
 
 class Camera
 {
 public:
+	Camera();
 	Camera(const XMFLOAT3 &position,
 		const XMFLOAT3 &target, 
 		const XMFLOAT3 &up,

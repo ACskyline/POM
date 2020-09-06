@@ -5,13 +5,18 @@
 
 #define SHADOW_BIAS 0.08
 #define SUN_LIGHTING_SCALING_FACTOR 0.15
-#define IBL_LIGHTING_SCALING_FACTOR 5.00
 
 Texture2D lightTexes[] : register(t0, SPACE(SCENE));
 SamplerState lightSamplers[] : register(s0, SPACE(SCENE));
 
 Texture2D probeTex : register(t4, SPACE(PASS));
 SamplerState probeSampler : register(s4, SPACE(PASS));
+
+Texture2D prefileteredEnvMap : register(t5, SPACE(PASS));
+SamplerState prefileteredEnvMapSampler : register(s5, SPACE(PASS));
+
+Texture2D lut : register(t6, SPACE(PASS));
+SamplerState lutSampler : register(s6, SPACE(PASS));
 
 float ShadowFeeler(float3 posWorld, LightData ld)
 {
@@ -29,43 +34,19 @@ float ShadowFeeler(float3 posWorld, LightData ld)
     return result;
 }
 
-// Trowbridge-Reitz micro-facet distribution function (GGX)
-float GGX_D(float cosThetaH, float alpha)
-{
-    float temp = cosThetaH * cosThetaH * (alpha * alpha - 1.0f) + 1.0f;
-    return alpha * alpha / (PI * temp * temp);
-}
-
-// Trowbridge-Reitz masking shadowing function
-float GGX_G(float tanThetaI, float tanThetaO, float alpha)
-{
-    float alpha2 = alpha * alpha;
-    float tanThetaI2 = tanThetaI * tanThetaI;
-    float tanThetaO2 = tanThetaO * tanThetaO;
-    float AI = (-1.0f + sqrt(1.0f + alpha2 * tanThetaI2)) / 2.0f;
-    float AO = (-1.0f + sqrt(1.0f + alpha2 * tanThetaO2)) / 2.0f;
-    return 1.0f / (1.0f + AI + AO);
-}
-
 // Schlick approximation
 float Fresnel(float vDotH, float F0)
 {
     return F0 + (1.0f - F0) * pow(1.0f - vDotH, 5.0f);
 }
 
-float TanTheta(float3 w, float3 nor)
-{
-    float b = dot(w, nor);
-    float a = length(w - b * nor);
-    return a / b;
-}
-
-float CosTheta(float3 w, float3 nor)
-{
-    return dot(w, nor);
-}
-
 // wi = lightDir, wo = eyeDir
+float GGX(float3 wi, float3 wo, float3 wh, float3 N, float roughness)
+{
+    float fresnel = Fresnel(dot(wh, wo), uScene.sFresnel);
+    return saturate(fresnel * GGX_NoFresnel(wi, wo, wh, N, roughness));
+}
+
 float3 BRDF(SurfaceDataIn sdi, float3 wi, float3 wo)
 {
     if (dot(wi, sdi.norWorld) < 0.0f || dot(wo, sdi.norWorld) < 0.0f)
@@ -80,48 +61,85 @@ float3 BRDF(SurfaceDataIn sdi, float3 wi, float3 wo)
     else
         wh = normalize(wh);
     
-    float fresnel = Fresnel(dot(wh, wo), sFresnel);
-    float specular = saturate(fresnel * GGX_D(CosTheta(wh, sdi.norWorld), sRoughness) * GGX_G(TanTheta(wi, sdi.norWorld), TanTheta(wo, sdi.norWorld), sRoughness) / (4.0f * CosTheta(wi, sdi.norWorld) * CosTheta(wo, sdi.norWorld)));
-    float diffuse = saturate(dot(wi, sdi.norWorld) / PI); // TODO: use Disney diffuse
-    return sdi.albedo * (diffuse * (1.0f - sMetallic) + specular * sMetallic) * saturate(CosTheta(wi, sdi.norWorld));
+    float specular = GGX(wi, wo, wh, sdi.norWorld, uScene.sRoughness);
+    float diffuse = ONE_OVER_PI; // TODO: use Disney diffuse
+    return sdi.albedo * (diffuse * (1.0f - uScene.sMetallic) + specular * uScene.sMetallic) * saturate(CosTheta(wi, sdi.norWorld));
 }
 
-float3 SampleProbe(float3 dir)
+float3 SpecularIBL(float3 SpecularColor, float roughness, float3 N, float3 V)
 {
-    float tan = dir.z / dir.x;
-    float u = atan(tan);
-    if (dir.x < 0)
-        u += PI;
-    u = u / TWO_PI;
-    float v = dir.y * 0.5f + 0.5f;
-    return probeTex.Sample(probeSampler, TransformUV(float2(u, v))).rgb;
+    float3 SpecularLighting = 0;
+    const uint NumSamples = uScene.sSampleNumIBL;
+    for (uint i = 0; i < NumSamples; i++)
+    {
+        float2 Xi = Hammersley(i, NumSamples);
+
+        float3 H = ImportanceSampleGGX(Xi, roughness, N);
+        float3 L = 2 * dot(V, H) * H - V;
+        float NoL = saturate(dot(N, L));
+        if (NoL > 0)
+        {
+            float3 ProbeColor = probeTex.SampleLevel(probeSampler, TransformUV(DirToUV(L)), 0).rgb;
+            SpecularLighting += SpecularColor * ProbeColor * GGX(V, L, H, N, roughness) * saturate(CosTheta(L, N));
+        }
+    }
+    return SpecularLighting / NumSamples;
+}
+
+float3 ApproximateSpecularIBL(float3 SpecularColor, float roughness, float3 N, float3 V)
+{
+    float NoV = saturate(dot(N, V));
+    float3 L = 2 * dot(V, N) * N - V;
+    float4 PrefilteredColor = prefileteredEnvMap.SampleLevel(prefileteredEnvMapSampler, TransformUV(DirToUV(L)), roughness * uScene.sPrefilteredEnvMapMipLevelCount);
+    float4 EnvBRDF = lut.SampleLevel(lutSampler, TransformUV(float2(NoV, roughness)), 0);
+    return PrefilteredColor.rgb * (SpecularColor * EnvBRDF.x + EnvBRDF.y);
 }
 
 float3 Lighting(SurfaceDataIn sdi)
 {
     float3 result = 0.0f.xxx;
-    float3 eyeDir = normalize(pEyePos - sdi.posWorld);
-    uint lightOffset = sLightDebugOffset > 0 ? sLightDebugOffset : 0;
-    uint lightCount = sLightDebugCount > 0 ? sLightDebugCount : sLightCount;
+    float3 eyeDir = normalize(uPass.pEyePos - sdi.posWorld);
+    
+    // light sources
+    float3 sceneLight = 0.0f.xxx;
+    uint lightOffset = uScene.sLightDebugOffset > 0 ? uScene.sLightDebugOffset : 0;
+    uint lightCount = uScene.sLightDebugCount > 0 ? uScene.sLightDebugCount : uScene.sLightCount;
     for (uint i = 0; i < lightCount && i < MAX_LIGHTS_PER_SCENE; i++)
     {
         uint j = i + lightOffset;
-        if(j < sLightCount)
+        if (j < uScene.sLightCount)
         {
-            float3 lightDir = normalize(sLights[j].position - sdi.posWorld);
-            float facingLight = dot(lightDir, sdi.norWorld) < 0.0f ? 0.0f : 1.0f;
-            float3 brdf = BRDF(sdi, lightDir, eyeDir);
-            float shadow = facingLight * ShadowFeeler(sdi.posWorld, sLights[j]);
-            result += brdf * sLights[j].color * shadow;
+            float3 lightDir = normalize(uScene.sLights[j].position - sdi.posWorld);
+            float facingLight = saturate(dot(lightDir, sdi.norWorld));
+            if (facingLight > 0)
+            {
+                float shadow = ShadowFeeler(sdi.posWorld, uScene.sLights[j]);
+                float3 brdf = BRDF(sdi, lightDir, eyeDir);
+                sceneLight += brdf * uScene.sLights[j].color * shadow;
+            }
         }
     }
     
-    float3 probeDir = reflect(-eyeDir, sdi.norWorld);
-    float3 IBL = SampleProbe(probeDir);
-    float3 sunDir = GetSunDir(sSunAzimuth, sSunAltitude);
-    float facingSun = dot(sunDir, sdi.norWorld) < 0.0f ? 0.0f : 1.0f;
-    result += BRDF(sdi, sunDir, eyeDir) * facingSun * sSunRadiance * SUN_LIGHTING_SCALING_FACTOR;
-    result += BRDF(sdi, probeDir, eyeDir) * IBL * sReflection * IBL_LIGHTING_SCALING_FACTOR;
+    // sun
+    float3 sunLight = 0.0f.xxx;
+    float3 sunDir = GetSunDir(uScene.sSunAzimuth, uScene.sSunAltitude);
+    float facingSun = saturate(dot(sunDir, sdi.norWorld));
+    if (facingSun)
+        sunLight += BRDF(sdi, sunDir, eyeDir) * facingSun * uScene.sSunRadiance * SUN_LIGHTING_SCALING_FACTOR;
+    
+    // IBL
+    float3 IBL = 0.0f.xxx;
+    if (uScene.sShowReferenceIBL)
+        IBL += SpecularIBL(sdi.albedo, uScene.sRoughness, sdi.norWorld, eyeDir);
+    else
+        IBL += ApproximateSpecularIBL(sdi.albedo, uScene.sRoughness, sdi.norWorld, eyeDir);
+    
+    // Similar to Unreal's specularity, add fake specularity to diffuse material
+    if (uScene.sMetallic == 0.0f)
+        IBL *= uScene.sSpecularity;
+    
+    result = uScene.sUseSceneLight * sceneLight + uScene.sUseSunLight * sunLight + uScene.sUseIBL * IBL;
+    
     return result;
 }
 

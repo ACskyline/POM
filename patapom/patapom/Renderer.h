@@ -2,23 +2,22 @@
 
 #include "GlobalInclude.h"
 
-using namespace DirectX;
-using namespace std;
-
 class Level;
 class Frame;
 class Pass;
 class Shader;
-class Renderer;
+class Texture;
 class RenderTexture;
+class Mesh;
+class Camera;
 
 enum ReadFrom : uint8_t { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04, MS = 0x10, COLOR_MS = 0x11, DEPTH_MS = 0x12, STENCIL_MS = 0x14 };
 enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
-enum class UNIFORM_REGISTER_SPACE { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
-enum class UNIFORM_TYPE { CONSTANT, TEXTURE_TABLE, SAMPLER_TABLE, COUNT };
+enum class RegisterSpace { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
+enum class RegisterType { CONSTANT, TEXTURE_TABLE, SAMPLER_TABLE, COUNT };
 
-int GetUniformSlot(UNIFORM_REGISTER_SPACE space, UNIFORM_TYPE type);
+int GetUniformSlot(RegisterSpace space, RegisterType type);
 
 const D3D12_INPUT_ELEMENT_DESC VertexInputLayout[] =
 {
@@ -369,6 +368,11 @@ private:
 	Type mType;
 };
 
+#define DS_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less())
+#define DS_EQUAL_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::GreaterEqual(), DepthStencilState::LessEqual())
+#define DS_EQUAL_NO_WRITE_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::GreaterEqualNoWrite(), DepthStencilState::LessEqualNoWrite())
+#define DEPTH_FARTHEST_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(0.0f, 1.0f)
+
 class Renderer
 {
 public:
@@ -418,7 +422,7 @@ public:
 		Format depthStencilBufferFormat = Format::D24_UNORM_S8_UINT,
 		DebugMode debugMode = DebugMode::OFF,
 		BlendState blendState = BlendState::NoBlend(),
-		DepthStencilState depthStencilState = REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less()));
+		DepthStencilState depthStencilState = DS_REVERSED_Z_SWITCH);
 	void CreateDepthStencilBuffers(Format format);
 	void CreatePreResolveBuffers(Format format);
 	void CreateColorBuffers();
@@ -437,14 +441,12 @@ public:
 
 	bool TransitionSingleTime(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
 	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
-	bool CacheTransition(vector<CD3DX12_RESOURCE_BARRIER>& transitions, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
-	bool RecordCachedTransitions(ID3D12GraphicsCommandList* commandList, vector<CD3DX12_RESOURCE_BARRIER>& cachedTransitions);
 	void RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, uint8_t srcSubresource, ID3D12Resource* dst, uint8_t dstSubresource, Format format);
 
 	void CreateDescriptorHeap(DescriptorHeap& srvDescriptorHeap, int size);
 	void CreateGraphicsRootSignature(
 		ID3D12RootSignature** rootSignature,
-		int maxTextureCount[(int)UNIFORM_REGISTER_SPACE::COUNT]);
+		int maxTextureCount[(int)RegisterSpace::COUNT]);
 	void CreatePSO(
 		Pass& pass,
 		ID3D12PipelineState** pso,
@@ -466,6 +468,8 @@ public:
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
 		float clearDepthValue = REVERSED_Z_SWITCH(0.0f, 1.0f),
 		uint8_t clearStencilValue = 0);
+	ID3D12GraphicsCommandList* BeginSingleTimeCommands();
+	void EndSingleTimeCommands(ID3D12GraphicsCommandList* commandList);
 
 	IDXGIFactory4* mDxgiFactory;
 	ID3D12Device* mDevice; // direct3d device
@@ -474,7 +478,7 @@ public:
 	ID3D12CommandQueue* mGraphicsCommandQueue; // TODO: add support to transfer queue
 	vector<ID3D12CommandAllocator*> mGraphicsCommandAllocators; // size of mFrameCount
 	vector<ID3D12GraphicsCommandList*> mCommandLists; // arbitrary size, this way we can have more than 1 command list per frame
-	ID3D12CommandAllocator* mCopyCommandAllocator;
+	ID3D12CommandAllocator* mSingleTimeCommandAllocator;
 	int mWidth;
 	int mHeight;
 	DebugMode mDebugMode;
@@ -505,7 +509,7 @@ private:
 	void EnableGBV();
 
 	bool TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
-
+	
 	void CreatePSO(
 		ID3D12Device* device,
 		ID3D12PipelineState** pso,
@@ -536,3 +540,13 @@ private:
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mRtvHandles;
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mPreResolvedRtvHandles;
 };
+
+const int gWidth = 960;
+const int gHeight = 960;
+
+extern Sampler gSampler;
+extern Sampler gSamplerPoint;
+extern Shader gDeferredVS;
+extern Mesh gCube;
+extern Mesh gFullscreenTriangle;
+extern Camera gCameraDummy;

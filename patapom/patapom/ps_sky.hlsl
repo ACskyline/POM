@@ -140,29 +140,29 @@ PhaseParam DefaultPhaseParam()
 float3 Transmittance(float3 earthPos, float earthRadius, float3 begin, float3 end, float3 dir)
 {
     PhaseParam pp = DefaultPhaseParam();
-    float3 deltaPos = (end - begin) / (float)sSkyMarchStepTr;
+    float3 deltaPos = (end - begin) / (float)uScene.sSkyMarchStepTr;
     float3 currentPos = begin;
     float rayleighDensity = 0.0f;
     float mieDensity = 0.0f;
-    for (uint i = 0; i < sSkyMarchStepTr; i++)
+    for (uint i = 0; i < uScene.sSkyMarchStepTr; i++)
     {
         float height = length(currentPos - earthPos) - earthRadius;
         rayleighDensity += RayleighDensity(height);
         mieDensity += MieDensity(height);
         currentPos += deltaPos;
     }
-    return exp(-(pp.rayleighExtinction * rayleighDensity + pp.mieExtinction * mieDensity) / (float) sSkyMarchStepTr);
+    return exp(-(pp.rayleighExtinction * rayleighDensity + pp.mieExtinction * mieDensity) / (float)uScene.sSkyMarchStepTr);
 }
 
 float3 MarchSky(float3 earthPos, float earthRadius, float atmosphereThickness, float3 sunDir, float3 sunRadiance, float3 begin, float3 end, float3 dir)
 {
     PhaseParam pp = DefaultPhaseParam();
-    float3 deltaPos = (end - begin) / (float)sSkyMarchStep;
+    float3 deltaPos = (end - begin) / (float)uScene.sSkyMarchStep;
     float3 currentPos = begin;
     float cosTheta = dot(dir, sunDir);
     float3 Ir = 0.0f.xxx;
     float3 Im = 0.0f.xxx;
-    for (uint i = 0; i < sSkyMarchStep; i++)
+    for (uint i = 0; i < uScene.sSkyMarchStep; i++)
     {
         float3 sunRayIntersectionStart = 0.0f.xxx;
         float3 sunRayIntersectionFinish = 0.0f.xxx;
@@ -176,8 +176,8 @@ float3 MarchSky(float3 earthPos, float earthRadius, float atmosphereThickness, f
         
         currentPos += deltaPos;
     }
-    Ir *= Rayleigh(cosTheta) * pp.rayleighScattering / (4.0f * PI * (float)sSkyMarchStep);
-    Im *= Mie(cosTheta, sSkyScatterG) * pp.mieScattering / (4.0f * PI * (float)sSkyMarchStep);
+    Ir *= Rayleigh(cosTheta) * pp.rayleighScattering / (4.0f * PI * (float)uScene.sSkyMarchStep);
+    Im *= Mie(cosTheta, uScene.sSkyScatterG) * pp.mieScattering / (4.0f * PI * (float)uScene.sSkyMarchStep);
     return (Ir + Im) * sunRadiance;
 }
 
@@ -186,26 +186,26 @@ PS_OUTPUT main(VS_OUTPUT input)
     float3 earthPos = float3(0.0f, -EARTH_RADIUS, 0.0f);
     float earthRadius = EARTH_RADIUS;
     float atmosphereThickness = ATMOSPHERE_THICKNESS;
-    float3 sunPos = GetSunPos(sSunAzimuth, sSunAltitude, SUN_DISTANCE, pEyePos);
-    float3 sunDir = normalize(sunPos - pEyePos);
-    float3 sunRadiance = float3(sSunRadiance.r, sSunRadiance.g, sSunRadiance.b) * SUN_RADIANCE_SCALING_FACTOR;
+    float3 sunPos = GetSunPos(uScene.sSunAzimuth, uScene.sSunAltitude, SUN_DISTANCE, uPass.pEyePos);
+    float3 sunDir = normalize(sunPos - uPass.pEyePos);
+    float3 sunRadiance = float3(uScene.sSunRadiance.r, uScene.sSunRadiance.g, uScene.sSunRadiance.b) * SUN_RADIANCE_SCALING_FACTOR;
     float sunRadius = SUN_RADIUS;
         
     PS_OUTPUT output;
     
-    float2 posNDC = ScreenToNDC(input.pos.xy, float2(pWidth, pHeight)); // flip y
-    float4 posWorldNear = mul(pViewProjInv, float4(posNDC, 0.0f, 1.0f) * pNearClipPlane);   
-    float3 dirWorldNear = normalize(posWorldNear.xyz - pEyePos);
+    float2 posNDC = ScreenToNDC(input.pos.xy, float2(uPass.pWidth, uPass.pHeight)); // flip y
+    float4 posWorldNear = mul(uPass.pViewProjInv, float4(posNDC, 0.0f, 1.0f) * uPass.pNearClipPlane);
+    float3 dirWorldNear = normalize(posWorldNear.xyz - uPass.pEyePos);
     
-    if (IntersectSphereFast(pEyePos, dirWorldNear, earthPos, earthRadius)) // earth
+    if (IntersectSphereFast(uPass.pEyePos, dirWorldNear, earthPos, earthRadius)) // earth
         output.col0 = float4(0.2f, 0.2f, 0.25f, 1.0f);
     else // sky
     {
         float3 atmosphereEntrance = 0.0f.xxx;
         float3 atmosphereExit = 0.0f.xxx;
-        if (IntersectSphere(pEyePos, dirWorldNear, earthPos, earthRadius + atmosphereThickness, atmosphereEntrance, atmosphereExit))
-            output.col0 = float4(MarchSky(earthPos, earthRadius, atmosphereThickness, sunDir, sunRadiance, pEyePos, atmosphereExit, dirWorldNear), 1.0f);
+        if (IntersectSphere(uPass.pEyePos, dirWorldNear, earthPos, earthRadius + atmosphereThickness, atmosphereEntrance, atmosphereExit))
+            output.col0 = float4(MarchSky(earthPos, earthRadius, atmosphereThickness, sunDir, sunRadiance, uPass.pEyePos, atmosphereExit, dirWorldNear), 1.0f);
     }
-    output.col0.xyz = GammaCorrect(output.col0.xyz);
+    output.col0.xyz = LinearToGamma(output.col0.xyz);
     return output;
 }

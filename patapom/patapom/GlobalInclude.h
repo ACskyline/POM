@@ -54,4 +54,5 @@ extern Renderer gRenderer;
 
 bool CheckError(HRESULT hr, ID3D12Device* device = nullptr, ID3D10Blob* error_message = nullptr);
 
-#include "Renderer.h"
+using namespace DirectX;
+using namespace std;

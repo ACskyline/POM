@@ -24,7 +24,7 @@ float4 DefaultShading(SurfaceDataIn sdi)
     float3 output;
     output = Lighting(sdi);
     //return float4(output, 1.0f); // for debug
-    return float4(GammaCorrect(output.rgb), 1.0f); // some old school gamma
+    return float4(LinearToGamma(output.rgb), 1.0f); // some old school gamma
 }
 
 PS_OUTPUT main(VS_OUTPUT input)
@@ -34,44 +34,44 @@ PS_OUTPUT main(VS_OUTPUT input)
     SurfaceDataIn sdi;
     float2 screenPos = input.pos.xy;
     float2 uv = input.uv;
-    sdi.albedo = gbuffer0.Sample(gbufferSampler0, uv).rgb;
-    sdi.norWorld = UnpackNormal(gbuffer1.Sample(gbufferSampler1, uv).rgb);
-    float depth = dbuffer.SampleLevel(dbufferSampler, uv, 0.0f).r;
-    float zView = DequantizeDepth(gbuffer0.Sample(gbufferSampler0, uv).a, pNearClipPlane, pFarClipPlane);
-    float3 storedPosWorld_gbuffer = gbuffer2.Sample(gbufferSampler2, uv).rgb;
-    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(pWidth, pHeight), zView, pFov, pNearClipPlane, pFarClipPlane, pViewInv);
-    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(pWidth, pHeight), depth, pNearClipPlane, pFarClipPlane, pViewProjInv);
+    sdi.albedo = gbuffer0.Sample(gbufferSampler0, TransformUV(uv)).rgb;
+    sdi.norWorld = UnpackNormal(gbuffer1.Sample(gbufferSampler1, TransformUV(uv)).rgb);
+    float depth = dbuffer.SampleLevel(dbufferSampler, TransformUV(uv), 0.0f).r;
+    float zView = DequantizeDepth(gbuffer0.Sample(gbufferSampler0, TransformUV(uv)).a, uPass.pNearClipPlane, uPass.pFarClipPlane);
+    float3 storedPosWorld_gbuffer = gbuffer2.Sample(gbufferSampler2, TransformUV(uv)).rgb;
+    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(uPass.pWidth, uPass.pHeight), zView, uPass.pFov, uPass.pNearClipPlane, uPass.pFarClipPlane, uPass.pViewInv);
+    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(uPass.pWidth, uPass.pHeight), depth, uPass.pNearClipPlane, uPass.pFarClipPlane, uPass.pViewProjInv);
     sdi.posWorld = restoredPosWorld_gbuffer;
     
-    if (sMode == 0) // default
+    if (uScene.sMode == 0) // default
     {
         output.col0 = DefaultShading(sdi);
     }
-    else if (sMode == 1) // albedo
+    else if (uScene.sMode == 1) // albedo
     {
-        output.col0 = gbuffer0.Sample(gbufferSampler0, uv);
+        output.col0 = gbuffer0.Sample(gbufferSampler0, TransformUV(uv));
     }
-    else if (sMode == 2) // normal
+    else if (uScene.sMode == 2) // normal
     {
-        output.col0 = gbuffer1.Sample(gbufferSampler1, uv);
+        output.col0 = gbuffer1.Sample(gbufferSampler1, TransformUV(uv));
     }
-    else if (sMode == 3) // uv
+    else if (uScene.sMode == 3) // uv
     {
         output.col0 = float4(input.uv, 0.0f, 1.0f);
     }
-    else if (sMode == 4) // stored pos
+    else if (uScene.sMode == 4) // stored pos
     {
         output.col0 = float4(storedPosWorld_gbuffer, 1.0f);
     }
-    else if (sMode == 5) // restored pos g
+    else if (uScene.sMode == 5) // restored pos g
     {
         output.col0 = float4(restoredPosWorld_gbuffer, 1.0f);
     }
-    else if (sMode == 6) // restored pos d
+    else if (uScene.sMode == 6) // restored pos d
     {
         output.col0 = float4(restoredPosWorld_dbuffer, 1.0f);
     }
-    else if (sMode == 7) // abs diff pos
+    else if (uScene.sMode == 7) // abs diff pos
     {
         output.col0 = float4(abs(restoredPosWorld_gbuffer - restoredPosWorld_dbuffer), 1.0f);
     }

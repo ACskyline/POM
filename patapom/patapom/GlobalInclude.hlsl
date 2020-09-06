@@ -9,6 +9,7 @@
 #define SPACE(x)    space ## x
 
 #define PI          3.1415926535
+#define ONE_OVER_PI 0.3183098861
 #define HALF_PI     1.5707963267
 #define TWO_PI      6.2831853071
 #define MAX_LIGHTS_PER_SCENE 10
@@ -51,7 +52,7 @@ struct LightData
     uint PADDING2;
 };
 
-cbuffer SceneUniform : register(b0, SPACE(SCENE))
+struct SceneUniformDefault
 {
     uint sMode;
     uint sPomMarchStep;
@@ -76,17 +77,27 @@ cbuffer SceneUniform : register(b0, SPACE(SCENE))
     float sRoughness;
     float sUseStandardTextures;
     float sMetallic;
-    float sReflection;
+    float sSpecularity;
+    //
+    uint sSampleNumIBL;
+    uint sShowReferenceIBL;
+    uint sUseSceneLight;
+    uint sUseSunLight;
+    //
+    uint sUseIBL;
+    uint sPrefilteredEnvMapMipLevelCount;
+    uint PADDING_1;
+    uint PADDING_2;
     //
     LightData sLights[MAX_LIGHTS_PER_SCENE];
 };
 
-cbuffer FrameUniform : register(b0, SPACE(FRAME))
+struct FrameUniformDefault
 {
     uint fFrameIndex;
 };
 
-cbuffer PassUniform : register(b0, SPACE(PASS))
+struct PassUniformDefault
 {
     float4x4 pViewProj;
     float4x4 pViewProjInv;
@@ -106,11 +117,39 @@ cbuffer PassUniform : register(b0, SPACE(PASS))
     uint pPADDING_2;
 };
 
-cbuffer ObjectUniform : register(b0, SPACE(OBJECT))
+struct ObjectUniformDefault
 {
     float4x4 oModel;
     float4x4 oModelInv;
 };
+
+#ifndef CUSTOM_SCENE_UNIFORM
+cbuffer SceneUniformBuffer : register(b0, SPACE(SCENE))
+{
+    SceneUniformDefault uScene;
+}
+#endif
+
+#ifndef CUSTOM_FRAME_UNIFORM
+cbuffer FrameUniformBuffer : register(b0, SPACE(FRAME))
+{
+    FrameUniformDefault uFrame;
+};
+#endif
+
+#ifndef CUSTOM_PASS_UNIFORM
+cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
+{
+    PassUniformDefault uPass;
+};
+#endif
+
+#ifndef CUSTOM_OBJECT_UNIFORM
+cbuffer ObjectUniformBuffer : register(b0, SPACE(OBJECT))
+{
+    ObjectUniformDefault uObject;
+};
+#endif
 
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 /////////////// UNIFORM ///////////////
@@ -171,10 +210,11 @@ struct PS_OUTPUT
 // uv in pixel shaders are expected to be sample-ready,
 // meaning they are transformed to respective hlsl/glsl texture space convention.
 // TODO: change this if using glsl
-float2 TransformUV(float2 uv)
-{
-    return float2(uv.x, 1.0f - uv.y);
-}
+//float2 TransformUV(float2 uv)
+//{
+//    return float2(uv.x, 1.0f - uv.y);
+//}
+#define TransformUV(uv) float2(uv.x, 1.0f - uv.y)
 
 float3 GetSunPos(float azimuth, float altitude, float distance, float3 offset)
 {
@@ -268,9 +308,112 @@ float3 RestorePosFromViewZ(float2 screenPos, float2 screenSize, float zView, flo
     return mul(viewInv, posView).xyz;
 }
 
-float3 GammaCorrect(float3 input)
+float3 LinearToGamma(float3 input)
 {
     return pow(input, 1.0f / 2.2f);
+}
+
+float2 Hammersley(uint index, uint num)
+{
+    const uint numSampleBits = uint(log2(float(num)));
+    const float invNumSamples = 1.0 / float(num);
+    uint i = uint(index);
+    uint t = i;
+    uint bits = 0u;
+    for (uint j = 0u; j < numSampleBits; j++)
+    {
+        bits = bits * 2u + (t - (2u * (t / 2u)));
+        t /= 2u;
+    }
+    return float2(float(i), float(bits)) * invNumSamples;
+}
+
+//    +z => +x   => -z  => -x
+// u: 0  => 0.25 => 0.5 => 0.75
+//    +y => -y
+// v: 1  => 0
+float2 DirToUV(float3 dir)
+{
+    float tan = dir.x / dir.z;
+    float u = atan(tan);
+    if (dir.z < 0)
+        u += PI;
+    if (u < 0)
+        u += TWO_PI; // [-PI/2,3PI/2) => [0, 2PI)
+    u = u / TWO_PI;
+    float v = 1.0f - acos(dir.y) / PI; // linear transform in uv space
+    return float2(u, v);
+}
+
+//         x
+//         |  /
+//         | / u
+// -z -----+----- z 
+//         |
+//         |
+//        -x
+float3 UVtoDir(float2 uv)
+{
+    float3 dir;
+    float theta = (1.0f - uv.y) * PI;
+    float phi = uv.x * TWO_PI;
+    dir.y = cos(theta);
+    dir.x = sin(phi) * sin(theta);
+    dir.z = cos(phi) * sin(theta);
+    return dir;
+}
+
+float3 ImportanceSampleGGX(float2 Xi, float roughness, float3 N)
+{
+    float a = roughness * roughness;
+    float Phi = 2 * PI * Xi.x;
+    float CosTheta = sqrt((1 - Xi.y) / (1 + (a * a - 1) * Xi.y));
+    float SinTheta = sqrt(1 - CosTheta * CosTheta);
+    float3 H;
+    H.x = SinTheta * cos(Phi);
+    H.y = SinTheta * sin(Phi);
+    H.z = CosTheta;
+    float3 UpVector = abs(N.z) < 0.999 ? float3(0, 0, 1) : float3(1, 0, 0);
+    float3 TangentX = normalize(cross(UpVector, N));
+    float3 TangentY = cross(N, TangentX);
+    // Tangent to world space
+    return TangentX * H.x + TangentY * H.y + N * H.z;
+}
+
+float CosTheta(float3 w, float3 nor)
+{
+    return dot(w, nor);
+}
+
+float TanTheta(float3 w, float3 nor)
+{
+    float b = dot(w, nor);
+    float a = length(w - b * nor);
+    return a / b;
+}
+
+// Trowbridge-Reitz micro-facet distribution function (GGX)
+float GGX_D(float cosThetaH, float alpha)
+{
+    float temp = cosThetaH * cosThetaH * (alpha * alpha - 1.0f) + 1.0f;
+    return alpha * alpha / (PI * temp * temp);
+}
+
+// Trowbridge-Reitz masking shadowing function
+float GGX_G(float tanThetaI, float tanThetaO, float alpha)
+{
+    float alpha2 = alpha * alpha;
+    float tanThetaI2 = tanThetaI * tanThetaI;
+    float tanThetaO2 = tanThetaO * tanThetaO;
+    float AI = (-1.0f + sqrt(1.0f + alpha2 * tanThetaI2)) / 2.0f;
+    float AO = (-1.0f + sqrt(1.0f + alpha2 * tanThetaO2)) / 2.0f;
+    return 1.0f / (1.0f + AI + AO);
+}
+
+// wi = lightDir, wo = eyeDir
+float GGX_NoFresnel(float3 wi, float3 wo, float3 wh, float3 N, float roughness)
+{
+    return saturate(GGX_D(CosTheta(wh, N), roughness) * GGX_G(TanTheta(wi, N), TanTheta(wo, N), roughness) / (4.0f * CosTheta(wi, N) * CosTheta(wo, N)));
 }
 
 #endif

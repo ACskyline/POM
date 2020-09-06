@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GlobalInclude.h"
+#include "Renderer.h"
 
 class Texture;
 
@@ -44,7 +45,7 @@ private:
 	FrameUniform mFrameUniform;
 	vector<Texture*> mTextureVec;
 
-	// TODO: hide API specific implementation in Renderer
+	// TODO: Hide API specific implementation in Renderer
 	ID3D12Resource* mUniformBuffer; 
 	D3D12_GPU_DESCRIPTOR_HANDLE mCbvSrvUavDescriptorHeapTableHandle;
 	D3D12_GPU_DESCRIPTOR_HANDLE mSamplerDescriptorHeapTableHandle;
