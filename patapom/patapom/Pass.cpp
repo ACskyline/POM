@@ -63,34 +63,33 @@ void Pass::AddTexture(Texture* texture)
 	mTextures.push_back(texture);
 }
 
-void Pass::AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState)
+void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState)
 {
 	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mBlendEnable), "render texture does not have render target buffer but trying to enable blend!");
 	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mLogicOpEnable), "render texture does not have render target buffer but trying to enable logic op!");
 	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthWriteEnable), "render texture does not have depth stencil buffer but trying to enable depth write!");
 	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthTestEnable), "render texture does not have depth stencil buffer but trying to enable depth test!");
-	mRenderTextures.push_back(renderTexture);
-	mBlendStates.push_back(blendState);
-	mDepthStencilStates.push_back(depthStencilState);
-	mRenderMipSlices.push_back(mipSlice);
+	fatalAssertf(depthSlice < renderTexture->GetDepth() && mipSlice < renderTexture->GetMipLevelCount(), "render texture depth/mip out of range");
+	ShaderTarget st = { renderTexture, blendState, depthStencilState, depthSlice, mipSlice };
+	mShaderTargets.push_back(st);
 	if (renderTexture->IsRenderTargetUsed())
 		mRenderTargetCount++;
 	if (renderTexture->IsDepthStencilUsed())
 	{
 		if (mDepthStencilCount == 0)
-			mDepthStencilIndex = mRenderTextures.size() - 1;
+			mDepthStencilIndex = mShaderTargets.size() - 1;
 		mDepthStencilCount++;
 	}
 }
 
-void Pass::AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const BlendState& blendState)
+void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState)
 {
-	AddRenderTexture(renderTexture, mipSlice, blendState, DepthStencilState::None());
+	AddRenderTexture(renderTexture, depthSlice, mipSlice, blendState, DepthStencilState::None());
 }
 
-void Pass::AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const DepthStencilState& depthStencilState)
+void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const DepthStencilState& depthStencilState)
 {
-	AddRenderTexture(renderTexture, mipSlice, BlendState::NoBlend(), depthStencilState);
+	AddRenderTexture(renderTexture, depthSlice, mipSlice, BlendState::NoBlend(), depthStencilState);
 }
 
 void Pass::AddShader(Shader* shader)
@@ -165,11 +164,6 @@ void Pass::InitPass(
 	DescriptorHeap& dsvDescriptorHeap)
 {
 	fatalAssertf(mMeshes.size() != 0, "no mesh in this pass!");
-	fatalAssertf(
-		mRenderTextures.size() == mBlendStates.size() && 
-		mRenderTextures.size() == mDepthStencilStates.size() &&
-		mRenderTextures.size() == mRenderMipSlices.size(),
-		"number of render textures, blend states, depth stencil states and render mip slices don't match!");
 	// revisit the two asserts below after adding support for compute shaders
 	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr, "no vertex shader in this pass!");
 	assertf(mShaders[Shader::PIXEL_SHADER] != nullptr, "no pixel shader in this pass!");
@@ -206,17 +200,17 @@ void Pass::InitPass(
 	// if render textures are used
 	for (int i = 0; i < frameCount; i++)
 	{
-		mRtvHandles[i].resize(mRenderTextures.size());
-		mDsvHandles[i].resize(mRenderTextures.size());
+		mRtvHandles[i].resize(mShaderTargets.size());
+		mDsvHandles[i].resize(mShaderTargets.size());
 	}
 
 	// populate output merger stage parameter with render texture attributes
 	mConstantBlendFactorsUsed = false;
 	mStencilReferenceUsed = false;
-	for(int i = 0; i < mRenderTextures.size(); i++) // only the first 8 targets will be used
+	for(int i = 0; i < mShaderTargets.size(); i++) // only the first 8 targets will be used
 	{
 		// these values are set using OMSet... functions in D3D12, so we cache them here
-		const BlendState& blendState = mBlendStates[i];
+		const BlendState& blendState = mShaderTargets[i].mBlendState;
 		if (!mConstantBlendFactorsUsed && (
 				blendState.mSrcBlend == BlendState::BlendFactor::CONSTANT ||
 				blendState.mSrcBlend == BlendState::BlendFactor::INV_CONSTANT ||
@@ -231,7 +225,7 @@ void Pass::InitPass(
 			memcpy(mBlendConstants, blendState.mBlendConstants, sizeof(blendState.mBlendConstants));
 		}
 
-		const DepthStencilState& depthStencilState = mDepthStencilStates[i];
+		const DepthStencilState& depthStencilState = mShaderTargets[i].mDepthStencilState;
 		if (!mStencilReferenceUsed && (
 			depthStencilState.mFrontStencilOpSet.mDepthFailOp == DepthStencilState::StencilOp::REPLACE ||
 			depthStencilState.mFrontStencilOpSet.mFailOp == DepthStencilState::StencilOp::REPLACE ||
@@ -247,8 +241,8 @@ void Pass::InitPass(
 
 		for (int j = 0; j < frameCount; j++)
 		{
-			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mRenderTextures[i]->GetRenderTargetBuffer(), mRenderTextures[i]->GetRtvDesc(mRenderMipSlices[i]), 1);
-			mDsvHandles[j][i] = dsvDescriptorHeap.AllocateDsv(mRenderTextures[i]->GetDepthStencilBuffer(), mRenderTextures[i]->GetDsvDesc(mRenderMipSlices[i]), 1);
+			mRtvHandles[j][i] = rtvDescriptorHeap.AllocateRtv(mShaderTargets[i].mRenderTexture->GetRenderTargetBuffer(), mShaderTargets[i].mRenderTexture->GetRtvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice), 1);
+			mDsvHandles[j][i] = dsvDescriptorHeap.AllocateDsv(mShaderTargets[i].mRenderTexture->GetDepthStencilBuffer(), mShaderTargets[i].mRenderTexture->GetDsvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice), 1);
 		}
 	}
 	
@@ -273,9 +267,9 @@ int Pass::GetTextureCount()
 	return mTextures.size();
 }
 
-int Pass::GetRenderTextureCount()
+int Pass::GetShaderTargetCount()
 {
-	return mRenderTextures.size();
+	return mShaderTargets.size();
 }
 
 vector<Texture*>& Pass::GetTextures()
@@ -283,24 +277,14 @@ vector<Texture*>& Pass::GetTextures()
 	return mTextures;
 }
 
-vector<RenderTexture*>& Pass::GetRenderTextures()
+vector<ShaderTarget>& Pass::GetShaderTargets()
 {
-	return mRenderTextures;
-}
-
-vector<BlendState>& Pass::GetBlendStates()
-{
-	return mBlendStates;
-}
-
-vector<DepthStencilState>& Pass::GetDepthStencilStates()
-{
-	return mDepthStencilStates;
+	return mShaderTargets;
 }
 
 RenderTexture* Pass::GetRenderTexture(int i)
 {
-	return mRenderTextures[i];
+	return mShaderTargets[i].mRenderTexture;
 }
 
 int Pass::GetRenderTargetCount()

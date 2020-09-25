@@ -207,9 +207,11 @@ struct PS_OUTPUT
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 ///////////////// PS /////////////////
 
-// uv in pixel shaders are expected to be sample-ready,
-// meaning they are transformed to respective hlsl/glsl texture space convention.
-// TODO: change this if using glsl
+// transform UV before sampling on D3D12, because we are using OpenGL convension on CPU side, i.e.
+//   0,1-----1,1
+//    |       |
+//    |       |
+//   0,0-----1,0
 //float2 TransformUV(float2 uv)
 //{
 //    return float2(uv.x, 1.0f - uv.y);
@@ -328,39 +330,59 @@ float2 Hammersley(uint index, uint num)
     return float2(float(i), float(bits)) * invNumSamples;
 }
 
-//    +z => +x   => -z  => -x
+//    +x => +z   => -x  => -z
 // u: 0  => 0.25 => 0.5 => 0.75
-//    +y => -y
-// v: 1  => 0
+//    -y => +y
+// v: 0  => 1
 float2 DirToUV(float3 dir)
 {
-    float tan = dir.x / dir.z;
+    float tan = dir.z / dir.x;
     float u = atan(tan);
-    if (dir.z < 0)
+    if (dir.x < 0.0f)
         u += PI;
-    if (u < 0)
+    if (u < 0.0f)
         u += TWO_PI; // [-PI/2,3PI/2) => [0, 2PI)
     u = u / TWO_PI;
     float v = 1.0f - acos(dir.y) / PI; // linear transform in uv space
     return float2(u, v);
 }
 
-//         x
+//         z
 //         |  /
 //         | / u
-// -z -----+----- z 
+// -x -----+----- x 
 //         |
 //         |
-//        -x
+//        -z
 float3 UVtoDir(float2 uv)
 {
     float3 dir;
-    float theta = (1.0f - uv.y) * PI;
+    float theta = uv.y * PI;
     float phi = uv.x * TWO_PI;
-    dir.y = cos(theta);
-    dir.x = sin(phi) * sin(theta);
-    dir.z = cos(phi) * sin(theta);
+    dir.y = -cos(theta);
+    dir.x = cos(phi) * sin(theta);
+    dir.z = sin(phi) * sin(theta);
     return dir;
+}
+
+float3 FaceUVtoDir(uint face, float2 uv)
+{
+	float2 convertedUV = uv * 2.0f - 1.0f;
+	float3 localDir;
+	if (face == 0) // +x
+		localDir = float3(1.0f, convertedUV.y, -convertedUV.x);
+	else if (face == 1) // -x
+		localDir = float3(-1.0f, convertedUV.y, convertedUV.x);
+	else if (face == 2) // +y
+		localDir = float3(convertedUV.x, 1.0f, -convertedUV.y);
+	else if (face == 3) // -y
+		localDir = float3(convertedUV.x, -1.0f, convertedUV.y);
+	else if (face == 4) // +z
+		localDir = float3(convertedUV.x, convertedUV.y, 1.0f);
+	else if (face == 5) // -z
+		localDir = float3(-convertedUV.x, convertedUV.y, -1.0f);
+
+	return normalize(localDir);
 }
 
 float3 ImportanceSampleGGX(float2 Xi, float roughness, float3 N)

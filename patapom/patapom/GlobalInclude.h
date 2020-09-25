@@ -17,6 +17,7 @@
 #define ASSERT 1
 
 #ifdef ASSERT
+	#define assertOnly(x) x
 	#define println(...) { printf("[%d:%d] ", gRenderer.mFrameCountTotal, gRenderer.mCurrentFrameIndex); printf(__VA_ARGS__); printf("\n"); }
 	#define fatalAssert(x) { if(!(x)) __debugbreak(); }
 	#define fatalAssertf(x, ...) { if(!(x)) { println(__VA_ARGS__); __debugbreak();} }
@@ -25,6 +26,7 @@
 	#define displayf(...) println(__VA_ARGS__)
 	#define debugbreak(x) { x; __debugbreak(); }
 #else
+	#define assertOnly(x)
 	#define println(...)
 	#define fatalAssert(x)
 	#define fatalAssertf(x, ...)
@@ -56,3 +58,8 @@ bool CheckError(HRESULT hr, ID3D12Device* device = nullptr, ID3D10Blob* error_me
 
 using namespace DirectX;
 using namespace std;
+
+typedef uint8_t		u8;
+typedef uint16_t	u16;
+typedef uint32_t	u32;
+typedef uint64_t	u64;

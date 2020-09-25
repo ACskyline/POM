@@ -12,6 +12,9 @@
 struct PassUniformIBL : PassUniformDefault
 {
     float pRoughness;
+	uint pFaceIndex;
+	uint PADDING_0;
+	uint PADDING_1;
 };
 
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
@@ -25,7 +28,7 @@ SamplerState envMapSampler : register(s0, SPACE(PASS));
 PS_OUTPUT main(VS_OUTPUT input)
 {
     PS_OUTPUT output;
-    float3 N = UVtoDir(input.uv);
+	float3 N = FaceUVtoDir(uPass.pFaceIndex, input.uv); // UVtoDir(input.uv);
     float3 V = N;
     
     float3 SpecularLighting = 0;

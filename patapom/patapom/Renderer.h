@@ -11,11 +11,14 @@ class RenderTexture;
 class Mesh;
 class Camera;
 
-enum ReadFrom : uint8_t { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04, MS = 0x10, COLOR_MS = 0x11, DEPTH_MS = 0x12, STENCIL_MS = 0x14 };
+enum ReadFrom : u8 { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04, MS = 0x10, COLOR_MS = 0x11, DEPTH_MS = 0x12, STENCIL_MS = 0x14 };
 enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
 enum class RegisterSpace { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
 enum class RegisterType { CONSTANT, TEXTURE_TABLE, SAMPLER_TABLE, COUNT };
+enum class TextureType { INVALID, DEFAULT, CUBE, VOLUME, COUNT };
+
+typedef ID3D12Resource Resource;
 
 int GetUniformSlot(RegisterSpace space, RegisterType type);
 
@@ -396,6 +399,7 @@ public:
 	static D3D12_RESOURCE_STATES TranslateResourceLayout(ResourceLayout resourceLayout);
 	static D3D12_VIEWPORT TranslateViewport(Viewport viewport);
 	static D3D12_RECT TranslateScissorRect(ScissorRect rect);
+	static D3D12_RESOURCE_DIMENSION GetResourceDimensionFromTextureType(TextureType type);
 
 	IDXGISwapChain3* GetSwapChain();
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRtvHandle(int frameIndex);
@@ -439,9 +443,10 @@ public:
 	void UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& srcBytePerRow, vector<int>& srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer);
 	void UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, int copyBufferSize, ID3D12Resource* dstBuffer);
 
-	bool TransitionSingleTime(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
-	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout);
-	void RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, uint8_t srcSubresource, ID3D12Resource* dst, uint8_t dstSubresource, Format format);
+	u32 CalculateSubresource(u32 depthSlice, u32 mipSlice, u32 depth, u32 mipLevelCount);
+	bool TransitionSingleTime(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout);
+	bool RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout);
+	void RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, u32 srcSubresource, ID3D12Resource* dst, u32 dstSubresource, Format format);
 
 	void CreateDescriptorHeap(DescriptorHeap& srvDescriptorHeap, int size);
 	void CreateGraphicsRootSignature(
@@ -508,7 +513,7 @@ private:
 	void EnableDebugLayer();
 	void EnableGBV();
 
-	bool TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
+	bool TransitionLayout(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
 	
 	void CreatePSO(
 		ID3D12Device* device,

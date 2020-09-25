@@ -9,10 +9,10 @@
 Texture2D lightTexes[] : register(t0, SPACE(SCENE));
 SamplerState lightSamplers[] : register(s0, SPACE(SCENE));
 
-Texture2D probeTex : register(t4, SPACE(PASS));
-SamplerState probeSampler : register(s4, SPACE(PASS));
+Texture2D envMap : register(t4, SPACE(PASS));
+SamplerState envMapSampler : register(s4, SPACE(PASS));
 
-Texture2D prefileteredEnvMap : register(t5, SPACE(PASS));
+TextureCube prefileteredEnvMap : register(t5, SPACE(PASS));
 SamplerState prefileteredEnvMapSampler : register(s5, SPACE(PASS));
 
 Texture2D lut : register(t6, SPACE(PASS));
@@ -79,7 +79,7 @@ float3 SpecularIBL(float3 SpecularColor, float roughness, float3 N, float3 V)
         float NoL = saturate(dot(N, L));
         if (NoL > 0)
         {
-            float3 ProbeColor = probeTex.SampleLevel(probeSampler, TransformUV(DirToUV(L)), 0).rgb;
+            float3 ProbeColor = envMap.SampleLevel(envMapSampler, TransformUV(DirToUV(L)), 0).rgb;
             SpecularLighting += SpecularColor * ProbeColor * GGX(V, L, H, N, roughness) * saturate(CosTheta(L, N));
         }
     }
@@ -90,7 +90,7 @@ float3 ApproximateSpecularIBL(float3 SpecularColor, float roughness, float3 N, f
 {
     float NoV = saturate(dot(N, V));
     float3 L = 2 * dot(V, N) * N - V;
-    float4 PrefilteredColor = prefileteredEnvMap.SampleLevel(prefileteredEnvMapSampler, TransformUV(DirToUV(L)), roughness * uScene.sPrefilteredEnvMapMipLevelCount);
+    float4 PrefilteredColor = prefileteredEnvMap.SampleLevel(prefileteredEnvMapSampler, L, roughness * uScene.sPrefilteredEnvMapMipLevelCount);
     float4 EnvBRDF = lut.SampleLevel(lutSampler, TransformUV(float2(NoV, roughness)), 0);
     return PrefilteredColor.rgb * (SpecularColor * EnvBRDF.x + EnvBRDF.y);
 }

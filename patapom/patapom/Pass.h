@@ -9,6 +9,15 @@ class Mesh;
 class Texture;
 class RenderTexture;
 
+struct ShaderTarget 
+{
+	RenderTexture* mRenderTexture;
+	BlendState mBlendState;
+	DepthStencilState mDepthStencilState;
+	u32 mDepthSlice;
+	u32 mMipSlice;
+};
+
 // we will pass these uniforms directly to be consumed by GPU so no virtual pointer is allowed, 
 // which means no virtual function in this class and all its child classes
 struct PassUniformBase
@@ -25,16 +34,16 @@ struct PassUniformDefault : PassUniformBase
 	XMFLOAT4X4 mViewInv;
 	XMFLOAT4X4 mProj;
 	XMFLOAT4X4 mProjInv;
-	uint32_t mPassIndex;
+	u32 mPassIndex;
 	XMFLOAT3 mEyePos;
 	float mNearClipPlane;
 	float mFarClipPlane;
 	float mWidth;
 	float mHeight;
 	float mFov;
-	uint32_t PADDING_0;
-	uint32_t PADDING_1;
-	uint32_t PADDING_2;
+	u32 PADDING_0;
+	u32 PADDING_1;
+	u32 PADDING_2;
 	void Update(Camera* camera);
 };
 
@@ -47,17 +56,15 @@ public:
 	void SetCamera(Camera* camera);
 	void AddMesh(Mesh* mesh);
 	void AddTexture(Texture* texture);
-	void AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState);
-	void AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const BlendState& blendState);
-	void AddRenderTexture(RenderTexture* renderTexture, int mipSlice, const DepthStencilState& depthStencilState);
+	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState);
+	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState);
+	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const DepthStencilState& depthStencilState);
 	void AddShader(Shader* shader);
 
 	int GetTextureCount();
-	int GetRenderTextureCount();
+	int GetShaderTargetCount();
 	vector<Texture*>& GetTextures();
-	vector<RenderTexture*>& GetRenderTextures();
-	vector<BlendState>& GetBlendStates();
-	vector<DepthStencilState>& GetDepthStencilStates();
+	vector<ShaderTarget>& GetShaderTargets();
 	RenderTexture* GetRenderTexture(int i);
 	int GetRenderTargetCount();
 	int GetDepthStencilCount();
@@ -111,10 +118,7 @@ private:
 	Scene* mScene;
 	vector<Mesh*> mMeshes;
 	vector<Texture*> mTextures;
-	vector<RenderTexture*> mRenderTextures;
-	vector<int> mRenderMipSlices; // matches mRenderTextures
-	vector<BlendState> mBlendStates; // matches mRenderTextures
-	vector<DepthStencilState> mDepthStencilStates; // matches mRenderTextures
+	vector<ShaderTarget> mShaderTargets;
 	Shader* mShaders[Shader::ShaderType::COUNT];
 	int mRenderTargetCount;
 	int mDepthStencilCount;

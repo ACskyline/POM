@@ -89,7 +89,7 @@ int Level::EstimateTotalRtvCount(int frameCount)
 {
 	int totalRtvCount = 0;
 	for(auto pass : mPasses)
-		totalRtvCount += pass->GetRenderTextureCount();
+		totalRtvCount += pass->GetShaderTargetCount();
 	return totalRtvCount * frameCount;
 }
 

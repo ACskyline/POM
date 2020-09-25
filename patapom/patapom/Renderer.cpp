@@ -594,6 +594,20 @@ D3D12_RECT Renderer::TranslateScissorRect(ScissorRect rect)
 	return rc;
 }
 
+D3D12_RESOURCE_DIMENSION Renderer::GetResourceDimensionFromTextureType(TextureType type)
+{
+	switch (type)
+	{
+	case TextureType::DEFAULT:
+	case TextureType::CUBE:
+		return D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	case TextureType::VOLUME:
+		return D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+	default:
+		fatalf("wrong texture type");
+	}
+}
+
 CD3DX12_CPU_DESCRIPTOR_HANDLE Renderer::GetRtvHandle(int frameIndex)
 {
 	return mRtvHandles[frameIndex];
@@ -1049,7 +1063,7 @@ bool Renderer::RecordBegin(int frameIndex, ID3D12GraphicsCommandList* commandLis
 
 	if (IsResolveNeeded())
 	{
-		RecordTransition(commandList, GetPreResolveBuffer(frameIndex), ResourceLayout::RESOLVE_SRC, ResourceLayout::RENDER_TARGET);
+		RecordTransition(commandList, GetPreResolveBuffer(frameIndex), 0, ResourceLayout::RESOLVE_SRC, ResourceLayout::RENDER_TARGET);
 	}
 	else
 	{
@@ -1058,7 +1072,7 @@ bool Renderer::RecordBegin(int frameIndex, ID3D12GraphicsCommandList* commandLis
 		// https://docs.microsoft.com/en-us/windows/win32/direct3d12/using-resource-barriers-to-synchronize-resource-states-in-direct3d-12#initial-states-for-resources
 		// "D3D12_RESOURCE_STATE_PRESENT	Synonymous with D3D12_RESOURCE_STATE_COMMON."
 		// https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_states#constants
-		RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::PRESENT, ResourceLayout::RENDER_TARGET);
+		RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), 0, ResourceLayout::PRESENT, ResourceLayout::RENDER_TARGET);
 	}
 	return true;
 }
@@ -1068,10 +1082,10 @@ bool Renderer::ResolveFrame(int frameIndex, ID3D12GraphicsCommandList* commandLi
 	if (!IsResolveNeeded())
 		return false;
 
-	RecordTransition(commandList, GetPreResolveBuffer(frameIndex), ResourceLayout::RENDER_TARGET, ResourceLayout::RESOLVE_SRC);
-	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::PRESENT, ResourceLayout::RESOLVE_DST);
+	RecordTransition(commandList, GetPreResolveBuffer(frameIndex), 0, ResourceLayout::RENDER_TARGET, ResourceLayout::RESOLVE_SRC);
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), 0, ResourceLayout::PRESENT, ResourceLayout::RESOLVE_DST);
 	RecordResolve(commandList, GetPreResolveBuffer(frameIndex), 0, GetRenderTargetBuffer(frameIndex), 0, mColorBufferFormat);
-	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::RESOLVE_DST, ResourceLayout::RENDER_TARGET);
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), 0, ResourceLayout::RESOLVE_DST, ResourceLayout::RENDER_TARGET);
 	
 	return true;
 }
@@ -1080,7 +1094,7 @@ bool Renderer::RecordEnd(int frameIndex, ID3D12GraphicsCommandList* commandList)
 {
 	// transition the "frameIndex" render target from the render target state to the present state. 
 	// If the debug layer is enabled, you will receive a warning if present is called on the render target when it's not in the present state
-	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), ResourceLayout::RENDER_TARGET, ResourceLayout::PRESENT);
+	RecordTransition(commandList, GetRenderTargetBuffer(frameIndex), 0, ResourceLayout::RENDER_TARGET, ResourceLayout::PRESENT);
 
 	if (CheckError(commandList->Close()))
 		return false;
@@ -1185,20 +1199,25 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 	SAFE_RELEASE(uploadBuffer);
 }
 
-bool Renderer::TransitionLayout(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
+bool Renderer::TransitionLayout(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
 {
 	// TODO: this is currently not thread safe, improve it
 	assertf2(oldLayout != newLayout, "new layout is the same as the current layout");
 	if (oldLayout == newLayout)
 		return false;
-	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateResourceLayout(oldLayout), Renderer::TranslateResourceLayout(newLayout));
+	barrier = CD3DX12_RESOURCE_BARRIER::Transition(resource, Renderer::TranslateResourceLayout(oldLayout), Renderer::TranslateResourceLayout(newLayout), subresource);
 	return true;
 }
 
-bool Renderer::TransitionSingleTime(ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout)
+u32 Renderer::CalculateSubresource(u32 depthSlice, u32 mipSlice, u32 depth, u32 mipLevelCount)
+{
+	return D3D12CalcSubresource(mipSlice, depthSlice, 0, mipLevelCount, depth);
+}
+
+bool Renderer::TransitionSingleTime(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout)
 {
 	CD3DX12_RESOURCE_BARRIER barrier = {};
-	if (TransitionLayout(resource, oldLayout, newLayout, barrier))
+	if (TransitionLayout(resource, subresource, oldLayout, newLayout, barrier))
 	{
 		ID3D12GraphicsCommandList* commandList = BeginSingleTimeCommands(mSingleTimeCommandAllocator);
 		commandList->ResourceBarrier(1, &barrier);
@@ -1208,10 +1227,10 @@ bool Renderer::TransitionSingleTime(ID3D12Resource* resource, ResourceLayout old
 	return false;
 }
 
-bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, ResourceLayout oldLayout, ResourceLayout newLayout)
+bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout)
 {
 	CD3DX12_RESOURCE_BARRIER barrier = {};
-	if(TransitionLayout(resource, oldLayout, newLayout, barrier))
+	if(TransitionLayout(resource, subresource, oldLayout, newLayout, barrier))
 	{
 		commandList->ResourceBarrier(1, &barrier);
 		return true;
@@ -1219,7 +1238,7 @@ bool Renderer::RecordTransition(ID3D12GraphicsCommandList* commandList, ID3D12Re
 	return false;
 }
 
-void Renderer::RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, uint8_t srcSubresource, ID3D12Resource* dst, uint8_t dstSubresource, Format format)
+void Renderer::RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, u32 srcSubresource, ID3D12Resource* dst, u32 dstSubresource, Format format)
 {
 	commandList->ResolveSubresource(dst, dstSubresource, src, srcSubresource, Renderer::TranslateFormat(format));
 }
@@ -1351,46 +1370,42 @@ void Renderer::CreatePSO(
 	D3D12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // TODO: alpha to coverage is disabled by default, add it as a member variable to pass class if needed in the future
 	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = Renderer::TranslateDepthStencilState(DepthStencilState::None());
 	int multiSampleCount = -1;
-	vector<RenderTexture*>& renderTextures = pass.GetRenderTextures();
-	vector<BlendState>& blendStates = pass.GetBlendStates();
-	vector<DepthStencilState>& depthStencilStates = pass.GetDepthStencilStates();
-
-	fatalAssertf(renderTextures.size() == blendStates.size() && renderTextures.size() == depthStencilStates.size(), "size of render texture, blend state and depth stencil state don't match!");
-
+	vector<ShaderTarget>& shaderTargets = pass.GetShaderTargets();
+	
 	int renderTargetCount = 0;
 	int depthStencilCount = 0;
 	int depthStencilIndex = -1;
-	if (renderTextures.size() > 0) 
+	if (shaderTargets.size() > 0) 
 	{ 
 		// if render textures are used
-		depthStencilDesc = Renderer::TranslateDepthStencilState(depthStencilStates[0]);
-		multiSampleCount = renderTextures[0]->GetMultiSampleCount();
-		if (renderTextures.size() > 1)
+		depthStencilDesc = Renderer::TranslateDepthStencilState(shaderTargets[0].mDepthStencilState);
+		multiSampleCount = shaderTargets[0].mRenderTexture->GetMultiSampleCount();
+		if (shaderTargets.size() > 1)
 			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, TODO: add it as a member variable to pass class
 
 		// assign to render textures parameter
-		for (int i = 0; i < renderTextures.size(); i++) // only the first 8 targets will be used
+		for (int i = 0; i < shaderTargets.size(); i++) // only the first 8 targets will be used
 		{
-			if (renderTextures[i]->IsRenderTargetUsed())
+			if (shaderTargets[i].mRenderTexture->IsRenderTargetUsed())
 			{
 				if (renderTargetCount < 8)
 				{
 					// render targets recording
-					blendDesc.RenderTarget[renderTargetCount] = Renderer::TranslateBlendState(blendStates[i]);
-					rtvFormatVec.push_back(Renderer::TranslateFormat(renderTextures[i]->GetRenderTargetFormat()));
+					blendDesc.RenderTarget[renderTargetCount] = Renderer::TranslateBlendState(shaderTargets[i].mBlendState);
+					rtvFormatVec.push_back(Renderer::TranslateFormat(shaderTargets[i].mRenderTexture->GetRenderTargetFormat()));
 				}
 				renderTargetCount++;
 			}
 		}
 
-		for (int i = 0; i < renderTextures.size(); i++) // only the first 8 targets will be used
+		for (int i = 0; i < shaderTargets.size(); i++) // only the first 8 targets will be used
 		{
-			if (renderTextures[i]->IsDepthStencilUsed())
+			if (shaderTargets[i].mRenderTexture->IsDepthStencilUsed())
 			{
 				//!!!* only the first usable depth stencil buffer will be used *!!!//
 				if (depthStencilCount == 0)
 				{
-					dsvFormat = Renderer::TranslateFormat(renderTextures[i]->GetDepthStencilFormat());
+					dsvFormat = Renderer::TranslateFormat(shaderTargets[i].mRenderTexture->GetDepthStencilFormat());
 					depthStencilIndex = i;
 				}
 				depthStencilCount++;
@@ -1461,7 +1476,7 @@ void Renderer::CreatePSO(
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc = {};
 
 	// we can get the number of elements in an array by "sizeof(array) / sizeof(arrayElementType)"
-	inputLayoutDesc.NumElements = sizeof(VertexInputLayout) / sizeof(D3D12_INPUT_ELEMENT_DESC);
+	inputLayoutDesc.NumElements = _countof(VertexInputLayout);
 	inputLayoutDesc.pInputElementDescs = VertexInputLayout;
 
 	// create a pipeline state object (PSO)
@@ -1530,11 +1545,11 @@ void Renderer::RecordPass(
 	const vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& passDsvHandles = pass.GetDsvHandles(mCurrentFrameIndex);//!!!* only the first depth stencil buffer will be used *!!!//
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> frameRtvHandles;
 	CD3DX12_CPU_DESCRIPTOR_HANDLE frameDsvHandle;
-	fatalAssert(pass.GetRenderTextureCount() == passRtvHandles.size());
-	fatalAssert(pass.GetRenderTextureCount() == passDsvHandles.size());
+	fatalAssert(pass.GetShaderTargetCount() == passRtvHandles.size());
+	fatalAssert(pass.GetShaderTargetCount() == passDsvHandles.size());
 	
 	int renderTargetCount = 0;
-	for (int i = 0; i < pass.GetRenderTextureCount(); i++)
+	for (int i = 0; i < pass.GetShaderTargetCount(); i++)
 	{
 		if (pass.GetRenderTexture(i)->IsRenderTargetUsed())
 		{
@@ -1547,7 +1562,7 @@ void Renderer::RecordPass(
 	//!!!* only the first usable depth stencil buffer will be used *!!!//
 	int depthStencilCount = 0;
 	int depthStencilIndex = -1;
-	for(int i = 0;i< pass.GetRenderTextureCount();i++)
+	for(int i = 0;i< pass.GetShaderTargetCount();i++)
 	{
 		if(pass.GetRenderTexture(i)->IsDepthStencilUsed())
 		{
