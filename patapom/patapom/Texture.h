@@ -33,7 +33,7 @@ public:
 	virtual void CreateTextureBuffer();
 	virtual void CreateView();
 	virtual void CreateSampler();
-	void Release();
+	virtual void Release();
 
 	bool TransitionTextureLayoutSingleTime(ResourceLayout newLayout, u32 depthSlice, u32 mipSlice);
 	bool TransitionTextureLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout, u32 depthSlice, u32 mipSlice);
@@ -149,7 +149,7 @@ public:
 
 	virtual void CreateTextureBuffer();
 	virtual void CreateView();
-	void Release();
+	virtual void Release();
 
 	XMFLOAT4 mColorClearValue;
 	float mDepthClearValue;

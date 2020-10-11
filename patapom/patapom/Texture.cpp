@@ -58,7 +58,7 @@ Texture::Texture(
 
 Texture::~Texture()
 {
-	Release();
+	Texture::Release();
 }
 
 void Texture::Release()
@@ -478,13 +478,18 @@ RenderTexture::RenderTexture(
 
 RenderTexture::~RenderTexture()
 {
-	Release();
+	RenderTexture::Release();
 }
 
 void RenderTexture::Release()
 {
-	SAFE_RELEASE(mRenderTargetBuffer);
-	SAFE_RELEASE(mDepthStencilBuffer);
+	if(mTextureBuffer != mRenderTargetBuffer)
+		SAFE_RELEASE(mRenderTargetBuffer);
+
+	if(mTextureBuffer != mDepthStencilBuffer)
+		SAFE_RELEASE(mDepthStencilBuffer);
+
+	SAFE_RELEASE(mTextureBuffer);
 }
 
 void RenderTexture::CreateTextureBuffer()
