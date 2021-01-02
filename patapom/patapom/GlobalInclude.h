@@ -9,8 +9,6 @@
 #define EPSILON 0.00000001f
 #define EQUALF(a, b) (abs(a - b) < EPSILON)
 
-#define SAFE_RELEASE(p) { if ((p)) { (p)->Release(); (p) = 0; } }
-#define SAFE_RELEASE_ARRAY(p) { int n = _countof(p); for(int i = 0;i<n;i++){ SAFE_RELEASE(p[i]); } }
 #define KEYDOWN(name, key) ((name)[(key)] & 0x80)
 #define BUTTONDOWN(button) ((button) & 0x80)
 
@@ -41,6 +39,10 @@
 #else
 	#define assertf2(x, ...)
 #endif
+
+#define SAFE_RELEASE(p, checkOnly) { if (checkOnly) { fatalAssertf(p==nullptr, "pointer %p is not null", p); } else if (p!=nullptr) { p->Release(); p = nullptr; } }
+#define SAFE_RELEASE_NO_CHECK(p) SAFE_RELEASE(p, false)
+#define SAFE_RELEASE_ARRAY(p, checkOnly) { int n = _countof(p); for(int i = 0;i<n;i++){ SAFE_RELEASE(p[i], checkOnly); } }
 
 #define USE_REVERSED_Z
 

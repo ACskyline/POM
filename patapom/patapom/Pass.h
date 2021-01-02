@@ -8,6 +8,8 @@ class Scene;
 class Mesh;
 class Texture;
 class RenderTexture;
+class Buffer;
+class WriteBuffer;
 
 struct ShaderTarget 
 {
@@ -16,6 +18,17 @@ struct ShaderTarget
 	DepthStencilState mDepthStencilState;
 	u32 mDepthSlice;
 	u32 mMipSlice;
+};
+
+struct WriteTarget
+{
+	enum Type { INVALID, TEXTURE, BUFFER, COUNT };
+	Type mType;
+	u32 mMipSlice;
+	union {
+		RenderTexture* mRenderTexture;
+		WriteBuffer* mWriteBuffer;
+	};
 };
 
 // we will pass these uniforms directly to be consumed by GPU so no virtual pointer is allowed, 
@@ -55,15 +68,19 @@ public:
 	void SetScene(Scene* scene);
 	void SetCamera(Camera* camera);
 	void AddMesh(Mesh* mesh);
-	void AddTexture(Texture* texture);
 	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState);
 	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState);
 	void AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const DepthStencilState& depthStencilState);
 	void AddShader(Shader* shader);
+	void AddTexture(Texture* texture);
+	void AddBuffer(Buffer* buffer);
+	void AddWriteBuffer(WriteBuffer* writeBuffer, u32 mipSlice);
+	void AddWriteTexture(RenderTexture* writeTexture, u32 mipSlice);
 
-	int GetTextureCount();
+	int GetCbvSrvUavCount();
+	int GetShaderResourceCount();
 	int GetShaderTargetCount();
-	vector<Texture*>& GetTextures();
+	vector<ShaderResource*>& GetShaderResources();
 	vector<ShaderTarget>& GetShaderTargets();
 	RenderTexture* GetRenderTexture(int i);
 	int GetRenderTargetCount();
@@ -71,6 +88,7 @@ public:
 	int GetDepthStencilIndex();
 	bool UseRenderTarget();
 	bool UseDepthStencil();
+	bool ShareMeshesWithPathTracer();
 	Camera* GetCamera();
 	Scene* GetScene();
 	vector<Mesh*>& GetMeshVec();
@@ -99,7 +117,7 @@ public:
 	virtual void CreateUniformBuffer(int frameCount) = 0;
 	virtual void UpdateUniformBuffer(int frameIndex) = 0;
 	virtual void UpdateUniformBuffer(int frameIndex, void* src) = 0;
-	void Release();
+	void Release(bool checkOnly = false);
 
 protected:
 	// one for each frame
@@ -112,12 +130,13 @@ protected:
 	// default constructor for using in a container
 	Pass();
 	// common class can't be instantiated
-	Pass(const wstring& debugName, bool useRenderTarget, bool useDepthStencil);
+	Pass(const wstring& debugName, bool useRenderTarget, bool useDepthStencil, bool shareMeshesWithPathTracer);
 
 private:
 	Scene* mScene;
 	vector<Mesh*> mMeshes;
-	vector<Texture*> mTextures;
+	vector<ShaderResource*> mShaderResources;
+	vector<WriteTarget> mWriteTargets;
 	vector<ShaderTarget> mShaderTargets;
 	Shader* mShaders[Shader::ShaderType::COUNT];
 	int mRenderTargetCount;
@@ -125,12 +144,13 @@ private:
 	int mDepthStencilIndex;
 	bool mUseRenderTarget; // if use render target but has 0 render target, then output to back buffer
 	bool mUseDepthStencil; // if use depth stencil but has 0 depth stencil, then output to back buffer
+	bool mShareMeshesWithPathTracer;
 
 	// one for each frame
 	// TODO: hide API specific implementation in Renderer
 	vector<vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>> mRtvHandles; // [frameIndex][renderTextureIndex]
 	vector<vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>> mDsvHandles; // [frameIndex][renderTextureIndex]
-	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandles;
+	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandles; // constant buffer is stored as root parameter, so this is really only for srv and uav
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandles;
 	ID3D12PipelineState* mPso;
 	ID3D12RootSignature* mRootSignature;
@@ -143,6 +163,7 @@ private:
 	float mBlendConstants[4];
 	uint32_t mStencilReference;
 
+	void AddShaderResource(ShaderResource* sr);
 	int GetMaxMeshTextureCount();
 };
 
@@ -152,13 +173,13 @@ class PassCommon : public Pass
 public:
 	// default constructor for using in a container
 	PassCommon() :
-		Pass(L"unnamed pass", false, false)
+		Pass(L"unnamed pass", false, false, false)
 	{
 
 	}
 
-	PassCommon(const wstring& debugName, bool useRenderTarget = true, bool useDepthStencil = true) :
-		Pass(debugName, useRenderTarget, useDepthStencil)
+	PassCommon(const wstring& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false) :
+		Pass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer)
 	{
 
 	}
@@ -194,9 +215,9 @@ public:
 			HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 				D3D12_HEAP_FLAG_NONE, // no flags
-				&CD3DX12_RESOURCE_DESC::Buffer(sizeof(UniformType)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
+				&CD3DX12_RESOURCE_DESC::Buffer(sizeof(UniformType)),
 				Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
-				nullptr, // we do not have use an optimized clear value for constant buffers
+				nullptr, // we do not use an optimized clear value for constant buffers
 				IID_PPV_ARGS(&mUniformBuffers[i]));
 
 			fatalAssertf(!CheckError(hr, mRenderer->mDevice), "create pass uniform buffer failed");

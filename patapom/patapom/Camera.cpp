@@ -26,6 +26,7 @@ Camera::Camera(const XMFLOAT3 &position,
 
 Camera::~Camera()
 {
+	Release(true);
 }
 
 void Camera::ResetCamera(const XMFLOAT3 &position,
@@ -132,7 +133,7 @@ void Camera::Update()
 	UpdateMatrices();
 }
 
-void Camera::Release()
+void Camera::Release(bool checkOnly)
 {
 }
 

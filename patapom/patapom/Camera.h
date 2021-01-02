@@ -30,7 +30,7 @@ public:
 
 	void InitCamera();
 	void Update();
-	void Release();
+	void Release(bool checkOnly = false);
 
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetTarget();

@@ -21,6 +21,11 @@ public:
 		XMFLOAT4X4 mModelInv;
 	};
 
+	struct Triangle
+	{
+		Vertex mVertices[3];
+	};
+
 	Mesh(const wstring& debugName,
 		const MeshType& type,
 		const XMFLOAT3& position,
@@ -48,7 +53,7 @@ public:
 	void UpdateVertexBuffer();
 	void UpdateIndexBuffer();
 
-	void Release();
+	void Release(bool checkOnly = false);
 
 	D3D_PRIMITIVE_TOPOLOGY GetPrimitiveType();
 	D3D12_VERTEX_BUFFER_VIEW GetVertexBufferView();
@@ -63,6 +68,7 @@ public:
 	XMFLOAT3 GetRotation();
 	int GetIndexCount();
 	int GetTextureCount();
+	void ConvertMeshToTriangles(vector<Triangle>& outTriangles);
 	
 private:
 	struct Point

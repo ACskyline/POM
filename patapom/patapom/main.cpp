@@ -4,7 +4,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx12.h"
-#include "Level.h"
+#include "Store.h"
 #include "Scene.h"
 #include "Frame.h"
 #include "Pass.h"
@@ -14,6 +14,7 @@
 #include "Light.h"
 #include "Renderer.h"
 #include "ImageBasedLighting.h"
+#include "PathTracer.h"
 
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
@@ -39,10 +40,10 @@ Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
 Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
 
 Renderer gRenderer;
-Level gLevelDefault("default level");
+Store gStoreDefault("default store");
 Scene gSceneDefault(L"default scene");
 PassDefault gPassPom(L"pom pass");
-PassDefault gPassStandard(L"standard pass");
+PassDefault gPassStandard(L"standard pass", true, true, true);
 PassDefault gPassDeferred(L"deferred pass", true, false);
 PassDefault gPassSky(L"sky pass");
 PassDefault gPassRedLightShadow(L"red light shadow", false);
@@ -80,7 +81,7 @@ Light gLightBlue("light blue", XMFLOAT3(0.1f, 0.1f, 0.8f), XMFLOAT3(0, 0, 8), &g
 //imgui stuff
 ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
 
-void CreateLevels()
+void CreateStores()
 {
 	// A. Mesh
 	// mesh.AddTexture(...);
@@ -133,7 +134,7 @@ void CreateLevels()
 	gPassPom.AddShader(&gPomPS);
 	gPassPom.AddTexture(&gTextureAlbedo);
 	gPassPom.AddTexture(&gTextureNormal);
-	gPassPom.AddTexture(&gTextureHeight); 
+	gPassPom.AddTexture(&gTextureHeight);
 	gPassPom.AddRenderTexture(&gRenderTextureDbuffer, 0, 0, DS_REVERSED_Z_SWITCH);
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
@@ -177,48 +178,48 @@ void CreateLevels()
 	gSceneDefault.AddLight(&gLightBlue);
 	// scene.AddTexture(...);
 
-	// E. Level
-	gLevelDefault.AddCamera(&gMainCamera); // camera
-	gLevelDefault.AddCamera(&gCameraDummy);
-	gLevelDefault.AddCamera(&gCameraRedLight);
-	gLevelDefault.AddCamera(&gCameraGreenLight);
-	gLevelDefault.AddCamera(&gCameraBlueLight);
-	gLevelDefault.AddScene(&gSceneDefault); // scene
-	gLevelDefault.AddPass(&gPassStandard); // pass
-	gLevelDefault.AddPass(&gPassPom);
-	gLevelDefault.AddPass(&gPassSky);
-	gLevelDefault.AddPass(&gPassDeferred);
-	gLevelDefault.AddPass(&gPassRedLightShadow);
-	gLevelDefault.AddPass(&gPassGreenLightShadow);
-	gLevelDefault.AddPass(&gPassBlueLightShadow);
-	gLevelDefault.AddMesh(&gFullscreenTriangle); // mesh
-	gLevelDefault.AddMesh(&gCube);
-	gLevelDefault.AddMesh(&gSky);
-	gLevelDefault.AddMesh(&gMesh);
-	gLevelDefault.AddMesh(&gPlaneX);
-	gLevelDefault.AddMesh(&gPlaneY);
-	gLevelDefault.AddMesh(&gPlaneZ);
-	gLevelDefault.AddShader(&gStandardVS); // vertex shader
-	gLevelDefault.AddShader(&gDeferredVS);
-	gLevelDefault.AddShader(&gSkyVS);
-	gLevelDefault.AddShader(&gStandardPS); // pixel shader
-	gLevelDefault.AddShader(&gPomPS); 
-	gLevelDefault.AddShader(&gDeferredPS);
-	gLevelDefault.AddShader(&gSkyPS);
-	gLevelDefault.AddTexture(&gTextureAlbedo); // texture
-	gLevelDefault.AddTexture(&gTextureNormal); // texture
-	gLevelDefault.AddTexture(&gTextureHeight); // texture
-	gLevelDefault.AddTexture(&gTextureProbe); // texture
-	gLevelDefault.AddTexture(&gRenderTextureRedLight);
-	gLevelDefault.AddTexture(&gRenderTextureGreenLight);
-	gLevelDefault.AddTexture(&gRenderTextureBlueLight);
-	gLevelDefault.AddTexture(&gRenderTextureGbuffer0);
-	gLevelDefault.AddTexture(&gRenderTextureGbuffer1);
-	gLevelDefault.AddTexture(&gRenderTextureGbuffer2);
-	gLevelDefault.AddTexture(&gRenderTextureDbuffer);
+	// E. Store
+	gStoreDefault.AddCamera(&gMainCamera); // camera
+	gStoreDefault.AddCamera(&gCameraDummy);
+	gStoreDefault.AddCamera(&gCameraRedLight);
+	gStoreDefault.AddCamera(&gCameraGreenLight);
+	gStoreDefault.AddCamera(&gCameraBlueLight);
+	gStoreDefault.AddScene(&gSceneDefault); // scene
+	gStoreDefault.AddPass(&gPassStandard); // pass
+	gStoreDefault.AddPass(&gPassPom);
+	gStoreDefault.AddPass(&gPassSky);
+	gStoreDefault.AddPass(&gPassDeferred);
+	gStoreDefault.AddPass(&gPassRedLightShadow);
+	gStoreDefault.AddPass(&gPassGreenLightShadow);
+	gStoreDefault.AddPass(&gPassBlueLightShadow);
+	gStoreDefault.AddMesh(&gFullscreenTriangle); // mesh
+	gStoreDefault.AddMesh(&gCube);
+	gStoreDefault.AddMesh(&gSky);
+	gStoreDefault.AddMesh(&gMesh);
+	gStoreDefault.AddMesh(&gPlaneX);
+	gStoreDefault.AddMesh(&gPlaneY);
+	gStoreDefault.AddMesh(&gPlaneZ);
+	gStoreDefault.AddShader(&gStandardVS); // vertex shader
+	gStoreDefault.AddShader(&gDeferredVS);
+	gStoreDefault.AddShader(&gSkyVS);
+	gStoreDefault.AddShader(&gStandardPS); // pixel shader
+	gStoreDefault.AddShader(&gPomPS); 
+	gStoreDefault.AddShader(&gDeferredPS);
+	gStoreDefault.AddShader(&gSkyPS);
+	gStoreDefault.AddTexture(&gTextureAlbedo); // texture
+	gStoreDefault.AddTexture(&gTextureNormal); // texture
+	gStoreDefault.AddTexture(&gTextureHeight); // texture
+	gStoreDefault.AddTexture(&gTextureProbe); // texture
+	gStoreDefault.AddTexture(&gRenderTextureRedLight);
+	gStoreDefault.AddTexture(&gRenderTextureGreenLight);
+	gStoreDefault.AddTexture(&gRenderTextureBlueLight);
+	gStoreDefault.AddTexture(&gRenderTextureGbuffer0);
+	gStoreDefault.AddTexture(&gRenderTextureGbuffer1);
+	gStoreDefault.AddTexture(&gRenderTextureGbuffer2);
+	gStoreDefault.AddTexture(&gRenderTextureDbuffer);
 
 	// F. Renderer
-	gRenderer.SetLevel(&gLevelDefault);
+	gRenderer.SetStore(&gStoreDefault);
 }
 
 void InitConsole()
@@ -422,6 +423,8 @@ void Record()
 {
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
+
+	PathTracer::RunPathTracer(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
 	gRenderTextureRedLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 	gRenderTextureGreenLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
@@ -699,7 +702,7 @@ void Cleanup()
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
-	SAFE_RELEASE(g_pd3dSrvDescHeap);
+	SAFE_RELEASE_NO_CHECK(g_pd3dSrvDescHeap);
 
 	//direct input stuff
 	gDIKeyboard->Unacquire();
@@ -834,7 +837,8 @@ void MainLoop()
 
 void CreateSystems()
 {
-	ImageBasedLighting::CreateIBL(gLevelDefault, gSceneDefault);
+	ImageBasedLighting::InitIBL(gStoreDefault, gSceneDefault);
+	PathTracer::InitPathTracer(gStoreDefault, gSceneDefault);
 }
 
 void PrepareSystems()
@@ -845,6 +849,7 @@ void PrepareSystems()
 	ID3D12GraphicsCommandList* commandList = gRenderer.BeginSingleTimeCommands();
 
 	ImageBasedLighting::PrepareIBL(commandList);
+	PathTracer::PreparePathTracer();
 
 	gRenderer.EndSingleTimeCommands(commandList);
 }
@@ -867,11 +872,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
+	// use hard coded data to create the store
+	CreateStores();
+
 	// create systems
 	CreateSystems();
-
-	// use declared data to create the level
-	CreateLevels();
 
 	// initialize renderer
 	if (!gRenderer.InitRenderer(
@@ -911,12 +916,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 int GetUniformSlot(RegisterSpace space, RegisterType type)
 {
-	// constant buffer is root parameter, texture and sampler are stored in table
-	//                 b0 constant | t0 texture | s0 sampler
-	// space 0 scene   0           | 4          | 8
-	// space 1 frame   1           | 5          | 9
-	// space 2 pass    2           | 6          | 10
-	// space 3 object  3           | 7          | 11
+	// constant buffer is root parameter, SRV, sampler and UAV are stored in table
+	//                 b0 CBV | t0 SRV | s0 sampler | u0 UAV |
+	// space 0 scene   0      | 4      | 8          | 12     |
+	// space 1 frame   1      | 5      | 9          | 13     |
+	// space 2 pass    2      | 6      | 10         | 14     |
+	// space 3 object  3      | 7      | 11         | 15     |
 
 	return (int)space + (int)type * (int)RegisterSpace::COUNT;
 }

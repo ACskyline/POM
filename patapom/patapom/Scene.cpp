@@ -10,7 +10,7 @@ Scene::Scene(const wstring& debugName) :
 
 Scene::~Scene()
 {
-	Release();
+	Release(true);
 }
 
 void Scene::AddPass(Pass* pass)
@@ -33,6 +33,11 @@ void Scene::AddLight(Light* light)
 		light->SetTextureIndex(static_cast<int32_t>(mTextures.size()));
 		mTextures.push_back(light->GetRenderTexture());
 	}
+}
+
+vector<Pass*>& Scene::GetPasses()
+{
+	return mPasses;
 }
 
 int Scene::GetTextureCount()
@@ -93,9 +98,9 @@ void Scene::CreateUniformBuffer(int frameCount)
 		HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 			D3D12_HEAP_FLAG_NONE, // no flags
-			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(SceneUniform)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
+			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(SceneUniform)),
 			Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
-			nullptr, // we do not have use an optimized clear value for constant buffers
+			nullptr, // we do not use an optimized clear value for constant buffers
 			IID_PPV_ARGS(&mUniformBuffers[i]));
 
 		fatalAssertf(SUCCEEDED(hr), "create scene uniform buffer failed");
@@ -127,10 +132,10 @@ void Scene::UpdateUniformBuffer(int frameIndex)
 	mUniformBuffers[frameIndex]->Unmap(0, &readRange);
 }
 
-void Scene::Release()
+void Scene::Release(bool checkOnly)
 {
-	for (auto uniformBuffer : mUniformBuffers)
-		SAFE_RELEASE(uniformBuffer);
+	for (auto& uniformBuffer : mUniformBuffers)
+		SAFE_RELEASE(uniformBuffer, checkOnly);
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS Scene::GetUniformBufferGpuAddress(int frameIndex)

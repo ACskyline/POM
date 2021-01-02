@@ -2,7 +2,7 @@
 
 #include "GlobalInclude.h"
 
-class Level;
+class Store;
 class Frame;
 class Pass;
 class Shader;
@@ -15,7 +15,7 @@ enum ReadFrom : u8 { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04,
 enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
 enum class RegisterSpace { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
-enum class RegisterType { CONSTANT, TEXTURE_TABLE, SAMPLER_TABLE, COUNT };
+enum class RegisterType { CBV, SRV, SAMPLER, UAV, COUNT };
 enum class TextureType { INVALID, DEFAULT, CUBE, VOLUME, COUNT };
 
 typedef ID3D12Resource Resource;
@@ -295,13 +295,14 @@ struct DepthStencilState {
 };
 
 struct View {
-	enum class Type { INVALID, SRV, RTV, DSV, COUNT };
+	enum class Type { INVALID, SRV, RTV, DSV, UAV, COUNT };
 	Type mType;
 
 	union {
 		D3D12_SHADER_RESOURCE_VIEW_DESC mSrvDesc; // TODO: hide API specific implementation in Renderer
 		D3D12_RENDER_TARGET_VIEW_DESC mRtvDesc; // TODO: hide API specific implementation in Renderer
 		D3D12_DEPTH_STENCIL_VIEW_DESC mDsvDesc; // TODO: hide API specific implementation in Renderer
+		D3D12_UNORDERED_ACCESS_VIEW_DESC mUavDesc;
 	};
 };
 
@@ -324,7 +325,7 @@ struct Sampler {
 	float mMaxLod;
 	float mBorderColor[4];
 
-	D3D12_SAMPLER_DESC mImpl; // TODO: hide API specific implementation in Renderer
+	D3D12_SAMPLER_DESC GetDesc();
 };
 
 enum class Format {
@@ -338,6 +339,22 @@ enum class Format {
 	COUNT
 };
 
+class ShaderResource
+{
+public:
+	enum class Type { INVALID, TEXTURE, BUFFER, COUNT };
+	bool IsTexture() { return mShaderResourceType == Type::TEXTURE; }
+	bool IsBuffer() { return mShaderResourceType == Type::BUFFER; }
+
+protected:
+	wstring mDebugName;
+	bool mInitialized;
+	Type mShaderResourceType;
+
+	ShaderResource(wstring debugName, Type srType) : mDebugName(debugName), mInitialized(false), mShaderResourceType(srType) {}
+	virtual ~ShaderResource() {}
+};
+
 class DescriptorHeap
 {
 public:
@@ -347,11 +364,12 @@ public:
 	~DescriptorHeap();
 
 	void InitDescriptorHeap(Renderer* renderer, int countMax, Type type);
-	void Release();
+	void Release(bool checkOnly = false);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateDsv(ID3D12Resource* resource, const D3D12_DEPTH_STENCIL_VIEW_DESC& desc, int count);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateRtv(ID3D12Resource* resource, const D3D12_RENDER_TARGET_VIEW_DESC& desc, int count);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateRtv(ID3D12Resource* resource, int count); // null desc
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateSrv(ID3D12Resource* resource, const D3D12_SHADER_RESOURCE_VIEW_DESC& desc, int count);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateUav(ID3D12Resource* resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC& desc, int count);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE AllocateSampler(const D3D12_SAMPLER_DESC& desc, int count);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE GetCurrentFreeGpuAddress();
 
@@ -392,7 +410,7 @@ public:
 	static D3D12_STENCIL_OP TranslateStencilOp(DepthStencilState::StencilOp op);
 	static DXGI_FORMAT TranslateFormat(Format format);
 	static DXGI_FORMAT TranslateToTypelessFormat(Format format);
-	static DXGI_FORMAT TranslateToSrvFormat(Format format, ReadFrom readFrom);
+	static DXGI_FORMAT TranslateFormatToAccess(Format format, ReadFrom readFrom);
 	static D3D12_DESCRIPTOR_HEAP_TYPE TranslateDescriptorHeapType(DescriptorHeap::Type type);
 	static D3D12_FILTER ExtractFilter(Sampler sampler);
 	static D3D12_TEXTURE_ADDRESS_MODE TranslateAddressMode(Sampler::AddressMode addressMode);
@@ -400,6 +418,7 @@ public:
 	static D3D12_VIEWPORT TranslateViewport(Viewport viewport);
 	static D3D12_RECT TranslateScissorRect(ScissorRect rect);
 	static D3D12_RESOURCE_DIMENSION GetResourceDimensionFromTextureType(TextureType type);
+	static D3D12_SAMPLER_DESC TranslateSamplerDesc(Sampler sampler);
 
 	IDXGISwapChain3* GetSwapChain();
 	CD3DX12_CPU_DESCRIPTOR_HANDLE GetRtvHandle(int frameIndex);
@@ -413,7 +432,7 @@ public:
 	bool IsMultiSampleUsed();
 	bool IsResolveNeeded();
 
-	void SetLevel(Level* level);
+	void SetStore(Store* level);
 
 	// TODO: this is the only Init function that returns a boolean result, we assume other Init function always work
 	bool InitRenderer(
@@ -430,7 +449,7 @@ public:
 	void CreateDepthStencilBuffers(Format format);
 	void CreatePreResolveBuffers(Format format);
 	void CreateColorBuffers();
-	void Release();
+	void Release(bool checkOnly = false);
 	void WaitAllFrames();
 	bool WaitForFrame(int frameINdex);
 
@@ -449,10 +468,11 @@ public:
 	void RecordResolve(ID3D12GraphicsCommandList* commandList, ID3D12Resource* src, u32 srcSubresource, ID3D12Resource* dst, u32 dstSubresource, Format format);
 
 	void CreateDescriptorHeap(DescriptorHeap& srvDescriptorHeap, int size);
-	void CreateGraphicsRootSignature(
+	void CreateRootSignature(
 		ID3D12RootSignature** rootSignature,
-		int maxTextureCount[(int)RegisterSpace::COUNT]);
-	void CreatePSO(
+		int maxShaderResourceCount[(int)RegisterSpace::COUNT],
+		int maxUavCount[(int)RegisterSpace::COUNT]);
+	void CreateGraphicsPSO(
 		Pass& pass,
 		ID3D12PipelineState** pso,
 		ID3D12RootSignature* rootSignature,
@@ -462,6 +482,12 @@ public:
 		Shader* domainShader,
 		Shader* geometryShader,
 		Shader* pixelShader,
+		const wstring& name);
+	void CreateComputePSO(
+		Pass& pass,
+		ID3D12PipelineState** pso,
+		ID3D12RootSignature* rootSignature,
+		Shader* computeShader,
 		const wstring& name);
 	// explicit on command list for future multi thread support
 	void RecordPass(
@@ -473,9 +499,16 @@ public:
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
 		float clearDepthValue = REVERSED_Z_SWITCH(0.0f, 1.0f),
 		uint8_t clearStencilValue = 0);
+	void RecordComputePass(
+		Pass& pass,
+		ID3D12GraphicsCommandList* commandList,
+		int threadGroupCountX,
+		int threadGroupCountY,
+		int threadGroupCountZ);
 	ID3D12GraphicsCommandList* BeginSingleTimeCommands();
 	void EndSingleTimeCommands(ID3D12GraphicsCommandList* commandList);
 
+	// TODO: hide unnecessary member variables
 	IDXGIFactory4* mDxgiFactory;
 	ID3D12Device* mDevice; // direct3d device
 	ID3D12Debug* mDebugController;
@@ -515,7 +548,7 @@ private:
 
 	bool TransitionLayout(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier);
 	
-	void CreatePSO(
+	void CreateGraphicsPSOInternal(
 		ID3D12Device* device,
 		ID3D12PipelineState** pso,
 		ID3D12RootSignature* rootSignature,
@@ -531,13 +564,19 @@ private:
 		Shader* geometryShader,
 		Shader* pixelShader,
 		const wstring& name);
+	void CreateComputePSOInternal(
+		ID3D12Device* device,
+		ID3D12PipelineState** pso,
+		ID3D12RootSignature* rootSignature,
+		Shader* computeShader,
+		const wstring& name);
 
 	DescriptorHeap mCbvSrvUavDescriptorHeap;
 	DescriptorHeap mSamplerDescriptorHeap;
 	DescriptorHeap mRtvDescriptorHeap;
 	DescriptorHeap mDsvDescriptorHeap;
 
-	Level* mLevel;
+	Store* mStore;
 	vector<ID3D12Resource*> mColorBuffers;
 	vector<ID3D12Resource*> mDepthStencilBuffers;
 	vector<ID3D12Resource*> mPreResolveColorBuffers;

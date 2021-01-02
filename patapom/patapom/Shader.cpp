@@ -8,11 +8,12 @@ Shader::Shader(const ShaderType& type, const wstring& fileName) :
 
 Shader::~Shader()
 {
-	Release();
+	Release(true);
 }
 
-void Shader::InitShader()
+void Shader::InitShader(Renderer* renderer)
 {
+	mRenderer = renderer;
 	CreateShaderFromFile(mFileName);
 }
 
@@ -50,17 +51,24 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 	case ShaderType::PIXEL_SHADER:
 		shaderType = "ps_5_1";
 		break;
+	case ShaderType::COMPUTE_SHADER:
+		shaderType = "cs_5_1";
+		break;
 	default:
 		fatalf("wrong shader type");
 		break;
 	}
+
+	UINT compileFlag = D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES;
+	if (mRenderer->mDebugMode != DebugMode::OFF)
+		compileFlag |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 
 	hr = D3DCompileFromFile(fileName.c_str(),
 		nullptr,
 		D3D_COMPILE_STANDARD_FILE_INCLUDE,
 		"main",
 		shaderType.c_str(),
-		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES,
+		compileFlag,
 		0,
 		&mShader,
 		&errorBuff);
@@ -71,7 +79,7 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 		fatalf("shader compiling failed");
 	}
 
-	SAFE_RELEASE(errorBuff);
+	SAFE_RELEASE_NO_CHECK(errorBuff);
 	// fill out a shader bytecode structure, which is basically just a pointer
 	// to the shader bytecode and the size of the shader bytecode
 	mShaderBytecode.BytecodeLength = mShader->GetBufferSize();
@@ -88,7 +96,7 @@ Shader::ShaderType Shader::GetShaderType()
 	return mType;
 }
 
-void Shader::Release()
+void Shader::Release(bool checkOnly)
 {
-	SAFE_RELEASE(mShader);
+	SAFE_RELEASE(mShader, checkOnly);
 }

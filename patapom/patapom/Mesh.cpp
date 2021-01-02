@@ -44,7 +44,7 @@ Mesh::Mesh(const wstring& debugName,
 
 Mesh::~Mesh()
 {
-	Release();
+	Release(true);
 }
 
 void Mesh::ResetMesh(MeshType type,
@@ -127,9 +127,9 @@ void Mesh::CreateUniformBuffer(int frameCount)
 		HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 			D3D12_HEAP_FLAG_NONE, // no flags
-			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(ObjectUniform)), // size of the resource heap. Must be a multiple of 64KB for single-textures and constant buffers
+			&CD3DX12_RESOURCE_DESC::Buffer(sizeof(ObjectUniform)),
 			Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
-			nullptr, // we do not have use an optimized clear value for constant buffers
+			nullptr, // we do not use an optimized clear value for constant buffers
 			IID_PPV_ARGS(&mUniformBufferVec[i]));
 
 		fatalAssertf(SUCCEEDED(hr), "create object uniform buffer failed");
@@ -204,12 +204,12 @@ void Mesh::UpdateIndexBuffer()
 	mRenderer->UploadDataToBuffer(mIndexVec.data(), mIndexBufferSizeInBytes, mIndexBufferSizeInBytes, mIndexBufferSizeInBytes, mIndexBuffer);
 }
 
-void Mesh::Release()
+void Mesh::Release(bool checkOnly)
 {
-	SAFE_RELEASE(mVertexBuffer);
-	SAFE_RELEASE(mIndexBuffer);
-	for(auto uniformBuffer : mUniformBufferVec)
-		SAFE_RELEASE(uniformBuffer);
+	SAFE_RELEASE(mVertexBuffer, checkOnly);
+	SAFE_RELEASE(mIndexBuffer, checkOnly);
+	for(auto& uniformBuffer : mUniformBufferVec) // ref because we are resetting it to nullptr
+		SAFE_RELEASE(uniformBuffer, checkOnly);
 }
 
 D3D12_VERTEX_BUFFER_VIEW Mesh::GetVertexBufferView()
@@ -270,6 +270,16 @@ int Mesh::GetIndexCount()
 int Mesh::GetTextureCount()
 {
 	return mTextureVec.size();
+}
+
+void Mesh::ConvertMeshToTriangles(vector<Triangle>& outTriangles)
+{
+	fatalAssertf(mIndexVec.size() > 0 && mIndexVec.size() % 3 == 0, "number of indices is not a multiple of 3");
+	outTriangles.resize(mIndexVec.size() / 3);
+	for (int i = 0; i < outTriangles.size(); i++)
+	{
+		outTriangles[i] = { mVertexVec[mIndexVec[i * 3]], mVertexVec[mIndexVec[i * 3 + 1]], mVertexVec[mIndexVec[i * 3 + 2]] };
+	}
 }
 
 void Mesh::SetCube()

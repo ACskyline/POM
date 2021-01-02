@@ -3,11 +3,11 @@
 #include "GlobalInclude.h"
 #include "Renderer.h"
 
-class Texture
+class Texture : public ShaderResource
 {
 public:
 	enum { ALL_SLICES = 0xffffffff };
-	enum CubeFaces { X_POS, X_NEG, Y_POS, Y_NEG, Z_POS, Z_NEG, COUNT };
+	enum CubeFace { X_POS, X_NEG, Y_POS, Y_NEG, Z_POS, Z_NEG, COUNT };
 
 	Texture(
 		const string& fileName,
@@ -18,10 +18,9 @@ public:
 	virtual ~Texture();
 
 	ID3D12Resource* GetTextureBuffer();
-	D3D12_SHADER_RESOURCE_VIEW_DESC GetSrvDesc();
+	D3D12_SHADER_RESOURCE_VIEW_DESC GetSrvDesc() const;
 	D3D12_SAMPLER_DESC GetSamplerDesc();
 	Format GetTextureFormat();
-	Sampler GetSampler();
 	string GetName();
 	wstring GetDebugName();
 	u32 GetWidth(u32 mipLevel = 0);
@@ -30,15 +29,15 @@ public:
 	u32 GetMipLevelCount();
 
 	virtual void InitTexture(Renderer* renderer);
-	virtual void CreateTextureBuffer();
-	virtual void CreateView();
-	virtual void CreateSampler();
-	virtual void Release();
+	virtual void Release(bool checkOnly = false);
 
 	bool TransitionTextureLayoutSingleTime(ResourceLayout newLayout, u32 depthSlice, u32 mipSlice);
 	bool TransitionTextureLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout, u32 depthSlice, u32 mipSlice);
 	
 protected:
+	virtual void CreateTextureBuffer();
+	virtual void CreateView();
+
 	Texture(
 		TextureType type,
 		const string& fileName,
@@ -50,11 +49,9 @@ protected:
 		u32 height,
 		u32 depth);
 
-	TextureType mType;
+	TextureType mTextureType;
 	string mFileName;
-	wstring mDebugName;
 	bool mUseMipmap;
-	bool mInitialized;
 	u32 mWidth;
 	u32 mHeight;
 	u32 mDepth;
@@ -127,35 +124,29 @@ public:
 
 	virtual ~RenderTexture();
 
-	bool ReadFromMultiSampledBuffer();
-	bool ReadFromStencil();
-	bool ReadFromDepth();
-	bool ReadFromDepthStencilBuffer();
-	bool ReadFromColor();
-	bool IsMultiSampleUsed();
-	bool IsResolveNeeded();
 	bool IsRenderTargetUsed();
 	bool IsDepthStencilUsed();
 	Resource* GetRenderTargetBuffer();
 	Resource* GetDepthStencilBuffer();
 	D3D12_RENDER_TARGET_VIEW_DESC GetRtvDesc(u32 depthSlice, u32 mipSlice);
 	D3D12_DEPTH_STENCIL_VIEW_DESC GetDsvDesc(u32 depthSlice, u32 mipSlice);
+	D3D12_UNORDERED_ACCESS_VIEW_DESC GetUavDesc(u32 mipSlice);
 	Format GetRenderTargetFormat();
 	Format GetDepthStencilFormat();
 	int GetMultiSampleCount();
 
 	void MakeReadyToWrite(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
 	void MakeReadyToRead(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
-
-	virtual void CreateTextureBuffer();
-	virtual void CreateView();
-	virtual void Release();
+	virtual void Release(bool checkOnly = false);
 
 	XMFLOAT4 mColorClearValue;
 	float mDepthClearValue;
 	u8 mStencilClearValue;
 
 protected:
+	virtual void CreateTextureBuffer();
+	virtual void CreateView();
+
 	RenderTexture(
 		TextureType type,
 		const wstring& debugName,
@@ -187,16 +178,26 @@ private:
 	u8 mMultiSampleCount;
 	Resource* mRenderTargetBuffer; // TODO: hide API specific implementation in Renderer
 	Resource* mDepthStencilBuffer;
+	Resource* mWriteBuffer;
 
 	View mRtvMip0;
 	View mDsvMip0;
+	View mUavMip0;
 	vector<vector<ResourceLayout>> mRenderTargetLayouts; // [depthSlice][mipSlice]
 	vector<vector<ResourceLayout>> mDepthStencilLayouts; // TODO: make these layouts thread safe
 	Format mDepthStencilFormat;
 	Format mRenderTargetFormat;
 
-	void SetUpRTV();
-	void SetUpDSV();
-	void SetUpSRV();
+	bool ReadFromMultiSampledBuffer();
+	bool ReadFromColor();
+	bool ReadFromStencil();
+	bool ReadFromDepth();
+	bool ReadFromDepthStencil();
+	bool IsMultiSampleUsed();
+	bool IsResolveNeeded();
+	void CreateRtv();
+	void CreateDsv();
+	void CreateSrv();
+	void CreateUav();
 	void ResolveToTexture(ID3D12GraphicsCommandList* commandList, Resource* resource, Format format, u32 depthSlice, u32 mipSlice);
 };

@@ -1,5 +1,5 @@
 #include "Renderer.h"
-#include "Level.h"
+#include "Store.h"
 #include "Scene.h"
 #include "Frame.h"
 #include "Pass.h"
@@ -60,7 +60,7 @@ DescriptorHeap::DescriptorHeap() :
 
 DescriptorHeap::~DescriptorHeap()
 {
-	Release();
+	Release(true);
 }
 
 void DescriptorHeap::InitDescriptorHeap(Renderer* renderer, int countMax, Type type)
@@ -76,9 +76,9 @@ void DescriptorHeap::InitDescriptorHeap(Renderer* renderer, int countMax, Type t
 	mFree = mHead;
 }
 
-void DescriptorHeap::Release()
+void DescriptorHeap::Release(bool checkOnly)
 {
-	SAFE_RELEASE(mImpl);
+	SAFE_RELEASE(mImpl, checkOnly);
 	mRenderer = nullptr;
 	mHead = D3D12_DEFAULT;
 	mFree = D3D12_DEFAULT;
@@ -112,6 +112,7 @@ CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::AllocateRtv(ID3D12Resource* resour
 CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::AllocateRtv(ID3D12Resource* resource, int count)
 {
 	fatalAssert(mCount < mCountMax);
+	// Set pDesc parameter to NULL to create a view that accesses all of the subresources in mipmap level 0.
 	mRenderer->mDevice->CreateRenderTargetView(resource, nullptr, mFree);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE result = mFree;
 	mFree.Offset(count, mHandleIncrementSize);
@@ -123,6 +124,16 @@ CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::AllocateSrv(ID3D12Resource* resour
 {
 	fatalAssert(mCount < mCountMax);
 	mRenderer->mDevice->CreateShaderResourceView(resource, &desc, mFree);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE result = mFree;
+	mFree.Offset(count, mHandleIncrementSize);
+	mCount++;
+	return result;
+}
+
+CD3DX12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::AllocateUav(ID3D12Resource* resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC& desc, int count)
+{
+	fatalAssert(mCount < mCountMax);
+	mRenderer->mDevice->CreateUnorderedAccessView(resource, nullptr, &desc, mFree);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE result = mFree;
 	mFree.Offset(count, mHandleIncrementSize);
 	mCount++;
@@ -168,7 +179,7 @@ Renderer::Renderer()
 
 Renderer::~Renderer()
 {
-	Release();
+	Release(true);
 }
 
 D3D12_DEPTH_STENCIL_DESC Renderer::TranslateDepthStencilState(DepthStencilState state)
@@ -350,9 +361,9 @@ DXGI_FORMAT Renderer::TranslateToTypelessFormat(Format format)
 	return DXGI_FORMAT_UNKNOWN;
 }
 
-DXGI_FORMAT Renderer::TranslateToSrvFormat(Format format, ReadFrom readFrom)
+DXGI_FORMAT Renderer::TranslateFormatToAccess(Format format, ReadFrom access)
 {
-	if (readFrom & ReadFrom::COLOR)
+	if (access & ReadFrom::COLOR)
 	{
 		switch (format)
 		{
@@ -361,10 +372,10 @@ DXGI_FORMAT Renderer::TranslateToSrvFormat(Format format, ReadFrom readFrom)
 		case Format::R16G16B16A16_FLOAT:
 			return TranslateFormat(format);
 		default:
-			fatalf("read from wrong format");
+			fatalf("accessing wrong format");
 		}
 	}
-	else if (readFrom & ReadFrom::DEPTH)
+	else if (access & ReadFrom::DEPTH)
 	{
 		switch (format)
 		{
@@ -375,21 +386,21 @@ DXGI_FORMAT Renderer::TranslateToSrvFormat(Format format, ReadFrom readFrom)
 		case Format::D24_UNORM_S8_UINT:
 			return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
 		default:
-			fatalf("read from wrong format");
+			fatalf("accessing wrong format");
 		}
 	}
-	else if (readFrom & ReadFrom::STENCIL)
+	else if (access & ReadFrom::STENCIL)
 	{
 		switch (format)
 		{
 		case Format::D24_UNORM_S8_UINT:
 			return DXGI_FORMAT_X24_TYPELESS_G8_UINT;
 		default:
-			fatalf("read from wrong format");
+			fatalf("accessing wrong format");
 		}
 	}
 	else
-		fatalf("read from wrong format");
+		fatalf("accessing wrong format");
 	
 	return DXGI_FORMAT_UNKNOWN;
 }
@@ -608,6 +619,25 @@ D3D12_RESOURCE_DIMENSION Renderer::GetResourceDimensionFromTextureType(TextureTy
 	}
 }
 
+D3D12_SAMPLER_DESC Renderer::TranslateSamplerDesc(Sampler sampler)
+{
+	D3D12_SAMPLER_DESC impl = { 0 };
+	impl.Filter = ExtractFilter(sampler);
+	impl.AddressU = TranslateAddressMode(sampler.mAddressModeU);
+	impl.AddressV = TranslateAddressMode(sampler.mAddressModeV);
+	impl.AddressW = TranslateAddressMode(sampler.mAddressModeW);
+	impl.MipLODBias = sampler.mMipLodBias;
+	impl.MaxAnisotropy = 0; // TODO: add support for anisotropic filtering
+	impl.ComparisonFunc = TranslateCompareOp(sampler.mCompareOp);
+	impl.BorderColor[0] = sampler.mBorderColor[0];
+	impl.BorderColor[1] = sampler.mBorderColor[1];
+	impl.BorderColor[2] = sampler.mBorderColor[2];
+	impl.BorderColor[3] = sampler.mBorderColor[3];
+	impl.MinLOD = sampler.mMinLod;
+	impl.MaxLOD = sampler.mMaxLod;
+	return impl;
+}
+
 CD3DX12_CPU_DESCRIPTOR_HANDLE Renderer::GetRtvHandle(int frameIndex)
 {
 	return mRtvHandles[frameIndex];
@@ -669,9 +699,9 @@ bool Renderer::IsResolveNeeded()
 	return IsMultiSampleUsed();
 }
 
-void Renderer::SetLevel(Level* level)
+void Renderer::SetStore(Store* store)
 {
-	mLevel = level;
+	mStore = store;
 }
 
 bool Renderer::InitRenderer(
@@ -826,7 +856,7 @@ bool Renderer::InitRenderer(
 	}
 
 	// 7. init level
-	mLevel->InitLevel(this, mFrameCount, mCbvSrvUavDescriptorHeap, mSamplerDescriptorHeap, mRtvDescriptorHeap, mDsvDescriptorHeap);
+	mStore->InitStore(this, mFrameCount, mCbvSrvUavDescriptorHeap, mSamplerDescriptorHeap, mRtvDescriptorHeap, mDsvDescriptorHeap);
 
 	return mInitialized = true;
 }
@@ -958,23 +988,23 @@ void Renderer::CreateColorBuffers()
 	}
 }
 
-void Renderer::Release()
+void Renderer::Release(bool checkOnly)
 {
 	// 1. release level
-	SAFE_RELEASE(mLevel);
+	SAFE_RELEASE(mStore, checkOnly);
 
 	// 2. release global GPU resources
 	for (int i = 0; i < mFrameCount; i++)
 	{
-		SAFE_RELEASE(mColorBuffers[i]);
-		SAFE_RELEASE(mDepthStencilBuffers[i]);
-		mFrames[i].Release();
+		SAFE_RELEASE(mColorBuffers[i], checkOnly);
+		SAFE_RELEASE(mDepthStencilBuffers[i], checkOnly);
+		mFrames[i].Release(checkOnly);
 	}
 
-	mCbvSrvUavDescriptorHeap.Release();
-	mSamplerDescriptorHeap.Release();
-	mDsvDescriptorHeap.Release();
-	mRtvDescriptorHeap.Release();
+	mCbvSrvUavDescriptorHeap.Release(checkOnly);
+	mSamplerDescriptorHeap.Release(checkOnly);
+	mDsvDescriptorHeap.Release(checkOnly);
+	mRtvDescriptorHeap.Release(checkOnly);
 
 	// 3. release fences
 	if (mFenceEvent != NULL) {
@@ -984,24 +1014,24 @@ void Renderer::Release()
 
 	for (int i = 0; i < mFrameCount; i++)
 	{
-		SAFE_RELEASE(mFences[i]);
+		SAFE_RELEASE(mFences[i], checkOnly);
 	}
 
 	// 4. release command allocators
-	SAFE_RELEASE(mSingleTimeCommandAllocator);
+	SAFE_RELEASE(mSingleTimeCommandAllocator, checkOnly);
 	for (int i = 0; i < mGraphicsCommandAllocators.size(); i++)
 	{
-		SAFE_RELEASE(mGraphicsCommandAllocators[i]);
+		SAFE_RELEASE(mGraphicsCommandAllocators[i], checkOnly);
 	}
 
 	// 5. release swap chain
-	SAFE_RELEASE(mSwapChain);
+	SAFE_RELEASE(mSwapChain, checkOnly);
 
 	// 6. release command queue
-	SAFE_RELEASE(mGraphicsCommandQueue);
+	SAFE_RELEASE(mGraphicsCommandQueue, checkOnly);
 	for (int i = 0; i < mCommandLists.size(); i++)
 	{
-		SAFE_RELEASE(mCommandLists[i]);
+		SAFE_RELEASE(mCommandLists[i], checkOnly);
 	}
 
 	// 7. release device
@@ -1011,15 +1041,15 @@ void Renderer::Release()
 		bool hasDebugDev = false;
 		if (SUCCEEDED(mDevice->QueryInterface(IID_PPV_ARGS(&debugDev))))
 			hasDebugDev = true;
-		SAFE_RELEASE(mDevice);
+		SAFE_RELEASE(mDevice, checkOnly);
 		if (hasDebugDev)
 		{
 			OutputDebugStringW(L"Debug Report Live Device Objects >>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 			debugDev->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL);
 			OutputDebugStringW(L"Debug Report Live Device Objects >>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 		}
-		SAFE_RELEASE(debugDev);
-		SAFE_RELEASE(mDebugController);
+		SAFE_RELEASE(debugDev, checkOnly);
+		SAFE_RELEASE(mDebugController, checkOnly);
 	}
 }
 
@@ -1163,7 +1193,7 @@ void Renderer::UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& sr
 	UINT64 r = UpdateSubresources(commandList, dstBuffer, uploadBuffer, 0, numSubresources, totalBytes, layouts, numRows, rowSizesInBytes, data);
 
 	EndSingleTimeCommands(mGraphicsCommandQueue, mSingleTimeCommandAllocator, commandList);
-	SAFE_RELEASE(uploadBuffer);
+	SAFE_RELEASE_NO_CHECK(uploadBuffer);
 	delete[] layouts;
 	delete[] numRows;
 	delete[] rowSizesInBytes;
@@ -1196,7 +1226,7 @@ void Renderer::UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcByteP
 	UINT64 r = UpdateSubresources(commandList, dstBuffer, uploadBuffer, 0, 0, 1, &data);
 
 	EndSingleTimeCommands(mGraphicsCommandQueue, mSingleTimeCommandAllocator, commandList);
-	SAFE_RELEASE(uploadBuffer);
+	SAFE_RELEASE_NO_CHECK(uploadBuffer);
 }
 
 bool Renderer::TransitionLayout(ID3D12Resource* resource, u32 subresource, ResourceLayout oldLayout, ResourceLayout newLayout, CD3DX12_RESOURCE_BARRIER& barrier)
@@ -1267,8 +1297,8 @@ void Renderer::EndSingleTimeCommands(ID3D12CommandQueue* commandQueue, ID3D12Com
 	}
 	commandAllocator->Reset();
 	commandList->Reset(commandAllocator, nullptr);
-	SAFE_RELEASE(fence);
-	SAFE_RELEASE(commandList);
+	SAFE_RELEASE_NO_CHECK(fence);
+	SAFE_RELEASE_NO_CHECK(commandList);
 }
 
 void Renderer::EnableDebugLayer()
@@ -1352,7 +1382,7 @@ void Renderer::CreateDescriptorHeap(DescriptorHeap& descriptorHeap, int size)
 	fatalAssert(SUCCEEDED(mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&descriptorHeap.GetHeapRef()))));
 }
 
-void Renderer::CreatePSO(
+void Renderer::CreateGraphicsPSO(
 	Pass& pass,
 	ID3D12PipelineState** pso,
 	ID3D12RootSignature* rootSignature,
@@ -1436,7 +1466,7 @@ void Renderer::CreatePSO(
 		multiSampleCount = mMultiSampleCount;
 
 	// create PSO
-	CreatePSO(
+	CreateGraphicsPSOInternal(
 		mDevice,
 		pso,
 		rootSignature,
@@ -1454,7 +1484,23 @@ void Renderer::CreatePSO(
 		name);
 }
 
-void Renderer::CreatePSO(
+void Renderer::CreateComputePSO(
+	Pass& pass,
+	ID3D12PipelineState** pso,
+	ID3D12RootSignature* rootSignature,
+	Shader* computeShader,
+	const wstring& name)
+{
+	// create PSO
+	CreateComputePSOInternal(
+		mDevice,
+		pso,
+		rootSignature,
+		computeShader,
+		name);
+}
+
+void Renderer::CreateGraphicsPSOInternal(
 	ID3D12Device* device,
 	ID3D12PipelineState** pso,
 	ID3D12RootSignature* rootSignature,
@@ -1524,6 +1570,24 @@ void Renderer::CreatePSO(
 	HRESULT hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(pso));
 	fatalAssert(!CheckError(hr));
 
+	(*pso)->SetName(name.c_str());
+}
+
+void Renderer::CreateComputePSOInternal(
+	ID3D12Device* device,
+	ID3D12PipelineState** pso,
+	ID3D12RootSignature* rootSignature,
+	Shader* computeShader,
+	const wstring& name)
+{
+	D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+	psoDesc.pRootSignature = rootSignature;
+	psoDesc.CS = computeShader->GetShaderByteCode();
+	psoDesc.NodeMask = 0; // For single GPU operation, set this to zero.
+	psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE; // TODO: investigate D3D12_PIPELINE_STATE_FLAG_TOOL_DEBUG
+	// create the pso
+	HRESULT hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(pso));
+	fatalAssert(!CheckError(hr));
 	(*pso)->SetName(name.c_str());
 }
 
@@ -1636,23 +1700,23 @@ void Renderer::RecordPass(
 	commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
 	// set descriptors
-	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::SCENE, RegisterType::CONSTANT), pass.GetScene()->GetUniformBufferGpuAddress(mCurrentFrameIndex));
-	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::FRAME, RegisterType::CONSTANT), mFrames[mCurrentFrameIndex].GetUniformBufferGpuAddress());
-	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::PASS, RegisterType::CONSTANT), pass.GetUniformBufferGpuAddress(mCurrentFrameIndex));
+	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::SCENE, RegisterType::CBV), pass.GetScene()->GetUniformBufferGpuAddress(mCurrentFrameIndex));
+	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::FRAME, RegisterType::CBV), mFrames[mCurrentFrameIndex].GetUniformBufferGpuAddress());
+	commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::PASS, RegisterType::CBV), pass.GetUniformBufferGpuAddress(mCurrentFrameIndex));
 	
 	if (pass.GetScene()->GetTextureCount()) {
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::TEXTURE_TABLE), pass.GetScene()->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::SAMPLER_TABLE), pass.GetScene()->GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::SRV), pass.GetScene()->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::SAMPLER), pass.GetScene()->GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
 	}
 	
 	if (mFrames[mCurrentFrameIndex].GetTextureCount()) {
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::TEXTURE_TABLE), mFrames[mCurrentFrameIndex].GetCbvSrvUavDescriptorHeapTableHandle());
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::SAMPLER_TABLE), mFrames[mCurrentFrameIndex].GetSamplerDescriptorHeapTableHandle());
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::SRV), mFrames[mCurrentFrameIndex].GetCbvSrvUavDescriptorHeapTableHandle());
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::SAMPLER), mFrames[mCurrentFrameIndex].GetSamplerDescriptorHeapTableHandle());
 	}
 	
-	if (pass.GetTextureCount()) {
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::TEXTURE_TABLE), pass.GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SAMPLER_TABLE), pass.GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+	if (pass.GetShaderResourceCount()) {
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SAMPLER), pass.GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
 	}
 
 	int meshCount = pass.GetMeshVec().size();
@@ -1661,49 +1725,91 @@ void Renderer::RecordPass(
 		commandList->IASetPrimitiveTopology(pass.GetMeshVec()[i]->GetPrimitiveType());
 		commandList->IASetVertexBuffers(0, 1, &pass.GetMeshVec()[i]->GetVertexBufferView());
 		commandList->IASetIndexBuffer(&pass.GetMeshVec()[i]->GetIndexBufferView());
-		commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::CONSTANT), pass.GetMeshVec()[i]->GetUniformBufferGpuAddress(mCurrentFrameIndex));
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::TEXTURE_TABLE), pass.GetMeshVec()[i]->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::SAMPLER_TABLE), pass.GetMeshVec()[i]->GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::CBV), pass.GetMeshVec()[i]->GetUniformBufferGpuAddress(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::SRV), pass.GetMeshVec()[i]->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::SAMPLER), pass.GetMeshVec()[i]->GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
 		commandList->DrawIndexedInstanced(pass.GetMeshVec()[i]->GetIndexCount(), 1, 0, 0, 0);
 	}
 }
 
-void Renderer::CreateGraphicsRootSignature(
+void Renderer::RecordComputePass(
+	Pass& pass,
+	ID3D12GraphicsCommandList* commandList,
+	int threadGroupCountX,
+	int threadGroupCountY,
+	int threadGroupCountZ)
+{
+	// set PSO
+	commandList->SetPipelineState(pass.GetPso());
+
+	// set root signature
+	commandList->SetComputeRootSignature(pass.GetRootSignature()); // set the root signature
+
+	// set descriptor heap
+	ID3D12DescriptorHeap* descriptorHeaps[] = { mCbvSrvUavDescriptorHeap.GetHeap(), mSamplerDescriptorHeap.GetHeap() };
+	commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+	// set descriptors
+	commandList->SetComputeRootConstantBufferView(GetUniformSlot(RegisterSpace::SCENE, RegisterType::CBV), pass.GetScene()->GetUniformBufferGpuAddress(mCurrentFrameIndex));
+	commandList->SetComputeRootConstantBufferView(GetUniformSlot(RegisterSpace::FRAME, RegisterType::CBV), mFrames[mCurrentFrameIndex].GetUniformBufferGpuAddress());
+	commandList->SetComputeRootConstantBufferView(GetUniformSlot(RegisterSpace::PASS, RegisterType::CBV), pass.GetUniformBufferGpuAddress(mCurrentFrameIndex));
+
+	if (pass.GetScene()->GetTextureCount()) {
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::SRV), pass.GetScene()->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::SCENE, RegisterType::SAMPLER), pass.GetScene()->GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+	}
+
+	if (mFrames[mCurrentFrameIndex].GetTextureCount()) {
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::SRV), mFrames[mCurrentFrameIndex].GetCbvSrvUavDescriptorHeapTableHandle());
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::FRAME, RegisterType::SAMPLER), mFrames[mCurrentFrameIndex].GetSamplerDescriptorHeapTableHandle());
+	}
+
+	if (pass.GetShaderResourceCount()) {
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SAMPLER), pass.GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+	}
+
+	commandList->Dispatch(threadGroupCountX, threadGroupCountY, threadGroupCountZ);
+}
+
+void Renderer::CreateRootSignature(
 	ID3D12RootSignature** rootSignature,
-	int maxTextureCount[(int)RegisterSpace::COUNT])
+	int maxSrvCount[(int)RegisterSpace::COUNT],
+	int maxUavCount[(int)RegisterSpace::COUNT])
 {
 	D3D12_ROOT_PARAMETER  rootParameterArr[(int)RegisterType::COUNT * (int)RegisterSpace::COUNT]; // each register space has two types of uniforms, the constant buffer and descriptor table
-	D3D12_DESCRIPTOR_RANGE  textureTableRanges[(int)RegisterSpace::COUNT];
+	D3D12_DESCRIPTOR_RANGE  srvTableRanges[(int)RegisterSpace::COUNT];
 	D3D12_DESCRIPTOR_RANGE  samplerTableRanges[(int)RegisterSpace::COUNT];
+	D3D12_DESCRIPTOR_RANGE  uavTableRanges[(int)RegisterSpace::COUNT];
 	for(int uType = 0;uType< (int)RegisterType::COUNT;uType++)
 	{
 		for(int uSpace = 0;uSpace< (int)RegisterSpace::COUNT;uSpace++)
 		{
 			const int slot = GetUniformSlot((RegisterSpace)uSpace, (RegisterType)uType);
-			if (uType == (int)RegisterType::CONSTANT)
+			if (uType == (int)RegisterType::CBV)
 			{
 				rootParameterArr[slot].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 				rootParameterArr[slot].Descriptor.RegisterSpace = uSpace;
 				rootParameterArr[slot].Descriptor.ShaderRegister = 0;
 				rootParameterArr[slot].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			}
-			else if(uType == (int)RegisterType::TEXTURE_TABLE)
+			else if (uType == (int)RegisterType::SRV)
 			{
-				textureTableRanges[uSpace].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-				textureTableRanges[uSpace].NumDescriptors = maxTextureCount[uSpace] ? maxTextureCount[uSpace] : 1;
-				textureTableRanges[uSpace].BaseShaderRegister = 0; // start index of the shader registers in the range
-				textureTableRanges[uSpace].RegisterSpace = uSpace;
-				textureTableRanges[uSpace].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; // this appends the range to the end of the root signature descriptor tables
+				srvTableRanges[uSpace].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+				srvTableRanges[uSpace].NumDescriptors = maxSrvCount[uSpace] ? maxSrvCount[uSpace] : 1;
+				srvTableRanges[uSpace].BaseShaderRegister = 0; // start index of the shader registers in the range
+				srvTableRanges[uSpace].RegisterSpace = uSpace;
+				srvTableRanges[uSpace].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; // this appends the range to the end of the root signature descriptor tables
 				
 				rootParameterArr[slot].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 				rootParameterArr[slot].DescriptorTable.NumDescriptorRanges = 1;
-				rootParameterArr[slot].DescriptorTable.pDescriptorRanges = &textureTableRanges[uSpace]; // the pointer to the beginning of our ranges array
+				rootParameterArr[slot].DescriptorTable.pDescriptorRanges = &srvTableRanges[uSpace]; // the pointer to the beginning of our ranges array
 				rootParameterArr[slot].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			}
-			else if(uType == (int)RegisterType::SAMPLER_TABLE)
+			else if (uType == (int)RegisterType::SAMPLER)
 			{
 				samplerTableRanges[uSpace].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-				samplerTableRanges[uSpace].NumDescriptors = maxTextureCount[uSpace] ? maxTextureCount[uSpace] : 1;
+				samplerTableRanges[uSpace].NumDescriptors = maxSrvCount[uSpace] ? maxSrvCount[uSpace] : 1;
 				samplerTableRanges[uSpace].BaseShaderRegister = 0; // start index of the shader registers in the range
 				samplerTableRanges[uSpace].RegisterSpace = uSpace;
 				samplerTableRanges[uSpace].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; // this appends the range to the end of the root signature descriptor tables
@@ -1713,10 +1819,18 @@ void Renderer::CreateGraphicsRootSignature(
 				rootParameterArr[slot].DescriptorTable.pDescriptorRanges = &samplerTableRanges[uSpace]; // the pointer to the beginning of our ranges array
 				rootParameterArr[slot].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			}
-			// TODO: add buffer support in the future
-			else
+			else if (uType == (int)RegisterType::UAV)
 			{
-				fatalf("root parameter is wrong");
+				uavTableRanges[uSpace].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+				uavTableRanges[uSpace].NumDescriptors = maxUavCount[uSpace] ? maxUavCount[uSpace] : 1;
+				uavTableRanges[uSpace].BaseShaderRegister = 0; // start index of the shader registers in the range
+				uavTableRanges[uSpace].RegisterSpace = uSpace;
+				uavTableRanges[uSpace].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; // this appends the range to the end of the root signature descriptor tables
+
+				rootParameterArr[slot].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+				rootParameterArr[slot].DescriptorTable.NumDescriptorRanges = 1;
+				rootParameterArr[slot].DescriptorTable.pDescriptorRanges = &uavTableRanges[uSpace]; // the pointer to the beginning of our ranges array
+				rootParameterArr[slot].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 			}
 		}
 	}
@@ -1743,7 +1857,7 @@ void Renderer::CreateGraphicsRootSignature(
 
 int Renderer::EstimateTotalCbvSrvUavCount()
 {
-	int totalCbvSrvUavCount = mLevel->EstimateTotalCbvSrvUavCount(mFrameCount);
+	int totalCbvSrvUavCount = mStore->EstimateTotalCbvSrvUavCount(mFrameCount);
 	for (auto& frame : mFrames)
 		totalCbvSrvUavCount += frame.GetTextureCount();
 	return totalCbvSrvUavCount;
@@ -1757,7 +1871,7 @@ int Renderer::EstimateTotalSamplerCount()
 
 int Renderer::EstimateTotalRtvCount()
 {
-	int totalRtvCount = mLevel->EstimateTotalRtvCount(mFrameCount);
+	int totalRtvCount = mStore->EstimateTotalRtvCount(mFrameCount);
 	totalRtvCount += IsResolveNeeded() ? mFrameCount * 2 : mFrameCount; // swap chain frame buffer
 	return totalRtvCount;
 }
@@ -1776,4 +1890,9 @@ ID3D12GraphicsCommandList* Renderer::BeginSingleTimeCommands()
 void Renderer::EndSingleTimeCommands(ID3D12GraphicsCommandList* commandList)
 {
 	EndSingleTimeCommands(mGraphicsCommandQueue, mSingleTimeCommandAllocator, commandList);
+}
+
+D3D12_SAMPLER_DESC Sampler::GetDesc()
+{ 
+	return Renderer::TranslateSamplerDesc(*this); 
 }

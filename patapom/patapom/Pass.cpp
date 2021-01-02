@@ -1,6 +1,7 @@
 #include "Pass.h"
 #include "Camera.h"
 #include "Texture.h"
+#include "Buffer.h"
 #include "Scene.h"
 #include "Mesh.h"
 
@@ -28,18 +29,20 @@ Pass::Pass()
 
 Pass::Pass(const wstring& debugName,
 	bool outputRenderTarget,
-	bool outputDepthStencil) : 
-	mRenderer(nullptr), mDebugName(debugName), 
+	bool outputDepthStencil,
+	bool shareMeshesWithPathTracer) :
+	mRenderer(nullptr), mDebugName(debugName),
 	mConstantBlendFactorsUsed(false), mStencilReferenceUsed(false),
 	mRenderTargetCount(0), mDepthStencilCount(0), mDepthStencilIndex(-1),
-	mUseRenderTarget(outputRenderTarget), mUseDepthStencil(outputDepthStencil)
+	mUseRenderTarget(outputRenderTarget), mUseDepthStencil(outputDepthStencil),
+	mShareMeshesWithPathTracer(shareMeshesWithPathTracer)
 {
 	memset(mShaders, 0, sizeof(mShaders));
 }
 
 Pass::~Pass()
 {
-	Release();
+	Release(true);
 }
 
 void Pass::SetScene(Scene* scene)
@@ -58,9 +61,9 @@ void Pass::AddMesh(Mesh* mesh)
 	mMeshes.push_back(mesh);
 }
 
-void Pass::AddTexture(Texture* texture)
+void Pass::AddShaderResource(ShaderResource* sr)
 {
-	mTextures.push_back(texture);
+	mShaderResources.push_back(sr);
 }
 
 void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState)
@@ -97,12 +100,34 @@ void Pass::AddShader(Shader* shader)
 	mShaders[shader->GetShaderType()] = shader;
 }
 
-void Pass::Release()
+void Pass::AddTexture(Texture* texture)
 {
-	for (int i = 0; i < mUniformBuffers.size(); i++)
-	{
-		SAFE_RELEASE(mUniformBuffers[i]);
-	}
+	AddShaderResource(texture);
+}
+
+void Pass::AddBuffer(Buffer* buffer)
+{
+	AddShaderResource(buffer);
+}
+
+void Pass::AddWriteBuffer(WriteBuffer* writeBuffer, u32 mipSlice)
+{
+	WriteTarget wt = { WriteTarget::BUFFER, mipSlice };
+	wt.mWriteBuffer = writeBuffer;
+	mWriteTargets.push_back(wt);
+}
+
+void Pass::AddWriteTexture(RenderTexture* writeTexture, u32 mipSlice)
+{
+	WriteTarget wt = { WriteTarget::TEXTURE, mipSlice };
+	wt.mRenderTexture = writeTexture;
+	mWriteTargets.push_back(wt);
+}
+
+void Pass::Release(bool checkOnly)
+{
+	for (auto& uniformBuffer : mUniformBuffers)
+		SAFE_RELEASE(uniformBuffer, checkOnly);
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS Pass::GetUniformBufferGpuAddress(int frameIndex)
@@ -163,7 +188,7 @@ void Pass::InitPass(
 	DescriptorHeap& rtvDescriptorHeap,
 	DescriptorHeap& dsvDescriptorHeap)
 {
-	fatalAssertf(mMeshes.size() != 0, "no mesh in this pass!");
+	fatalAssertf(mMeshes.size() || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no mesh in this pass!");
 	// revisit the two asserts below after adding support for compute shaders
 	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr, "no vertex shader in this pass!");
 	assertf(mShaders[Shader::PIXEL_SHADER] != nullptr, "no pixel shader in this pass!");
@@ -181,17 +206,38 @@ void Pass::InitPass(
 		// pass texture table and pass sampler table
 		mCbvSrvUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		mSamplerDescriptorHeapTableHandles[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
-		for (auto texture : mTextures)
+		for (auto sr : mShaderResources)
 		{
-			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
-			samplerDescriptorHeap.AllocateSampler(texture->GetSamplerDesc(), 1);
+			if (sr->IsTexture())
+			{
+				Texture* texture = static_cast<Texture*>(sr);
+				cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
+				samplerDescriptorHeap.AllocateSampler(texture->GetSamplerDesc(), 1);
+			}
+			else if (sr->IsBuffer())
+			{
+				Buffer* buffer = static_cast<Buffer*>(sr);
+				cbvSrvUavDescriptorHeap.AllocateSrv(buffer->GetBuffer(), buffer->GetSrvDesc(), 1);
+				// this is a dummy sampler just to keep the register number match, so that it's easier to maintain in shaders
+				// it will waste some sampler registers but it's a trade off for easier maintenance
+				// TODO: find a better way to improve this
+				samplerDescriptorHeap.AllocateSampler(gSampler.GetDesc(), 1);
+			}
+		}
+		for (auto wt : mWriteTargets)
+		{
+			if(wt.mType == WriteTarget::BUFFER)
+				cbvSrvUavDescriptorHeap.AllocateUav(wt.mWriteBuffer->GetBuffer(), wt.mWriteBuffer->GetUavDesc(), 1);
+			else if (wt.mType == WriteTarget::TEXTURE)
+				cbvSrvUavDescriptorHeap.AllocateUav(wt.mRenderTexture->GetTextureBuffer(), wt.mRenderTexture->GetUavDesc(wt.mMipSlice), 1);
 		}
 	}
 
 	// 3. create root signature
 	// ordered in scene/frame/pass/object
-	int maxTextureCount[(int)RegisterSpace::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mTextures.size(), GetMaxMeshTextureCount() };
-	mRenderer->CreateGraphicsRootSignature(&mRootSignature, maxTextureCount);
+	int srvCounts[(int)RegisterSpace::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mShaderResources.size(), GetMaxMeshTextureCount() };
+	int uavCounts[(int)RegisterSpace::COUNT] = { 0, 0, mWriteTargets.size(), 0 };
+	mRenderer->CreateRootSignature(&mRootSignature, srvCounts, uavCounts);
 
 	// 4. bind render textures and create pso
 	mRtvHandles.resize(frameCount);
@@ -207,19 +253,19 @@ void Pass::InitPass(
 	// populate output merger stage parameter with render texture attributes
 	mConstantBlendFactorsUsed = false;
 	mStencilReferenceUsed = false;
-	for(int i = 0; i < mShaderTargets.size(); i++) // only the first 8 targets will be used
+	for (int i = 0; i < mShaderTargets.size(); i++) // only the first 8 targets will be used
 	{
 		// these values are set using OMSet... functions in D3D12, so we cache them here
 		const BlendState& blendState = mShaderTargets[i].mBlendState;
 		if (!mConstantBlendFactorsUsed && (
-				blendState.mSrcBlend == BlendState::BlendFactor::CONSTANT ||
-				blendState.mSrcBlend == BlendState::BlendFactor::INV_CONSTANT ||
-				blendState.mDestBlend == BlendState::BlendFactor::CONSTANT ||
-				blendState.mDestBlend == BlendState::BlendFactor::INV_CONSTANT ||
-				blendState.mSrcBlendAlpha == BlendState::BlendFactor::CONSTANT ||
-				blendState.mSrcBlendAlpha == BlendState::BlendFactor::INV_CONSTANT ||
-				blendState.mDestBlendAlpha == BlendState::BlendFactor::CONSTANT ||
-				blendState.mDestBlendAlpha == BlendState::BlendFactor::INV_CONSTANT))
+			blendState.mSrcBlend == BlendState::BlendFactor::CONSTANT ||
+			blendState.mSrcBlend == BlendState::BlendFactor::INV_CONSTANT ||
+			blendState.mDestBlend == BlendState::BlendFactor::CONSTANT ||
+			blendState.mDestBlend == BlendState::BlendFactor::INV_CONSTANT ||
+			blendState.mSrcBlendAlpha == BlendState::BlendFactor::CONSTANT ||
+			blendState.mSrcBlendAlpha == BlendState::BlendFactor::INV_CONSTANT ||
+			blendState.mDestBlendAlpha == BlendState::BlendFactor::CONSTANT ||
+			blendState.mDestBlendAlpha == BlendState::BlendFactor::INV_CONSTANT))
 		{
 			mConstantBlendFactorsUsed = true; // only the first one will be used
 			memcpy(mBlendConstants, blendState.mBlendConstants, sizeof(blendState.mBlendConstants));
@@ -245,26 +291,34 @@ void Pass::InitPass(
 			mDsvHandles[j][i] = dsvDescriptorHeap.AllocateDsv(mShaderTargets[i].mRenderTexture->GetDepthStencilBuffer(), mShaderTargets[i].mRenderTexture->GetDsvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice), 1);
 		}
 	}
-	
+
 	// create PSO
 	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
-	mRenderer->CreatePSO(
-		*this,
-		&mPso,
-		mRootSignature,
-		mPrimitiveType,
-		mShaders[Shader::VERTEX_SHADER],
-		mShaders[Shader::HULL_SHADER],
-		mShaders[Shader::DOMAIN_SHADER],
-		mShaders[Shader::GEOMETRY_SHADER],
-		mShaders[Shader::PIXEL_SHADER],
-		mDebugName);
+	if (mShaders[Shader::COMPUTE_SHADER])
+		mRenderer->CreateComputePSO(*this, &mPso, mRootSignature, mShaders[Shader::COMPUTE_SHADER], mDebugName);
+	else
+		mRenderer->CreateGraphicsPSO(
+			*this,
+			&mPso,
+			mRootSignature,
+			mPrimitiveType,
+			mShaders[Shader::VERTEX_SHADER],
+			mShaders[Shader::HULL_SHADER],
+			mShaders[Shader::DOMAIN_SHADER],
+			mShaders[Shader::GEOMETRY_SHADER],
+			mShaders[Shader::PIXEL_SHADER],
+			mDebugName);
 }
 
-int Pass::GetTextureCount()
+int Pass::GetCbvSrvUavCount()
 {
-	return mTextures.size();
+	return mShaderResources.size() + mWriteTargets.size();
+}
+
+int Pass::GetShaderResourceCount()
+{
+	return mShaderResources.size();
 }
 
 int Pass::GetShaderTargetCount()
@@ -272,9 +326,9 @@ int Pass::GetShaderTargetCount()
 	return mShaderTargets.size();
 }
 
-vector<Texture*>& Pass::GetTextures()
+vector<ShaderResource*>& Pass::GetShaderResources()
 {
-	return mTextures;
+	return mShaderResources;
 }
 
 vector<ShaderTarget>& Pass::GetShaderTargets()
@@ -310,6 +364,11 @@ bool Pass::UseRenderTarget()
 bool Pass::UseDepthStencil()
 {
 	return mUseDepthStencil;
+}
+
+bool Pass::ShareMeshesWithPathTracer()
+{
+	return mShareMeshesWithPathTracer;
 }
 
 Camera* Pass::GetCamera()

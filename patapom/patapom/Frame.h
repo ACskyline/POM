@@ -36,7 +36,7 @@ public:
 		DescriptorHeap& dsvDescriptorHeap);
 	void CreateUniformBuffer();
 	void UpdateUniformBuffer();
-	void Release();
+	void Release(bool checkOnly = false);
 
 private:
 	int mIndex;

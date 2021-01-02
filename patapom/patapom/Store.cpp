@@ -1,91 +1,99 @@
-#include "Level.h"
+#include "Store.h"
 
 #include "Renderer.h"
 #include "Camera.h"
 #include "Texture.h"
+#include "Buffer.h"
 #include "Mesh.h"
 #include "Pass.h"
 #include "Scene.h"
 
-Level::Level(const std::string& name) :
+Store::Store(const std::string& name) :
 	mName(name)
 {
 }
 
-Level::~Level()
+Store::~Store()
 {
-	Release();
+	// this should not happen since these are all CPU resources which could be already deleted 
+	// each class should only check their own GPU resources during destructor
+	// Release(true);
 }
 
-void Level::AddPass(Pass* pass)
+void Store::AddPass(Pass* pass)
 {
 	mPasses.push_back(pass);
 }
 
-void Level::AddScene(Scene* scene)
+void Store::AddScene(Scene* scene)
 {
 	mScenes.push_back(scene);
 }
 
-void Level::AddMesh(Mesh* mesh)
+void Store::AddMesh(Mesh* mesh)
 {
 	mMeshes.push_back(mesh);
 }
 
-void Level::AddTexture(Texture* texture)
+void Store::AddTexture(Texture* texture)
 {
 	mTextures.push_back(texture);
 }
 
-void Level::AddShader(Shader* shader)
+void Store::AddBuffer(Buffer* buffer)
+{
+	mBuffers.push_back(buffer);
+}
+
+void Store::AddShader(Shader* shader)
 {
 	mShaders.push_back(shader);
 }
 
-void Level::AddCamera(Camera* camera)
+void Store::AddCamera(Camera* camera)
 {
 	mCameras.push_back(camera);
 }
 
-std::vector<Pass*>& Level::GetPasses()
+std::vector<Pass*>& Store::GetPasses()
 {
 	return mPasses;
 }
 
-std::vector<Scene*>& Level::GetScenes()
+std::vector<Scene*>& Store::GetScenes()
 {
 	return mScenes;
 }
 
-std::vector<Mesh*>& Level::GetMeshes()
+std::vector<Mesh*>& Store::GetMeshes()
 {
 	return mMeshes;
 }
 
-std::vector<Texture*>& Level::GetTextures()
+std::vector<Texture*>& Store::GetTextures()
 {
 	return mTextures;
 }
 
-int Level::EstimateTotalCbvSrvUavCount(int frameCount)
+int Store::EstimateTotalCbvSrvUavCount(int frameCount)
 {
 	int totalCbvSrvUavCount = 0;
 	for(auto scene : mScenes)
 		totalCbvSrvUavCount += scene->GetTextureCount();
 	for(auto pass : mPasses)
-		totalCbvSrvUavCount += pass->GetTextureCount();
+		totalCbvSrvUavCount += pass->GetCbvSrvUavCount();
 	for (auto mesh : mMeshes)
 		totalCbvSrvUavCount += mesh->GetTextureCount();
 	return totalCbvSrvUavCount * frameCount;
 }
 
-int Level::EstimateTotalSamplerCount(int frameCount)
+int Store::EstimateTotalSamplerCount(int frameCount)
 {
 	// assume one srv correspond to one sampler
 	return EstimateTotalCbvSrvUavCount(frameCount);
 }
 
-int Level::EstimateTotalRtvCount(int frameCount)
+int Store::EstimateTotalRtvCount(int frameCount)
 {
 	int totalRtvCount = 0;
 	for(auto pass : mPasses)
@@ -93,13 +101,13 @@ int Level::EstimateTotalRtvCount(int frameCount)
 	return totalRtvCount * frameCount;
 }
 
-int Level::EstimateTotalDsvCount(int frameCount)
+int Store::EstimateTotalDsvCount(int frameCount)
 {
 	// assume one rtv correspond to one dsv
 	return EstimateTotalRtvCount(frameCount);
 }
 
-void Level::InitLevel(
+void Store::InitStore(
 	Renderer* renderer,
 	int frameCount,
 	DescriptorHeap& cbvSrvUavDescriptorHeap,
@@ -113,7 +121,7 @@ void Level::InitLevel(
 		camera->InitCamera();
 
 	for (auto shader : mShaders)
-		shader->InitShader();
+		shader->InitShader(renderer);
 
 	for (auto mesh : mMeshes)
 		mesh->InitMesh(
@@ -124,6 +132,9 @@ void Level::InitLevel(
 
 	for (auto texture : mTextures)
 		texture->InitTexture(renderer);
+
+	for (auto buffer : mBuffers)
+		buffer->InitBuffer(renderer);
 
 	for (auto pass : mPasses)
 		pass->InitPass(
@@ -142,23 +153,26 @@ void Level::InitLevel(
 			samplerDescriptorHeap);
 }
 
-void Level::Release()
+void Store::Release(bool checkOnly)
 {
 	for (auto camera : mCameras)
-		camera->Release();
+		camera->Release(checkOnly);
 
 	for (auto shader : mShaders)
-		shader->Release();
+		shader->Release(checkOnly);
 
 	for (auto texture : mTextures)
-		texture->Release();
+		texture->Release(checkOnly);
+	
+	for (auto buffer : mBuffers)
+		buffer->Release(checkOnly);
 
 	for (auto mesh : mMeshes)
-		mesh->Release();
+		mesh->Release(checkOnly);
 
 	for (auto scene : mScenes)
-		scene->Release();
+		scene->Release(checkOnly);
 
 	for (auto pass : mPasses)
-		pass->Release();
+		pass->Release(checkOnly);
 }

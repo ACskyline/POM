@@ -35,11 +35,9 @@ Texture::Texture(
 	u32 width,
 	u32 height,
 	u32 depth) :
-	mType(type),
-	mFileName(fileName), 
-	mDebugName(debugName),
+	mTextureType(type),
+	mFileName(fileName),
 	mUseMipmap(useMipmap),
-	mInitialized(false),
 	mWidth(width), 
 	mHeight(height), 
 	mDepth(depth),
@@ -49,21 +47,22 @@ Texture::Texture(
 	mTextureBuffer(nullptr),
 	mTextureLayouts(vector<vector<ResourceLayout>>(depth, vector<ResourceLayout>(1, ResourceLayout::SHADER_READ))),
 	mSampler(sampler),
-	mTextureFormat(format)
+	mTextureFormat(format),
+	ShaderResource(debugName, ShaderResource::Type::TEXTURE)
 {
 	mSrv.mType = View::Type::SRV;
-	fatalAssertf(mType != TextureType::DEFAULT || mDepth == 1, "2d render texture can only have 1 depth slice at the moment");
-	fatalAssertf(mType != TextureType::CUBE || mDepth == 6, "cube map must have 6 slices");
+	fatalAssertf(mTextureType != TextureType::DEFAULT || mDepth == 1, "2d render texture can only have 1 depth slice at the moment");
+	fatalAssertf(mTextureType != TextureType::CUBE || mDepth == 6, "cube map must have 6 slices");
 }
 
 Texture::~Texture()
 {
-	Texture::Release();
+	Texture::Release(true);
 }
 
-void Texture::Release()
+void Texture::Release(bool checkOnly)
 {
-	SAFE_RELEASE(mTextureBuffer);
+	SAFE_RELEASE(mTextureBuffer, checkOnly);
 }
 
 void Texture::CreateTextureBuffer()
@@ -106,11 +105,11 @@ void Texture::CreateTextureBuffer()
 	}
 
 	// TODO: add support for reading .dds file so that we can load cube maps or volume textures directly
-	mType = TextureType::DEFAULT;
+	mTextureType = TextureType::DEFAULT;
 	mDepth = 1;
 
 	D3D12_RESOURCE_DESC textureDesc = {};
-	textureDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mType);//TODO: add support for cube map and texture array
+	textureDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mTextureType);//TODO: add support for cube map and texture array
 	textureDesc.Alignment = 0; // automatically seleted by API
 	textureDesc.Width = mWidth;
 	textureDesc.Height = mHeight;
@@ -188,30 +187,13 @@ void Texture::CreateView()
 	mSrv.mSrvDesc.Texture2D.ResourceMinLODClamp = 0; // this is an GPU level float to restrict the lerp involving the smallest mip level https://github.com/Microsoft/DirectX-Graphics-Samples/issues/215
 }
 
-void Texture::CreateSampler()
-{
-	mSampler.mImpl.Filter = Renderer::ExtractFilter(mSampler);
-	mSampler.mImpl.AddressU = Renderer::TranslateAddressMode(mSampler.mAddressModeU);
-	mSampler.mImpl.AddressV = Renderer::TranslateAddressMode(mSampler.mAddressModeV);
-	mSampler.mImpl.AddressW = Renderer::TranslateAddressMode(mSampler.mAddressModeW);
-	mSampler.mImpl.MipLODBias = mSampler.mMipLodBias;
-	mSampler.mImpl.MaxAnisotropy = 0; // TODO: add support for anisotropic filtering
-	mSampler.mImpl.ComparisonFunc = Renderer::TranslateCompareOp(mSampler.mCompareOp);
-	mSampler.mImpl.BorderColor[0] = mSampler.mBorderColor[0];
-	mSampler.mImpl.BorderColor[1] = mSampler.mBorderColor[1];
-	mSampler.mImpl.BorderColor[2] = mSampler.mBorderColor[2];
-	mSampler.mImpl.BorderColor[3] = mSampler.mBorderColor[3];
-	mSampler.mImpl.MinLOD = mSampler.mMinLod;
-	mSampler.mImpl.MaxLOD = mSampler.mMaxLod;
-}
-
 ID3D12Resource* Texture::GetTextureBuffer()
 {
 	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
 	return mTextureBuffer;
 }
 
-D3D12_SHADER_RESOURCE_VIEW_DESC Texture::GetSrvDesc()
+D3D12_SHADER_RESOURCE_VIEW_DESC Texture::GetSrvDesc() const
 {
 	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
 	fatalAssertf(mSrv.mType == View::Type::SRV, "srv type wrong");
@@ -221,17 +203,12 @@ D3D12_SHADER_RESOURCE_VIEW_DESC Texture::GetSrvDesc()
 D3D12_SAMPLER_DESC Texture::GetSamplerDesc()
 {
 	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
-	return mSampler.mImpl;
+	return mSampler.GetDesc();
 }
 
 Format Texture::GetTextureFormat()
 {
 	return mTextureFormat;
-}
-
-Sampler Texture::GetSampler()
-{
-	return mSampler;
 }
 
 string Texture::GetName()
@@ -269,7 +246,6 @@ void Texture::InitTexture(Renderer* renderer)
 	mRenderer = renderer;
 	CreateTextureBuffer();
 	CreateView();
-	CreateSampler();
 	mInitialized = true;
 }
 
@@ -464,7 +440,9 @@ RenderTexture::RenderTexture(
 	mColorClearValue(colorClearValue),
 	mDepthClearValue(depthClearValue),
 	mStencilClearValue(stencilClearValue),
+	mRenderTargetBuffer(nullptr),
 	mDepthStencilBuffer(nullptr),
+	mWriteBuffer(nullptr),
 	mDepthStencilLayouts(vector<vector<ResourceLayout>>(depth, vector<ResourceLayout>(mipLevelCount, ResourceLayout::DEPTH_STENCIL_WRITE))),
 	mRenderTargetLayouts(vector<vector<ResourceLayout>>(depth, vector<ResourceLayout>(mipLevelCount, ResourceLayout::RENDER_TARGET))),
 	mMultiSampleCount(multiSampleCount),
@@ -478,18 +456,14 @@ RenderTexture::RenderTexture(
 
 RenderTexture::~RenderTexture()
 {
-	RenderTexture::Release();
+	RenderTexture::Release(true);
 }
 
-void RenderTexture::Release()
+void RenderTexture::Release(bool checkOnly)
 {
-	if(mTextureBuffer != mRenderTargetBuffer)
-		SAFE_RELEASE(mRenderTargetBuffer);
-
-	if(mTextureBuffer != mDepthStencilBuffer)
-		SAFE_RELEASE(mDepthStencilBuffer);
-
-	SAFE_RELEASE(mTextureBuffer);
+	SAFE_RELEASE(mRenderTargetBuffer, checkOnly);
+	SAFE_RELEASE(mDepthStencilBuffer, checkOnly);
+	SAFE_RELEASE(mTextureBuffer, checkOnly);
 }
 
 void RenderTexture::CreateTextureBuffer()
@@ -500,7 +474,7 @@ void RenderTexture::CreateTextureBuffer()
 	D3D12_RESOURCE_DESC renderTargetDesc = {};
 	if (mUseRenderTarget)
 	{
-		renderTargetDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mType);
+		renderTargetDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mTextureType);
 		renderTargetDesc.Alignment = 0;
 		renderTargetDesc.Width = mWidth;
 		renderTargetDesc.Height = mHeight;
@@ -536,7 +510,7 @@ void RenderTexture::CreateTextureBuffer()
 	D3D12_RESOURCE_DESC depthStencilDesc = {};
 	if (mUseDepthStencil)
 	{
-		depthStencilDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mType);
+		depthStencilDesc.Dimension = Renderer::GetResourceDimensionFromTextureType(mTextureType);
 		depthStencilDesc.Alignment = 0;
 		depthStencilDesc.Width = mWidth;
 		depthStencilDesc.Height = mHeight;
@@ -582,7 +556,7 @@ void RenderTexture::CreateTextureBuffer()
 		{
 			mTextureFormat = mDepthStencilFormat;
 			textureDesc = depthStencilDesc;
-			textureDesc.Format = Renderer::TranslateToSrvFormat(mTextureFormat, mReadFrom);
+			textureDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
 			textureDesc.SampleDesc.Count = 1;
 		}
 		else
@@ -618,21 +592,27 @@ void RenderTexture::CreateTextureBuffer()
 
 		ResetLayouts(mTextureLayouts, ResourceLayout::SHADER_READ, mDepth, mMipLevelCount);
 	}
+
+	// 4. Write Buffer
+	mWriteBuffer = mTextureBuffer;
 }
 
 // TODO: Add support for cube maps and volume maps
 void RenderTexture::CreateView()
 {
 	// 1.Render Target View
-	SetUpRTV();
+	CreateRtv();
 	
 	// 2.Depth Stencil View Desc
 	// if you want to bind null dsv desciptor, you need to create the (null) dsv
 	// if you want to create the dsv, you need an initialized dsvDesc to avoid the debug layer throwing out error
-	SetUpDSV();
+	CreateDsv();
 	
 	// 3.Shader Resource View
-	SetUpSRV();
+	CreateSrv();
+
+	// 4.Unordered Access View
+	CreateUav();
 }
 
 bool RenderTexture::ReadFromMultiSampledBuffer()
@@ -665,9 +645,9 @@ bool RenderTexture::ReadFromDepth()
 	return false;
 }
 
-bool RenderTexture::ReadFromDepthStencilBuffer()
+bool RenderTexture::ReadFromDepthStencil()
 {
-	return !IsResolveNeeded() && (ReadFromDepth() || ReadFromStencil());
+	return ReadFromDepth() || ReadFromStencil();
 }
 
 bool RenderTexture::ReadFromColor()
@@ -702,12 +682,14 @@ bool RenderTexture::IsRenderTargetUsed()
 
 ID3D12Resource* RenderTexture::GetRenderTargetBuffer()
 {
+	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
 	return  mRenderTargetBuffer;
 }
 
 ID3D12Resource* RenderTexture::GetDepthStencilBuffer()
 {
 	// make sure to create null descriptor for render textures which does not support depth
+	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
 	return  mDepthStencilBuffer;
 }
 
@@ -718,7 +700,7 @@ D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc(u32 depthSlice, u32 mipS
 	fatalAssertf(mipSlice < mMipLevelCount, "mipSlice out of range");
 	fatalAssertf(mipSlice == 0 || !IsMultiSampleUsed(), "multi sampled rtv doesn't have mip map");
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = mRtvMip0.mRtvDesc;
-	switch (mType)
+	switch (mTextureType)
 	{
 	case TextureType::DEFAULT:
 		if (!IsMultiSampleUsed()) // multi sampled rtv doesn't have mip map
@@ -762,7 +744,7 @@ D3D12_DEPTH_STENCIL_VIEW_DESC RenderTexture::GetDsvDesc(u32 depthSlice, u32 mipS
 	fatalAssertf(mipSlice < mMipLevelCount, "mipSlice out of range");
 	fatalAssertf(mipSlice == 0 || !IsMultiSampleUsed(), "multi sampled dsv doesn't have mip map");
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = mDsvMip0.mDsvDesc;
-	switch (mType)
+	switch (mTextureType)
 	{
 	case TextureType::DEFAULT:
 		if (!IsMultiSampleUsed()) // multi sampled dsv doesn't have mip map
@@ -788,6 +770,38 @@ D3D12_DEPTH_STENCIL_VIEW_DESC RenderTexture::GetDsvDesc(u32 depthSlice, u32 mipS
 		fatalf("wrong texture type");
 	}
 	return dsvDesc;
+}
+
+D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetUavDesc(u32 mipSlice)
+{
+	fatalAssertf(mipSlice < mMipLevelCount, "mipSlice out of range");
+	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = mUavMip0.mUavDesc;
+	switch (mTextureType)
+	{
+	case TextureType::DEFAULT:
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+		uavDesc.Texture2D.MipSlice = mipSlice;
+		uavDesc.Texture2D.PlaneSlice = 0;
+		break;
+	case TextureType::CUBE:
+		// when write to cube map, access all depth slices
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+		uavDesc.Texture2DArray.ArraySize = CubeFace::COUNT;
+		uavDesc.Texture2DArray.MipSlice = mipSlice;
+		uavDesc.Texture2DArray.FirstArraySlice = 0;
+		uavDesc.Texture2DArray.PlaneSlice = 0;
+		break;
+	case TextureType::VOLUME:
+		// when write to volume texture, access all depth slices
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+		uavDesc.Texture3D.MipSlice = mipSlice;
+		uavDesc.Texture3D.FirstWSlice = 0;
+		uavDesc.Texture3D.WSize = mDepth;
+		break;
+	default:
+		fatalf("wrong texture type");
+	}
+	return uavDesc;
 }
 
 Format RenderTexture::GetRenderTargetFormat()
@@ -867,11 +881,11 @@ void RenderTexture::MakeReadyToRead(ID3D12GraphicsCommandList* commandList, u32 
 	}
 }
 
-void RenderTexture::SetUpRTV()
+void RenderTexture::CreateRtv()
 {
 	mRtvMip0.mType = View::Type::RTV;
 	mRtvMip0.mRtvDesc.Format = Renderer::TranslateFormat(mRenderTargetFormat);
-	switch (mType)
+	switch (mTextureType)
 	{
 	case TextureType::DEFAULT:
 		if (IsMultiSampleUsed())
@@ -920,12 +934,12 @@ void RenderTexture::SetUpRTV()
 	}
 }
 
-void RenderTexture::SetUpDSV()
+void RenderTexture::CreateDsv()
 {
 	mDsvMip0.mType = View::Type::DSV;
 	mDsvMip0.mDsvDesc.Format = Renderer::TranslateFormat(mDepthStencilFormat);
 	mDsvMip0.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
-	switch (mType)
+	switch (mTextureType)
 	{
 	case TextureType::DEFAULT:
 		if (IsMultiSampleUsed())
@@ -962,12 +976,12 @@ void RenderTexture::SetUpDSV()
 	}
 }
 
-void RenderTexture::SetUpSRV()
+void RenderTexture::CreateSrv()
 {
 	mSrv.mType = View::Type::SRV;
-	mSrv.mSrvDesc.Format = Renderer::TranslateToSrvFormat(mTextureFormat, mReadFrom);
+	mSrv.mSrvDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
 	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	switch (mType)
+	switch (mTextureType)
 	{
 	case TextureType::DEFAULT:
 		if (ReadFromMultiSampledBuffer())
@@ -1009,6 +1023,35 @@ void RenderTexture::SetUpSRV()
 			mSrv.mSrvDesc.Texture3D.MipLevels = mMipLevelCount;
 			mSrv.mSrvDesc.Texture3D.ResourceMinLODClamp = 0;
 		}
+		break;
+	default:
+		fatalf("wrong texture type");
+	}
+}
+
+void RenderTexture::CreateUav()
+{
+	mUavMip0.mType = View::Type::UAV;
+	mUavMip0.mUavDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
+	switch (mTextureType)
+	{
+	case TextureType::DEFAULT:
+		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+		mUavMip0.mUavDesc.Texture2D.MipSlice = 0;
+		mUavMip0.mUavDesc.Texture2D.PlaneSlice = 0;
+		break;
+	case TextureType::CUBE:
+		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+		mUavMip0.mUavDesc.Texture2DArray.ArraySize = CubeFace::COUNT;
+		mUavMip0.mUavDesc.Texture2DArray.MipSlice = 0;
+		mUavMip0.mUavDesc.Texture2DArray.FirstArraySlice = 0;
+		mUavMip0.mUavDesc.Texture2DArray.PlaneSlice = 0;
+		break;
+	case TextureType::VOLUME:
+		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+		mUavMip0.mUavDesc.Texture3D.MipSlice = 0;
+		mUavMip0.mUavDesc.Texture3D.FirstWSlice = 0;
+		mUavMip0.mUavDesc.Texture3D.WSize = mDepth;
 		break;
 	default:
 		fatalf("wrong texture type");

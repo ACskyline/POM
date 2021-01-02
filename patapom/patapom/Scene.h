@@ -73,6 +73,7 @@ public:
 	void AddTexture(Texture* texture);
 	void AddLight(Light* light);
 	
+	vector<Pass*>& GetPasses();
 	int GetTextureCount();
 	int GetLightCount();
 	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
@@ -86,7 +87,7 @@ public:
 		DescriptorHeap& samplerDescriptorHeap);
 	void CreateUniformBuffer(int frameCount);
 	void UpdateUniformBuffer(int frameIndex);
-	void Release();
+	void Release(bool checkOnly = false);
 	
 	SceneUniform mSceneUniform;
 

@@ -6,20 +6,22 @@ class Pass;
 class Scene;
 class Mesh;
 class Texture;
+class Buffer;
 class Shader;
 class Camera;
 class DescriptorHeap;
 
-class Level
+class Store
 {
 public:
-	Level(const std::string& name = "unnamed level");
-	~Level();
+	Store(const std::string& name = "unnamed store");
+	~Store();
 
 	void AddPass(Pass* pass);
 	void AddScene(Scene* scene);
 	void AddMesh(Mesh* mesh);
 	void AddTexture(Texture* texture);
+	void AddBuffer(Buffer* buffer);
 	void AddShader(Shader* shader);
 	void AddCamera(Camera* camera);
 
@@ -32,7 +34,7 @@ public:
 	int EstimateTotalRtvCount(int frameCount);
 	int EstimateTotalDsvCount(int frameCount);
 
-	void InitLevel(
+	void InitStore(
 		Renderer* renderer,
 		int frameCount,
 		DescriptorHeap& cbvSrvUavDescriptorHeap,
@@ -40,7 +42,7 @@ public:
 		DescriptorHeap& rtvDescriptorHeap,
 		DescriptorHeap& dsvDescriptorHeap);
 
-	void Release();
+	void Release(bool checkOnly = false);
 
 private:
 	std::string mName;
@@ -50,6 +52,7 @@ private:
 	std::vector<Scene*> mScenes;
 	std::vector<Mesh*> mMeshes;
 	std::vector<Texture*> mTextures;
+	std::vector<Buffer*> mBuffers;
 	std::vector<Shader*> mShaders;
 	std::vector<Camera*> mCameras;
 };
