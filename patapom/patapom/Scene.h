@@ -61,8 +61,8 @@ public:
 		//
 		uint32_t useIBL;
 		uint32_t prefilteredEnvMapLevelCount;
+		uint32_t pathTracerMode;
 		uint32_t PADDING_1;
-		uint32_t PADDING_2;
 		//
 		LightData lights[MAX_LIGHTS_PER_SCENE];
 	};

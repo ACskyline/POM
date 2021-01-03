@@ -442,7 +442,6 @@ RenderTexture::RenderTexture(
 	mStencilClearValue(stencilClearValue),
 	mRenderTargetBuffer(nullptr),
 	mDepthStencilBuffer(nullptr),
-	mWriteBuffer(nullptr),
 	mDepthStencilLayouts(vector<vector<ResourceLayout>>(depth, vector<ResourceLayout>(mipLevelCount, ResourceLayout::DEPTH_STENCIL_WRITE))),
 	mRenderTargetLayouts(vector<vector<ResourceLayout>>(depth, vector<ResourceLayout>(mipLevelCount, ResourceLayout::RENDER_TARGET))),
 	mMultiSampleCount(multiSampleCount),
@@ -461,9 +460,9 @@ RenderTexture::~RenderTexture()
 
 void RenderTexture::Release(bool checkOnly)
 {
+	Texture::Release(checkOnly);
 	SAFE_RELEASE(mRenderTargetBuffer, checkOnly);
 	SAFE_RELEASE(mDepthStencilBuffer, checkOnly);
-	SAFE_RELEASE(mTextureBuffer, checkOnly);
 }
 
 void RenderTexture::CreateTextureBuffer()
@@ -484,7 +483,7 @@ void RenderTexture::CreateTextureBuffer()
 		renderTargetDesc.SampleDesc.Count = mMultiSampleCount;
 		renderTargetDesc.SampleDesc.Quality = 0;
 		renderTargetDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+		renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS; // always allow UAV no matter want it or not
 
 		D3D12_CLEAR_VALUE colorClearValue = {};
 		colorClearValue.Format = renderTargetDesc.Format;
@@ -516,7 +515,7 @@ void RenderTexture::CreateTextureBuffer()
 		depthStencilDesc.Height = mHeight;
 		depthStencilDesc.DepthOrArraySize = mDepth;
 		depthStencilDesc.MipLevels = mMipLevelCount;
-		depthStencilDesc.Format = (ReadFromDepth() || ReadFromStencil()) ? Renderer::TranslateToTypelessFormat(mDepthStencilFormat) : Renderer::TranslateFormat(mDepthStencilFormat);
+		depthStencilDesc.Format = ReadFromDepthStencil() ? Renderer::TranslateToTypelessFormat(mDepthStencilFormat) : Renderer::TranslateFormat(mDepthStencilFormat);
 		depthStencilDesc.SampleDesc.Count = mMultiSampleCount;
 		depthStencilDesc.SampleDesc.Quality = 0;
 		depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -552,7 +551,7 @@ void RenderTexture::CreateTextureBuffer()
 			textureDesc.Format = Renderer::TranslateFormat(mTextureFormat);
 			textureDesc.SampleDesc.Count = 1;
 		}
-		else if (ReadFromDepth() || ReadFromStencil())
+		else if (ReadFromDepthStencil())
 		{
 			mTextureFormat = mDepthStencilFormat;
 			textureDesc = depthStencilDesc;
@@ -562,6 +561,8 @@ void RenderTexture::CreateTextureBuffer()
 		else
 			fatalf("mReadFrom is invalid");
 
+		// always allow UAV no matter want it or not
+		textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 		ResetLayouts(mTextureLayouts, ResourceLayout::RESOLVE_DST, mDepth, mMipLevelCount);
 		HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
@@ -582,7 +583,7 @@ void RenderTexture::CreateTextureBuffer()
 			mTextureFormat = mRenderTargetFormat;
 			mTextureBuffer = mRenderTargetBuffer;
 		}
-		else if (ReadFromDepth() || ReadFromStencil())
+		else if (ReadFromDepthStencil())
 		{
 			mTextureFormat = mDepthStencilFormat;
 			mTextureBuffer = mDepthStencilBuffer;
@@ -592,9 +593,6 @@ void RenderTexture::CreateTextureBuffer()
 
 		ResetLayouts(mTextureLayouts, ResourceLayout::SHADER_READ, mDepth, mMipLevelCount);
 	}
-
-	// 4. Write Buffer
-	mWriteBuffer = mTextureBuffer;
 }
 
 // TODO: Add support for cube maps and volume maps
@@ -839,11 +837,11 @@ void RenderTexture::ResolveDepthStencilToTexture(ID3D12GraphicsCommandList* comm
 	ResolveToTexture(commandList, mDepthStencilBuffer, mDepthStencilFormat, depthSlice, mipSlice);
 }
 
-void RenderTexture::MakeReadyToWrite(ID3D12GraphicsCommandList* commandList, u32 depthSlice, u32 mipSlice)
+void RenderTexture::MakeReadyToRender(ID3D12GraphicsCommandList* commandList, u32 depthSlice, u32 mipSlice)
 {
 	if (ReadFromColor())
 		TransitionRenderTargetLayout(commandList, ResourceLayout::RENDER_TARGET, depthSlice, mipSlice);
-	else if (ReadFromDepth() || ReadFromStencil())
+	else if (ReadFromDepthStencil())
 		TransitionDepthStencilLayout(commandList, ResourceLayout::DEPTH_STENCIL_WRITE, depthSlice, mipSlice);
 	else
 		fatalf("read from wrong source");
@@ -860,7 +858,7 @@ void RenderTexture::MakeReadyToRead(ID3D12GraphicsCommandList* commandList, u32 
 			ResolveRenderTargetToTexture(commandList, depthSlice, mipSlice);
 			TransitionTextureLayout(commandList, ResourceLayout::SHADER_READ, depthSlice, mipSlice);
 		}
-		else if (ReadFromDepth() || ReadFromStencil())
+		else if (ReadFromDepthStencil())
 		{
 			TransitionDepthStencilLayout(commandList, ResourceLayout::RESOLVE_SRC, depthSlice, mipSlice);
 			TransitionTextureLayout(commandList, ResourceLayout::RESOLVE_DST, depthSlice, mipSlice);
@@ -874,11 +872,21 @@ void RenderTexture::MakeReadyToRead(ID3D12GraphicsCommandList* commandList, u32 
 	{
 		if (ReadFromColor())
 			TransitionRenderTargetLayout(commandList, ResourceLayout::SHADER_READ, depthSlice, mipSlice);
-		else if (ReadFromDepth() || ReadFromStencil())
+		else if (ReadFromDepthStencil())
 			TransitionDepthStencilLayout(commandList, ResourceLayout::SHADER_READ, depthSlice, mipSlice);
 		else
 			fatalf("read from wrong source");
 	}
+}
+
+void RenderTexture::MakeReadyToWrite(ID3D12GraphicsCommandList* commandList, u32 depthSlice, u32 mipSlice)
+{
+	if (ReadFromColor())
+		TransitionRenderTargetLayout(commandList, ResourceLayout::SHADER_WRITE, depthSlice, mipSlice);
+	else if (ReadFromDepthStencil())
+		TransitionDepthStencilLayout(commandList, ResourceLayout::SHADER_WRITE, depthSlice, mipSlice);
+	else
+		fatalf("read from wrong source");
 }
 
 void RenderTexture::CreateRtv()

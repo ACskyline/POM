@@ -30,6 +30,7 @@ bool gFullScreen = false; // is window full screen?
 bool gRunning = true; // we will exit the program when this becomes false
 int gUpdateCamera = 0;
 int gUpdateSettings = 0;
+int gPathTracerMode = 0;
 const int gWidthDeferred = 960;
 const int gHeightDeferred = 960;
 const int gWidthShadow = 960;
@@ -49,6 +50,7 @@ PassDefault gPassSky(L"sky pass");
 PassDefault gPassRedLightShadow(L"red light shadow", false);
 PassDefault gPassGreenLightShadow(L"green light shadow", false);
 PassDefault gPassBlueLightShadow(L"blue light shadow", false);
+PassDefault gPassPathTracerBlit(L"path tracer blit", true, false);
 OrbitCamera gMainCamera(4.f, 90.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 100.0f, 0.1f);
 Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
@@ -64,10 +66,10 @@ Shader gPomPS(Shader::ShaderType::PIXEL_SHADER, L"ps_pom.hlsl");
 Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, L"ps_deferred.hlsl"); // using multisampled srv
 Shader gSkyVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
 Shader gSkyPS(Shader::ShaderType::PIXEL_SHADER, L"ps_sky.hlsl");
-Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSampler, true, Format::R8G8B8A8_UNORM);
-Texture gTextureNormal("brick_normal.jpg", L"normal", gSampler, true, Format::R8G8B8A8_UNORM);
-Texture gTextureHeight("brick_height.jpg", L"height", gSampler, true, Format::R8G8B8A8_UNORM);
-Texture gTextureProbe("probe.jpg", L"probe", gSampler, true, Format::R8G8B8A8_UNORM);
+Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
+Texture gTextureNormal("brick_normal.jpg", L"normal", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
+Texture gTextureHeight("brick_height.jpg", L"height", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
+Texture gTextureProbe("probe.jpg", L"probe", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
 RenderTexture gRenderTextureGbuffer0(TextureType::DEFAULT, L"gbuffer0", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 RenderTexture gRenderTextureGbuffer1(TextureType::DEFAULT, L"gbuffer1", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 RenderTexture gRenderTextureGbuffer2(TextureType::DEFAULT, L"gbuffer2", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -140,7 +142,14 @@ void CreateStores()
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
 
-	// render to back buffer
+	// render to path tracer backbuffer
+	gPassPathTracerBlit.SetCamera(&gMainCamera);
+	gPassPathTracerBlit.AddMesh(&gFullscreenTriangle);
+	gPassPathTracerBlit.AddShader(&gDeferredVS);
+	gPassPathTracerBlit.AddShader(&gBlitPS);
+	gPassPathTracerBlit.AddTexture(&PathTracer::sPtBackbuffer);
+
+	// render to backbuffer
 	gPassDeferred.SetCamera(&gMainCamera);
 	gPassDeferred.AddMesh(&gFullscreenTriangle);
 	gPassDeferred.AddShader(&gDeferredVS);
@@ -173,6 +182,7 @@ void CreateStores()
 	gSceneDefault.AddPass(&gPassPom);
 	gSceneDefault.AddPass(&gPassSky);
 	gSceneDefault.AddPass(&gPassDeferred);
+	gSceneDefault.AddPass(&gPassPathTracerBlit);
 	gSceneDefault.AddLight(&gLightRed);
 	gSceneDefault.AddLight(&gLightGreen);
 	gSceneDefault.AddLight(&gLightBlue);
@@ -192,6 +202,7 @@ void CreateStores()
 	gStoreDefault.AddPass(&gPassRedLightShadow);
 	gStoreDefault.AddPass(&gPassGreenLightShadow);
 	gStoreDefault.AddPass(&gPassBlueLightShadow);
+	gStoreDefault.AddPass(&gPassPathTracerBlit);
 	gStoreDefault.AddMesh(&gFullscreenTriangle); // mesh
 	gStoreDefault.AddMesh(&gCube);
 	gStoreDefault.AddMesh(&gSky);
@@ -206,6 +217,7 @@ void CreateStores()
 	gStoreDefault.AddShader(&gPomPS); 
 	gStoreDefault.AddShader(&gDeferredPS);
 	gStoreDefault.AddShader(&gSkyPS);
+	gStoreDefault.AddShader(&gBlitPS);
 	gStoreDefault.AddTexture(&gTextureAlbedo); // texture
 	gStoreDefault.AddTexture(&gTextureNormal); // texture
 	gStoreDefault.AddTexture(&gTextureHeight); // texture
@@ -424,38 +436,44 @@ void Record()
 	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
 		debugbreak(gRunning = false);
 
-	PathTracer::RunPathTracer(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	if (gPathTracerMode)
+	{
+		PathTracer::RunPathTracer(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderer.RecordPass(gPassPathTracerBlit, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
+	}
+	else
+	{
+		gRenderTextureRedLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGreenLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureBlueLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderTextureRedLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGreenLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureBlueLight.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderer.RecordPass(gPassRedLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
+		gRenderer.RecordPass(gPassGreenLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
+		gRenderer.RecordPass(gPassBlueLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
 
-	gRenderer.RecordPass(gPassRedLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
-	gRenderer.RecordPass(gPassGreenLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
-	gRenderer.RecordPass(gPassBlueLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
-	
-	gRenderTextureRedLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGreenLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureBlueLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureRedLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGreenLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureBlueLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderTextureGbuffer0.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGbuffer1.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGbuffer2.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureDbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer0.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer1.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer2.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureDbuffer.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderer.RecordPass(gPassStandard, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderer.RecordPass(gPassPom, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+		gRenderer.RecordPass(gPassStandard, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderer.RecordPass(gPassPom, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
 
-	gRenderTextureGbuffer0.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGbuffer1.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureGbuffer2.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderTextureDbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer0.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer1.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer2.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureDbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
-	gRenderer.RecordPass(gPassDeferred, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
-	
-	gRenderTextureDbuffer.MakeReadyToWrite(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-	gRenderer.RecordPass(gPassSky, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
-	
+		gRenderer.RecordPass(gPassDeferred, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
+
+		gRenderTextureDbuffer.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderer.RecordPass(gPassSky, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+	}
+
 	gRenderer.ResolveFrame(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
 
 	///////// IMGUI PIPELINE /////////
@@ -678,6 +696,12 @@ void UpdateUI()
 	if (ImGui::SliderInt("useIBL", &useIBL, 0, 1))
 	{
 		gSceneDefault.mSceneUniform.useIBL = useIBL;
+		needToUpdateSceneUniform = true;
+	}
+
+	if (ImGui::SliderInt("pathTracerMode", &gPathTracerMode, 0, 1))
+	{
+		gSceneDefault.mSceneUniform.pathTracerMode = gPathTracerMode;
 		needToUpdateSceneUniform = true;
 	}
 

@@ -13,18 +13,15 @@ public:
 	D3D12_SHADER_RESOURCE_VIEW_DESC GetSrvDesc() const;
 
 	void InitBuffer(Renderer* renderer);
-	void Release(bool checkOnly = false);
-	void SetBufferData(void* data, int sizeInByte);
+	virtual void SetBufferData(void* data, int sizeInByte);
+	virtual void Release(bool checkOnly = false);
 
 protected:
+	virtual void CreateBuffer();
 	virtual void CreateView();
 	View mSrv;
 	u32 mElementSizeInByte;
 	u32 mElementCount;
-	
-private:
-	void CreateBuffer();
-	
 	Renderer* mRenderer;
 	Resource* mBuffer;
 };
@@ -36,13 +33,16 @@ public:
 	virtual ~WriteBuffer();
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC GetUavDesc() const;
+	virtual void SetBufferData(void* data, int sizeInByte);
+	virtual void Release(bool checkOnly = false);
 
 protected:
+	virtual void CreateBuffer();
 	virtual void CreateView();
 
 private:
-	View mUav;
-
 	void CreateSrv();
 	void CreateUav();
+
+	View mUav;
 };

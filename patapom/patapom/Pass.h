@@ -74,12 +74,13 @@ public:
 	void AddShader(Shader* shader);
 	void AddTexture(Texture* texture);
 	void AddBuffer(Buffer* buffer);
-	void AddWriteBuffer(WriteBuffer* writeBuffer, u32 mipSlice);
+	void AddWriteBuffer(WriteBuffer* writeBuffer);
 	void AddWriteTexture(RenderTexture* writeTexture, u32 mipSlice);
 
 	int GetCbvSrvUavCount();
 	int GetShaderResourceCount();
 	int GetShaderTargetCount();
+	int GetWriteTargetCount();
 	vector<ShaderResource*>& GetShaderResources();
 	vector<ShaderTarget>& GetShaderTargets();
 	RenderTexture* GetRenderTexture(int i);
@@ -97,7 +98,8 @@ public:
 	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& GetRtvHandles(int frameIndex);
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& GetDsvHandles(int frameIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex);
+	D3D12_GPU_DESCRIPTOR_HANDLE GetSrvDescriptorHeapTableHandle(int frameIndex);
+	D3D12_GPU_DESCRIPTOR_HANDLE GetUavDescriptorHeapTableHandle(int frameIndex);
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSamplerDescriptorHeapTableHandle(int frameIndex);
 	bool IsConstantBlendFactorsUsed();
 	bool IsStencilReferenceUsed();
@@ -150,7 +152,8 @@ private:
 	// TODO: hide API specific implementation in Renderer
 	vector<vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>> mRtvHandles; // [frameIndex][renderTextureIndex]
 	vector<vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>> mDsvHandles; // [frameIndex][renderTextureIndex]
-	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandles; // constant buffer is stored as root parameter, so this is really only for srv and uav
+	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSrvDescriptorHeapTableHandles; // constant buffer is stored as root parameter, so this is really only for srv and uav
+	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mUavDescriptorHeapTableHandles;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandles;
 	ID3D12PipelineState* mPso;
 	ID3D12RootSignature* mRootSignature;

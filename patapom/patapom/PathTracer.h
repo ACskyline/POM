@@ -22,10 +22,13 @@ public:
 	static const int sThreadGroupCountX;
 	static const int sThreadGroupCountY;
 	static const int sThreadGroupCountZ;
-	static vector<Mesh::Triangle> sTriangles;
+	static const int sBackbufferWidth;
+	static const int sBackbufferHeight;
+	static vector<Triangle> sTriangles;
 	static PassPathTracer sPathTracerPass;
 	static Shader sPathTracerCS;
 	static Buffer sTriangleBuffer;
+	static RenderTexture sPtBackbuffer;
 	static void InitPathTracer(Store& store, Scene& scene);
 	static void AddMeshesFromPass(Pass& pass);
 	static void PreparePathTracer();

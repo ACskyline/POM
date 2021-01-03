@@ -8,7 +8,7 @@
 #include "Shader.h"
 #include "Texture.h"
 
-Sampler gSampler = {
+Sampler gSamplerLinear = {
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
 	Sampler::Filter::LINEAR,
@@ -43,6 +43,7 @@ Sampler gSamplerPoint = {
 };
 
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, L"vs_deferred.hlsl");
+Shader gBlitPS(Shader::ShaderType::PIXEL_SHADER, L"ps_blit.hlsl");
 Mesh gCube(L"cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Mesh gFullscreenTriangle(L"fullscreen_triangle", Mesh::MeshType::FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Camera gCameraDummy(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidth, gHeight, 45.0f, 100.0f, 0.1f);
@@ -559,6 +560,8 @@ D3D12_RESOURCE_STATES Renderer::TranslateResourceLayout(ResourceLayout resourceL
 	{
 	case ResourceLayout::SHADER_READ:
 		return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; // TODO: examine the necessity to split these two
+	case ResourceLayout::SHADER_WRITE:
+		return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 	case ResourceLayout::RENDER_TARGET:
 		return D3D12_RESOURCE_STATE_RENDER_TARGET;
 	case ResourceLayout::DEPTH_STENCIL_READ:
@@ -1715,8 +1718,12 @@ void Renderer::RecordPass(
 	}
 	
 	if (pass.GetShaderResourceCount()) {
-		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetSrvDescriptorHeapTableHandle(mCurrentFrameIndex));
 		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SAMPLER), pass.GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+	}
+
+	if (pass.GetWriteTargetCount()) {
+		commandList->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::UAV), pass.GetUavDescriptorHeapTableHandle(mCurrentFrameIndex));
 	}
 
 	int meshCount = pass.GetMeshVec().size();
@@ -1765,8 +1772,12 @@ void Renderer::RecordComputePass(
 	}
 
 	if (pass.GetShaderResourceCount()) {
-		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFrameIndex));
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SRV), pass.GetSrvDescriptorHeapTableHandle(mCurrentFrameIndex));
 		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::SAMPLER), pass.GetSamplerDescriptorHeapTableHandle(mCurrentFrameIndex));
+	}
+
+	if (pass.GetWriteTargetCount()) {
+		commandList->SetComputeRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::UAV), pass.GetUavDescriptorHeapTableHandle(mCurrentFrameIndex));
 	}
 
 	commandList->Dispatch(threadGroupCountX, threadGroupCountY, threadGroupCountZ);

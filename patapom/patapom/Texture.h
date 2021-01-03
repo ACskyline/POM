@@ -135,8 +135,9 @@ public:
 	Format GetDepthStencilFormat();
 	int GetMultiSampleCount();
 
-	void MakeReadyToWrite(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
+	void MakeReadyToRender(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
 	void MakeReadyToRead(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
+	void MakeReadyToWrite(ID3D12GraphicsCommandList* commandList, u32 depthSlice = Texture::ALL_SLICES, u32 mipSlice = Texture::ALL_SLICES);
 	virtual void Release(bool checkOnly = false);
 
 	XMFLOAT4 mColorClearValue;
@@ -178,7 +179,6 @@ private:
 	u8 mMultiSampleCount;
 	Resource* mRenderTargetBuffer; // TODO: hide API specific implementation in Renderer
 	Resource* mDepthStencilBuffer;
-	Resource* mWriteBuffer;
 
 	View mRtvMip0;
 	View mDsvMip0;

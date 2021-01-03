@@ -1,6 +1,12 @@
 #ifndef GLOBALINCLUDE_H
 #define GLOBALINCLUDE_H
 
+#define FLOAT4 float4
+#define FLOAT3 float3
+#define FLOAT2 float2
+
+#include "SharedHeader.h"
+
 #define SCENE   0
 #define FRAME   1
 #define PASS    2

@@ -30,16 +30,10 @@ const D3D12_INPUT_ELEMENT_DESC VertexInputLayout[] =
 	{ "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 };
 
-struct Vertex {
-	XMFLOAT3 pos;
-	XMFLOAT2 uv;
-	XMFLOAT3 nor;
-	XMFLOAT4 tan;
-};
-
 enum class ResourceLayout {
 	INVALID,
 	SHADER_READ,
+	SHADER_WRITE,
 	RENDER_TARGET,
 	// D3D12 doesn't seem to support different access qualifiers for depth and stencil channel 
 	// unlike Vulkan's VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL and etc.
@@ -588,9 +582,10 @@ private:
 const int gWidth = 960;
 const int gHeight = 960;
 
-extern Sampler gSampler;
+extern Sampler gSamplerLinear;
 extern Sampler gSamplerPoint;
 extern Shader gDeferredVS;
+extern Shader gBlitPS;
 extern Mesh gCube;
 extern Mesh gFullscreenTriangle;
 extern Camera gCameraDummy;

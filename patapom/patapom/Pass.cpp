@@ -110,9 +110,9 @@ void Pass::AddBuffer(Buffer* buffer)
 	AddShaderResource(buffer);
 }
 
-void Pass::AddWriteBuffer(WriteBuffer* writeBuffer, u32 mipSlice)
+void Pass::AddWriteBuffer(WriteBuffer* writeBuffer)
 {
-	WriteTarget wt = { WriteTarget::BUFFER, mipSlice };
+	WriteTarget wt = { WriteTarget::BUFFER, 0 };
 	wt.mWriteBuffer = writeBuffer;
 	mWriteTargets.push_back(wt);
 }
@@ -145,9 +145,14 @@ vector<CD3DX12_CPU_DESCRIPTOR_HANDLE>& Pass::GetDsvHandles(int frameIndex)
 	return mDsvHandles[frameIndex];
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE Pass::GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex)
+D3D12_GPU_DESCRIPTOR_HANDLE Pass::GetSrvDescriptorHeapTableHandle(int frameIndex)
 {
-	return mCbvSrvUavDescriptorHeapTableHandles[frameIndex];
+	return mSrvDescriptorHeapTableHandles[frameIndex];
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE Pass::GetUavDescriptorHeapTableHandle(int frameIndex)
+{
+	return mUavDescriptorHeapTableHandles[frameIndex];
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE Pass::GetSamplerDescriptorHeapTableHandle(int frameIndex)
@@ -199,12 +204,13 @@ void Pass::InitPass(
 	CreateUniformBuffer(frameCount);
 
 	// 2. bind textures to heaps
-	mCbvSrvUavDescriptorHeapTableHandles.resize(frameCount);
+	mSrvDescriptorHeapTableHandles.resize(frameCount);
+	mUavDescriptorHeapTableHandles.resize(frameCount);
 	mSamplerDescriptorHeapTableHandles.resize(frameCount);
 	for (int i = 0; i < frameCount; i++)
 	{
 		// pass texture table and pass sampler table
-		mCbvSrvUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
+		mSrvDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		mSamplerDescriptorHeapTableHandles[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto sr : mShaderResources)
 		{
@@ -221,9 +227,10 @@ void Pass::InitPass(
 				// this is a dummy sampler just to keep the register number match, so that it's easier to maintain in shaders
 				// it will waste some sampler registers but it's a trade off for easier maintenance
 				// TODO: find a better way to improve this
-				samplerDescriptorHeap.AllocateSampler(gSampler.GetDesc(), 1);
+				samplerDescriptorHeap.AllocateSampler(gSamplerLinear.GetDesc(), 1);
 			}
 		}
+		mUavDescriptorHeapTableHandles[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
 		for (auto wt : mWriteTargets)
 		{
 			if(wt.mType == WriteTarget::BUFFER)
@@ -235,6 +242,7 @@ void Pass::InitPass(
 
 	// 3. create root signature
 	// ordered in scene/frame/pass/object
+	// TODO: add support for buffer, write buffer, write texture to all spaces
 	int srvCounts[(int)RegisterSpace::COUNT] = { mScene->GetTextureCount(), mRenderer->GetMaxFrameTextureCount(), mShaderResources.size(), GetMaxMeshTextureCount() };
 	int uavCounts[(int)RegisterSpace::COUNT] = { 0, 0, mWriteTargets.size(), 0 };
 	mRenderer->CreateRootSignature(&mRootSignature, srvCounts, uavCounts);
@@ -324,6 +332,11 @@ int Pass::GetShaderResourceCount()
 int Pass::GetShaderTargetCount()
 {
 	return mShaderTargets.size();
+}
+
+int Pass::GetWriteTargetCount()
+{
+	return mWriteTargets.size();
 }
 
 vector<ShaderResource*>& Pass::GetShaderResources()

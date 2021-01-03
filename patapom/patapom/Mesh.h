@@ -20,12 +20,7 @@ public:
 		XMFLOAT4X4 mModel;
 		XMFLOAT4X4 mModelInv;
 	};
-
-	struct Triangle
-	{
-		Vertex mVertices[3];
-	};
-
+	
 	Mesh(const wstring& debugName,
 		const MeshType& type,
 		const XMFLOAT3& position,

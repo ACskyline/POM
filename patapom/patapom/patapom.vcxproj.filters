@@ -149,6 +149,9 @@
     <ClInclude Include="Store.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SharedHeader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="ps.hlsl">
@@ -182,6 +185,9 @@
       <Filter>Resource Files</Filter>
     </FxCompile>
     <FxCompile Include="cs_raytracer.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_blit.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
   </ItemGroup>

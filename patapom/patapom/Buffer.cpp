@@ -105,6 +105,31 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC WriteBuffer::GetUavDesc() const
 	return mUav.mUavDesc;
 }
 
+void WriteBuffer::SetBufferData(void* data, int sizeInByte)
+{
+	mRenderer->UploadDataToBuffer(data, sizeInByte, sizeInByte, sizeInByte, mBuffer);
+}
+
+void WriteBuffer::Release(bool checkOnly)
+{
+	Buffer::Release(checkOnly);
+}
+
+void WriteBuffer::CreateBuffer()
+{
+	HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE, // no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(mElementSizeInByte * mElementCount, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+		Renderer::TranslateResourceLayout(ResourceLayout::SHADER_WRITE), // will be data that is read from so we keep it in the generic read state
+		nullptr, // we do not use an optimized clear value for constant buffers
+		IID_PPV_ARGS(&mBuffer));
+
+	fatalAssertf(!CheckError(hr, mRenderer->mDevice), "create buffer failed");
+	wstring name(L": buffer ");
+	mBuffer->SetName((mDebugName + name).c_str());
+}
+
 void WriteBuffer::CreateView()
 {
 	CreateSrv();

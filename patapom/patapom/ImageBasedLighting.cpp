@@ -81,7 +81,7 @@ void ImageBasedLighting::InitIBL(Store& store, Scene& scene)
 
 void ImageBasedLighting::PrepareIBL(ID3D12GraphicsCommandList* commandList)
 {
-	sPrefilteredEnvMap.MakeReadyToWrite(commandList);
+	sPrefilteredEnvMap.MakeReadyToRender(commandList);
 	for (int i = 0; i < Texture::CubeFace::COUNT; i++)
 	{
 		for (int j = 0; j < sPrefilterEnvMapPasses[i].size(); j++)
@@ -91,7 +91,7 @@ void ImageBasedLighting::PrepareIBL(ID3D12GraphicsCommandList* commandList)
 	}
 	sPrefilteredEnvMap.MakeReadyToRead(commandList);
 
-	sLUT.MakeReadyToWrite(commandList);
+	sLUT.MakeReadyToRender(commandList);
 	gRenderer.RecordPass(sPrepareLutPass, commandList, true, false, false);
 	sLUT.MakeReadyToRead(commandList);
 }

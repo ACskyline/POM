@@ -6,6 +6,15 @@
 #include <string>
 #include "Dependencies/d3dx12.h"
 
+using namespace DirectX;
+using namespace std;
+
+#define FLOAT4 XMFLOAT4
+#define FLOAT3 XMFLOAT3
+#define FLOAT2 XMFLOAT2
+
+#include "SharedHeader.h"
+
 #define EPSILON 0.00000001f
 #define EQUALF(a, b) (abs(a - b) < EPSILON)
 
@@ -57,9 +66,6 @@ class Renderer;
 extern Renderer gRenderer;
 
 bool CheckError(HRESULT hr, ID3D12Device* device = nullptr, ID3D10Blob* error_message = nullptr);
-
-using namespace DirectX;
-using namespace std;
 
 typedef uint8_t		u8;
 typedef uint16_t	u16;

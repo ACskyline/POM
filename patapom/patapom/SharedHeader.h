@@ -1,0 +1,23 @@
+#ifndef SHARED_MACROS
+#define SHARED_MACROS
+
+#define PATH_TRACER_TRIANGLE_COUNT_MAX 3000
+#define PATH_TRACER_THREAD_COUNT_X 8
+#define PATH_TRACER_THREAD_COUNT_Y 8
+#define PATH_TRACER_THREAD_COUNT_Z 1
+#define PATH_TRACER_BACKBUFFER_WIDTH 1920
+#define PATH_TRACER_BACKBUFFER_HEIGHT 1080
+
+struct Vertex {
+	FLOAT3 pos;
+	FLOAT2 uv;
+	FLOAT3 nor;
+	FLOAT4 tan;
+};
+
+struct Triangle
+{
+	Vertex mVertices[3];
+};
+
+#endif
