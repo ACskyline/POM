@@ -40,6 +40,13 @@ Mesh::Mesh(const wstring& debugName,
 	{
 		SetMesh();
 	}
+	else if (mType == MeshType::LINE)
+	{
+		SetLine();
+	}
+	else
+		fatalf("unsupported mesh type!");
+	UpdateMatrix();
 }
 
 Mesh::~Mesh()
@@ -80,6 +87,7 @@ void Mesh::ResetMesh(MeshType type,
 	{
 		SetMesh();
 	}
+	UpdateMatrix();
 }
 
 void Mesh::InitMesh(
@@ -104,12 +112,12 @@ void Mesh::InitMesh(
 	{
 		// object texture table
 		mCbvSrvUavDescriptorHeapTableHandleVec[i] = cbvSrvUavDescriptorHeap.GetCurrentFreeGpuAddress();
-		for (auto texture : mTextureVec)
+		for (auto texture : mTextures)
 			cbvSrvUavDescriptorHeap.AllocateSrv(texture->GetTextureBuffer(), texture->GetSrvDesc(), 1);
 		
 		// object sampler table
 		mSamplerDescriptorHeapTableHandleVec[i] = samplerDescriptorHeap.GetCurrentFreeGpuAddress();
-		for (auto texture : mTextureVec)
+		for (auto texture : mTextures)
 			samplerDescriptorHeap.AllocateSampler(texture->GetSamplerDesc(), 1);
 	}
 
@@ -140,20 +148,12 @@ void Mesh::CreateUniformBuffer(int frameCount)
 
 void Mesh::UpdateUniformBuffer(int frameIndex)
 {
-	XMStoreFloat4x4(&mObjectUniform.mModel,
-		XMMatrixScaling(mScale.x, mScale.y, mScale.z) *
-		XMMatrixRotationX(XMConvertToRadians(mRotation.x)) *
-		XMMatrixRotationY(XMConvertToRadians(mRotation.y)) *
-		XMMatrixRotationZ(XMConvertToRadians(mRotation.z)) *
-		XMMatrixTranslation(mPosition.x, mPosition.y, mPosition.z));
-
-	XMStoreFloat4x4(&mObjectUniform.mModelInv, XMMatrixInverse(nullptr, XMLoadFloat4x4(&mObjectUniform.mModel)));
-	
-	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
+	UpdateMatrix();
+	CD3DX12_RANGE readRange(0, 0);
 	void* cpuAddress;
 	mUniformBufferVec[frameIndex]->Map(0, &readRange, &cpuAddress);
 	memcpy(cpuAddress, &mObjectUniform, sizeof(mObjectUniform));
-	mUniformBufferVec[frameIndex]->Unmap(0, &readRange);
+	mUniformBufferVec[frameIndex]->Unmap(0, nullptr);
 }
 
 void Mesh::CreateVertexBuffer()
@@ -212,34 +212,39 @@ void Mesh::Release(bool checkOnly)
 		SAFE_RELEASE(uniformBuffer, checkOnly);
 }
 
-D3D12_VERTEX_BUFFER_VIEW Mesh::GetVertexBufferView()
+D3D12_VERTEX_BUFFER_VIEW Mesh::GetVertexBufferView() const
 {
 	return mVertexBufferView;
 }
 
-D3D12_INDEX_BUFFER_VIEW Mesh::GetIndexBufferView()
+D3D12_INDEX_BUFFER_VIEW Mesh::GetIndexBufferView() const
 {
 	return mIndexBufferView;
 }
 
-D3D12_GPU_VIRTUAL_ADDRESS Mesh::GetUniformBufferGpuAddress(int frameIndex)
+D3D12_GPU_VIRTUAL_ADDRESS Mesh::GetUniformBufferGpuAddress(int frameIndex) const
 {
 	return mUniformBufferVec[frameIndex]->GetGPUVirtualAddress();
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE Mesh::GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex)
+D3D12_GPU_DESCRIPTOR_HANDLE Mesh::GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex) const
 {
 	return mCbvSrvUavDescriptorHeapTableHandleVec[frameIndex];
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE Mesh::GetSamplerDescriptorHeapTableHandle(int frameIndex)
+D3D12_GPU_DESCRIPTOR_HANDLE Mesh::GetSamplerDescriptorHeapTableHandle(int frameIndex) const
 {
 	return mSamplerDescriptorHeapTableHandleVec[frameIndex];
 }
 
-D3D_PRIMITIVE_TOPOLOGY Mesh::GetPrimitiveType()
+PrimitiveType Mesh::GetPrimitiveType() const
 {
 	return mPrimitiveType;
+}
+
+void Mesh::AddTexture(Texture* texture)
+{
+	mTextures.push_back(texture);
 }
 
 void Mesh::SetPosition(const XMFLOAT3& position)
@@ -262,29 +267,85 @@ XMFLOAT3 Mesh::GetRotation()
 	return mRotation;
 }
 
-int Mesh::GetIndexCount()
+int Mesh::GetIndexCount() const
 {
 	return mIndexVec.size();
 }
 
-int Mesh::GetTextureCount()
+int Mesh::GetTextureCount() const
 {
-	return mTextureVec.size();
+	return mTextures.size();
 }
 
-void Mesh::ConvertMeshToTriangles(vector<Triangle>& outTriangles)
+vector<Texture*>& Mesh::GetTextures()
+{
+	return mTextures;
+}
+
+wstring Mesh::GetDebugName() const
+{
+	return mDebugName;
+}
+
+inline u32 LeftShift3(u32 x)
+{
+	if (x == (1 << 10)) --x;
+	x = (x | (x << 16)) & 0b00000011000000000000000011111111;
+	x = (x | (x << 8)) & 0b00000011000000001111000000001111;
+	x = (x | (x << 4)) & 0b00000011000011000011000011000011;
+	x = (x | (x << 2)) & 0b00001001001001001001001001001001;
+	return x;
+}
+
+inline u32 GenerateMortonCode(XMFLOAT3 position)
+{
+	return LeftShift3(position.z) << 2 | LeftShift3(position.y) << 1 | LeftShift3(position.x);
+}
+
+void Mesh::ConvertMeshToTrianglesPT(vector<TrianglePT>& outTriangles, u32 meshIndex)
 {
 	fatalAssertf(mIndexVec.size() > 0 && mIndexVec.size() % 3 == 0, "number of indices is not a multiple of 3");
 	outTriangles.resize(mIndexVec.size() / 3);
 	for (int i = 0; i < outTriangles.size(); i++)
 	{
-		outTriangles[i] = { mVertexVec[mIndexVec[i * 3]], mVertexVec[mIndexVec[i * 3 + 1]], mVertexVec[mIndexVec[i * 3 + 2]] };
+		outTriangles[i].mVertices[0] = mVertexVec[mIndexVec[i * 3]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3]], mObjectUniform.mModel, mObjectUniform.mModelInv);
+		outTriangles[i].mVertices[1] = mVertexVec[mIndexVec[i * 3 + 1]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3 + 1]], mObjectUniform.mModel, mObjectUniform.mModelInv);
+		outTriangles[i].mVertices[2] = mVertexVec[mIndexVec[i * 3 + 2]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3 + 2]], mObjectUniform.mModel, mObjectUniform.mModelInv);
+		outTriangles[i].mMeshIndex = meshIndex;
+		XMStoreFloat3(&outTriangles[i].mCentroid, (XMLoadFloat3(&outTriangles[i].mVertices[0].pos) + XMLoadFloat3(&outTriangles[i].mVertices[1].pos) + XMLoadFloat3(&outTriangles[i].mVertices[2].pos)) / 3.0f);
+		outTriangles[i].mMortonCode = GenerateMortonCode(outTriangles[i].mCentroid);
 	}
+}
+
+Vertex Mesh::TransformVertexToWorldSpace(const Vertex& vertex, const XMFLOAT4X4& m, const XMFLOAT4X4& mInv)
+{
+	Vertex result = vertex;
+	XMFLOAT4 pos(vertex.pos.x, vertex.pos.y, vertex.pos.z, 1.0f);
+	XMFLOAT4 nor(vertex.nor.x, vertex.nor.y, vertex.nor.z, 0.0f);
+	XMFLOAT4 tan(vertex.tan.x, vertex.tan.y, vertex.tan.z, 0.0f);
+	float tanW = vertex.tan.w;
+	XMStoreFloat3(&result.pos, XMVector4Transform(XMLoadFloat4(&pos), XMLoadFloat4x4(&m)));
+	XMStoreFloat3(&result.nor, XMVector3Normalize(XMVector4Transform(XMLoadFloat4(&nor), XMMatrixTranspose(XMLoadFloat4x4(&mInv)))));
+	XMStoreFloat4(&result.tan, XMVector3Normalize(XMVector4Transform(XMLoadFloat4(&tan), XMLoadFloat4x4(&m))));
+	result.tan.w = tanW;
+	return result;
+}
+
+void Mesh::UpdateMatrix()
+{
+	XMStoreFloat4x4(&mObjectUniform.mModel,
+		XMMatrixScaling(mScale.x, mScale.y, mScale.z) *
+		XMMatrixRotationX(XMConvertToRadians(mRotation.x)) *
+		XMMatrixRotationY(XMConvertToRadians(mRotation.y)) *
+		XMMatrixRotationZ(XMConvertToRadians(mRotation.z)) *
+		XMMatrixTranslation(mPosition.x, mPosition.y, mPosition.z));
+
+	XMStoreFloat4x4(&mObjectUniform.mModelInv, XMMatrixInverse(nullptr, XMLoadFloat4x4(&mObjectUniform.mModel)));
 }
 
 void Mesh::SetCube()
 {
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	mPrimitiveType = PrimitiveType::TRIANGLE;
 
 	mVertexVec.resize(24);
 
@@ -402,7 +463,7 @@ void Mesh::SetCube()
 
 void Mesh::SetPlane()
 {
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	mPrimitiveType = PrimitiveType::TRIANGLE;
 
 	mVertexVec.resize(4);
 
@@ -438,7 +499,7 @@ void Mesh::SetFullscreenQuad()
 	//  |        |
 	// 0.0------1,0
 
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	mPrimitiveType = PrimitiveType::TRIANGLE;
 
 	mVertexVec.resize(4);
 
@@ -475,7 +536,7 @@ void Mesh::SetFullscreenTriangleDepth(float d)
 	//  |      \
 	// 0,0------2,0
 
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	mPrimitiveType = PrimitiveType::TRIANGLE;
 
 	mVertexVec.resize(3);
 
@@ -497,12 +558,12 @@ void Mesh::SetFullscreenTriangle()
 
 void Mesh::SetSkyFullscreenTriangle()
 {
-	SetFullscreenTriangleDepth(DEPTH_FARTHEST_REVERSED_Z_SWITCH);
+	SetFullscreenTriangleDepth(DEPTH_FAR_REVERSED_Z_SWITCH);
 }
 
 void Mesh::SetMesh()
 {
-	mPrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	mPrimitiveType = PrimitiveType::TRIANGLE;
 
 	fstream file;
 	file.open(mFileName, ios::in);
@@ -764,4 +825,20 @@ void Mesh::AssembleObjMesh(
 			mIndexVec[j] = j;//this way, all 3 vertices on every triangle are unique, even though they belong to the same polygon, which increase storing space but allow for finer control
 		}
 	}
+}
+
+void Mesh::SetLine()
+{
+	// start point is (0, 0, 0), end point is (0, 0, 1)
+	mPrimitiveType = PrimitiveType::LINE;
+
+	mVertexVec.resize(2);
+
+	mVertexVec[0] = { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
+	mVertexVec[1] = { {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f} };
+	
+	mIndexVec.resize(2);
+
+	mIndexVec[0] = 0;
+	mIndexVec[1] = 1;
 }

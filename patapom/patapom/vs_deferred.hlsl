@@ -1,6 +1,6 @@
-#include "GlobalInclude.hlsl"
-
 #define VS_OUTPUT_LITE
+
+#include "GlobalInclude.hlsl"
 
 VS_OUTPUT main(VS_INPUT input)
 {

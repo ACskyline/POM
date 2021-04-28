@@ -33,16 +33,23 @@ public:
 	virtual ~WriteBuffer();
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC GetUavDesc() const;
+	void RecordSetBufferData(ID3D12GraphicsCommandList* commandList, void* data, int sizeInByte);
 	virtual void SetBufferData(void* data, int sizeInByte);
 	virtual void Release(bool checkOnly = false);
+	void MakeReadyToRead(ID3D12GraphicsCommandList* commandList);
+	void MakeReadyToWrite(ID3D12GraphicsCommandList* commandList);
 
 protected:
 	virtual void CreateBuffer();
 	virtual void CreateView();
+	bool TransitionLayout(ID3D12GraphicsCommandList* commandList, ResourceLayout newLayout);
 
 private:
+	void SetBufferDataInternal(ID3D12GraphicsCommandList* commandList, void* data, int sizeInByte);
 	void CreateSrv();
 	void CreateUav();
 
 	View mUav;
+	ResourceLayout mLayout;
+	Resource* mUploadBuffer;
 };

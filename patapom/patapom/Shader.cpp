@@ -88,6 +88,7 @@ void Shader::CreateShaderFromFile(const wstring& fileName)
 
 D3D12_SHADER_BYTECODE Shader::GetShaderByteCode()
 {
+	fatalAssertf(mShaderBytecode.pShaderBytecode, "shader is not loaded");
 	return mShaderBytecode;
 }
 

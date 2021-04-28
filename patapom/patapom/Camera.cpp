@@ -77,6 +77,12 @@ void Camera::UpdateMatrices()
 		XMLoadFloat3(&mTarget), 
 		XMLoadFloat3(&mUp));
 
+#ifdef USE_REVERSED_Z
+	assertf(mNearClipPlane > mFarClipPlane, "near clip plane should be farther than far clip plane when using reversed z buffer");
+#else
+	assertf(mNearClipPlane < mFarClipPlane, "near clip plane should be closer than far clip plane when not using reversed z buffer");
+#endif
+
 	XMMATRIX proj = XMMatrixPerspectiveFovLH(
 		XMConvertToRadians(mFov),
 		mWidth / mHeight,
@@ -250,14 +256,11 @@ void Camera::AddPass(Pass* pass)
 	mPasses.push_back(pass);
 }
 
-void Camera::UpdatePassUniformBuffer(int frameIndex)
+void Camera::SetPassUniformDirty(int frameIndex)
 {
-	Update();
-	PassUniformDefault passUniform;
-	passUniform.Update(this);
 	for(auto pass : mPasses)
 	{
-		pass->UpdateUniformBuffer(frameIndex, &passUniform);
+		pass->SetUniformDirty(frameIndex);
 	}
 }
 

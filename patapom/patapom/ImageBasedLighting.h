@@ -3,14 +3,6 @@
 #include "Texture.h"
 #include "Pass.h"
 
-struct PassUniformIBL : PassUniformDefault
-{
-	float mRoughness;
-	u32 mFaceIndex;
-	u32 PADDING_0;
-	u32 PADDING_1;
-};
-
 typedef PassCommon<PassUniformIBL> PassIBL;
 
 class ImageBasedLighting

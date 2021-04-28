@@ -1,7 +1,7 @@
 #define VS_OUTPUT_LITE
 
-#ifndef PS_OUTPUT_COUNT
-#define PS_OUTPUT_COUNT 1
+#ifndef PS_COLOR_OUTPUT_COUNT
+#define PS_COLOR_OUTPUT_COUNT 1
 #endif
 
 #define LUT_NUM_SAMPLES 128
@@ -9,18 +9,13 @@
 
 #include "GlobalInclude.hlsl"
 
-struct PassUniformIBL : PassUniformDefault
-{
-    float pRoughness;
-};
-
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
 {
     PassUniformIBL uPass;
 };
 
-Texture2D lut : register(t0, SPACE(PASS));
-SamplerState lutSampler : register(s0, SPACE(PASS));
+Texture2D gLUT : register(t0, SPACE(PASS));
+SamplerState gLUTSampler : register(s0, SPACE(PASS));
 
 PS_OUTPUT main(VS_OUTPUT input)
 {

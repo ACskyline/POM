@@ -27,8 +27,8 @@ const int				ImageBasedLighting::sPrefilteredEnvMapMipLevelCount = 8;
 vector<Camera>			ImageBasedLighting::sCamerasEnvMap;
 Camera					ImageBasedLighting::sCameraLUT(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), sWidthLUT, sHeightLUT, 45.0f, 100.0f, 0.1f);
 Texture					ImageBasedLighting::sEnvMap("probe.jpg", L"IBL env map", gSamplerIBL, true, Format::R8G8B8A8_UNORM);
-RenderTexture			ImageBasedLighting::sPrefilteredEnvMap(TextureType::CUBE, L"IBL prefiltered env map", sWidthEnvMap, sHeightEnvMap, 6, sPrefilteredEnvMapMipLevelCount, ReadFrom::COLOR, gSamplerIBL, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture			ImageBasedLighting::sLUT(TextureType::DEFAULT, L"IBL LUT", sWidthLUT, sHeightLUT, 1, 1, ReadFrom::COLOR, gSamplerIBL, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture			ImageBasedLighting::sPrefilteredEnvMap(TextureType::TEX_CUBE, L"IBL prefiltered env map", sWidthEnvMap, sHeightEnvMap, 6, sPrefilteredEnvMapMipLevelCount, ReadFrom::COLOR, gSamplerIBL, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture			ImageBasedLighting::sLUT(TextureType::TEX_2D, L"IBL LUT", sWidthLUT, sHeightLUT, 1, 1, ReadFrom::COLOR, gSamplerIBL, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 vector<PassIBL>			ImageBasedLighting::sPrefilterEnvMapPasses[Texture::CubeFace::COUNT];
 PassIBL					ImageBasedLighting::sPrepareLutPass(L"IBL prepare LUT", true, false);
 Shader					ImageBasedLighting::sPrefilterEnvMapPS(Shader::ShaderType::PIXEL_SHADER, L"ps_prefilterEnvMap.hlsl");
@@ -63,17 +63,19 @@ void ImageBasedLighting::InitIBL(Store& store, Scene& scene)
 		}
 	}
 
-	store.AddShader(&sPrefilterEnvMapPS);
 	sPrepareLutPass.SetCamera(&sCameraLUT);
 	sPrepareLutPass.AddMesh(&gFullscreenTriangle);
 	sPrepareLutPass.AddShader(&gDeferredVS);
 	sPrepareLutPass.AddShader(&sPrepareLutPS);
 	sPrepareLutPass.AddRenderTexture(&sLUT, 0, 0, DepthStencilState::None());
-	scene.AddPass(&sPrepareLutPass);
+	
+	scene.AddPass(&sPrepareLutPass); 
+	scene.mSceneUniform.mPrefilteredEnvMapMipLevelCount = ImageBasedLighting::sPrefilteredEnvMapMipLevelCount;
+	
+	store.AddShader(&sPrefilterEnvMapPS);
 	store.AddPass(&sPrepareLutPass);
 	store.AddShader(&sPrepareLutPS);
 	store.AddCamera(&sCameraLUT);
-
 	store.AddTexture(&sEnvMap);
 	store.AddTexture(&sPrefilteredEnvMap);
 	store.AddTexture(&sLUT);
@@ -86,13 +88,13 @@ void ImageBasedLighting::PrepareIBL(ID3D12GraphicsCommandList* commandList)
 	{
 		for (int j = 0; j < sPrefilterEnvMapPasses[i].size(); j++)
 		{
-			gRenderer.RecordPass(sPrefilterEnvMapPasses[i][j], commandList, true, false, false);
+			gRenderer.RecordGraphicsPass(sPrefilterEnvMapPasses[i][j], commandList, true, false, false);
 		}
 	}
 	sPrefilteredEnvMap.MakeReadyToRead(commandList);
 
 	sLUT.MakeReadyToRender(commandList);
-	gRenderer.RecordPass(sPrepareLutPass, commandList, true, false, false);
+	gRenderer.RecordGraphicsPass(sPrepareLutPass, commandList, true, false, false);
 	sLUT.MakeReadyToRead(commandList);
 }
 

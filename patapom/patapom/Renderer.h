@@ -10,18 +10,20 @@ class Texture;
 class RenderTexture;
 class Mesh;
 class Camera;
+class OrbitCamera;
 
 enum ReadFrom : u8 { INVALID = 0x00, COLOR = 0x01, DEPTH = 0x02, STENCIL = 0x04, MS = 0x10, COLOR_MS = 0x11, DEPTH_MS = 0x12, STENCIL_MS = 0x14 };
 enum class CompareOp { INVALID, NEVER, LESS, EQUAL, LESS_EQUAL, GREATER, NOT_EQUAL, GREATER_EQUAL, ALWAYS, MINIMUM, MAXIMUM, COUNT };
 enum class DebugMode { OFF, ON, GBV, COUNT }; // GBV = GPU based validation
 enum class RegisterSpace { SCENE, FRAME, PASS, OBJECT, COUNT }; // maps to layout number in Vulkan
 enum class RegisterType { CBV, SRV, SAMPLER, UAV, COUNT };
-enum class TextureType { INVALID, DEFAULT, CUBE, VOLUME, COUNT };
+enum class TextureType { INVALID, TEX_2D, TEX_CUBE, TEX_VOLUME, COUNT };
 
 typedef ID3D12Resource Resource;
 
 int GetUniformSlot(RegisterSpace space, RegisterType type);
 
+// this has to match the definition of Vertex
 const D3D12_INPUT_ELEMENT_DESC VertexInputLayout[] =
 {
 	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -111,6 +113,22 @@ struct BlendState {
 			BlendState::BlendFactor::ZERO,
 			BlendState::BlendOp::ADD,
 			BlendState::BlendFactor::ZERO,
+			BlendState::BlendFactor::ZERO,
+			BlendState::BlendOp::ADD,
+			BlendState::LogicOp::NOOP,
+			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
+		};
+	}
+
+	static BlendState AdditiveBlend()
+	{
+		return BlendState{
+			true,
+			false,
+			BlendState::BlendFactor::SRC_ALPHA,
+			BlendState::BlendFactor::INV_SRC_ALPHA,
+			BlendState::BlendOp::ADD,
+			BlendState::BlendFactor::ONE,
 			BlendState::BlendFactor::ZERO,
 			BlendState::BlendOp::ADD,
 			BlendState::LogicOp::NOOP,
@@ -327,10 +345,20 @@ enum class Format {
 	R8G8B8A8_UNORM,
 	R16G16B16A16_UNORM,
 	R16G16B16A16_FLOAT,
+	R16_FLOAT,
+	R32_FLOAT,
 	D16_UNORM,
 	D32_FLOAT,
 	D24_UNORM_S8_UINT,
 	COUNT
+};
+
+enum class PrimitiveType {
+	INVALID,
+	POINT,
+	LINE,
+	TRIANGLE,
+	COUNT,
 };
 
 class ShaderResource
@@ -386,7 +414,6 @@ private:
 #define DS_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::Greater(), DepthStencilState::Less())
 #define DS_EQUAL_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::GreaterEqual(), DepthStencilState::LessEqual())
 #define DS_EQUAL_NO_WRITE_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(DepthStencilState::GreaterEqualNoWrite(), DepthStencilState::LessEqualNoWrite())
-#define DEPTH_FARTHEST_REVERSED_Z_SWITCH REVERSED_Z_SWITCH(0.0f, 1.0f)
 
 class Renderer
 {
@@ -404,7 +431,9 @@ public:
 	static D3D12_STENCIL_OP TranslateStencilOp(DepthStencilState::StencilOp op);
 	static DXGI_FORMAT TranslateFormat(Format format);
 	static DXGI_FORMAT TranslateToTypelessFormat(Format format);
-	static DXGI_FORMAT TranslateFormatToAccess(Format format, ReadFrom readFrom);
+	static DXGI_FORMAT TranslateFormatToRead(Format format, ReadFrom readFrom);
+	static D3D12_PRIMITIVE_TOPOLOGY_TYPE TranslatePrimitiveTopologyType(PrimitiveType primitiveType);
+	static D3D12_PRIMITIVE_TOPOLOGY TranslatePrimitiveTopology(PrimitiveType primitiveType);
 	static D3D12_DESCRIPTOR_HEAP_TYPE TranslateDescriptorHeapType(DescriptorHeap::Type type);
 	static D3D12_FILTER ExtractFilter(Sampler sampler);
 	static D3D12_TEXTURE_ADDRESS_MODE TranslateAddressMode(Sampler::AddressMode addressMode);
@@ -454,6 +483,7 @@ public:
 	bool Submit(int frameIndex, ID3D12CommandQueue* commandQueue, vector<ID3D12GraphicsCommandList*> commandLists);
 	bool Present();
 	void UploadTextureDataToBuffer(vector<void*>& srcData, vector<int>& srcBytePerRow, vector<int>& srcBytePerSlice, D3D12_RESOURCE_DESC textureDesc, ID3D12Resource* dstBuffer);
+	void RecordUploadDataToBuffer(ID3D12GraphicsCommandList* commandList, void* srcData, int srcBytePerRow, int srcBytePerSlice, ID3D12Resource* dstBuffer, ID3D12Resource* uploadBuffer);
 	void UploadDataToBuffer(void* srcData, int srcBytePerRow, int srcBytePerSlice, int copyBufferSize, ID3D12Resource* dstBuffer);
 
 	u32 CalculateSubresource(u32 depthSlice, u32 mipSlice, u32 depth, u32 mipLevelCount);
@@ -484,15 +514,25 @@ public:
 		Shader* computeShader,
 		const wstring& name);
 	// explicit on command list for future multi thread support
-	void RecordPass(
+	void RecordGraphicsPassInstanced(
+		Pass& pass,
+		ID3D12GraphicsCommandList* commandList,
+		u8 instanceCount,
+		bool clearColor = true,
+		bool clearDepth = true,
+		bool clearStencil = true,
+		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
+		float clearDepthValue = DEPTH_FAR_REVERSED_Z_SWITCH,
+		u8 clearStencilValue = 0);
+	void RecordGraphicsPass(
 		Pass& pass,
 		ID3D12GraphicsCommandList* commandList,
 		bool clearColor = true,
 		bool clearDepth = true,
 		bool clearStencil = true,
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
-		float clearDepthValue = REVERSED_Z_SWITCH(0.0f, 1.0f),
-		uint8_t clearStencilValue = 0);
+		float clearDepthValue = DEPTH_FAR_REVERSED_Z_SWITCH,
+		u8 clearStencilValue = 0);
 	void RecordComputePass(
 		Pass& pass,
 		ID3D12GraphicsCommandList* commandList,
@@ -508,9 +548,10 @@ public:
 	ID3D12Debug* mDebugController;
 	IDXGISwapChain3* mSwapChain; // swapchain used to switch between framebuffers
 	ID3D12CommandQueue* mGraphicsCommandQueue; // TODO: add support to transfer queue
-	vector<ID3D12CommandAllocator*> mGraphicsCommandAllocators; // size of mFrameCount
+	vector<ID3D12CommandAllocator*> mGraphicsCommandAllocators; // size of mFramebufferCount
 	vector<ID3D12GraphicsCommandList*> mCommandLists; // arbitrary size, this way we can have more than 1 command list per frame
 	ID3D12CommandAllocator* mSingleTimeCommandAllocator;
+	int mSingleTimeCommandCounter;
 	int mWidth;
 	int mHeight;
 	DebugMode mDebugMode;
@@ -518,9 +559,9 @@ public:
 	vector<ID3D12Fence*> mFences;
 	HANDLE mFenceEvent; // a handle to an event when our fence is unlocked by the gpu
 	vector<UINT64> mFenceValues;
-	int mCurrentFrameIndex;
-	int mFrameCount;
-	int mFrameCountTotal;
+	int mCurrentFramebufferIndex;
+	int mFramebufferCount;
+	int mFrameCountSinceGameStart;
 	int mMultiSampleCount;
 	BlendState mBlendState;
 	DepthStencilState mDepthStencilState;
@@ -535,8 +576,8 @@ private:
 	int EstimateTotalRtvCount();
 	int EstimateTotalDsvCount();
 
-	ID3D12GraphicsCommandList* BeginSingleTimeCommands(ID3D12CommandAllocator* commandAllocator);
-	void EndSingleTimeCommands(ID3D12CommandQueue* commandQueue, ID3D12CommandAllocator* commandAllocator, ID3D12GraphicsCommandList* commandList);
+	ID3D12GraphicsCommandList* BeginSingleTimeCommandsInternal(ID3D12CommandAllocator* commandAllocator);
+	void EndSingleTimeCommandsInternal(ID3D12CommandQueue* commandQueue, ID3D12CommandAllocator* commandAllocator, ID3D12GraphicsCommandList* commandList);
 	void EnableDebugLayer();
 	void EnableGBV();
 
@@ -579,13 +620,20 @@ private:
 	vector<CD3DX12_CPU_DESCRIPTOR_HANDLE> mPreResolvedRtvHandles;
 };
 
-const int gWidth = 960;
-const int gHeight = 960;
-
+const int gWindowWidth = 960;
+const int gWindowHeight = 960;
+const int gWidthDeferred = 960;
+const int gHeightDeferred = 960;
+const int gWidthShadow = 960;
+const int gHeightShadow = 960;
+const int gFrameCount = 3;
+const int gMultiSampleCount = 1; // msaa doesn't work on deferred back buffer
+extern Format gSwapchainColorBufferFormat;
+extern Format gSwapchainDepthStencilBufferFormat;
 extern Sampler gSamplerLinear;
 extern Sampler gSamplerPoint;
 extern Shader gDeferredVS;
-extern Shader gBlitPS;
 extern Mesh gCube;
 extern Mesh gFullscreenTriangle;
 extern Camera gCameraDummy;
+extern OrbitCamera gCameraMain;

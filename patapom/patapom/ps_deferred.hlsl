@@ -1,7 +1,7 @@
 #define VS_OUTPUT_LITE
 
-#ifndef PS_OUTPUT_COUNT
-#define PS_OUTPUT_COUNT 1
+#ifndef PS_COLOR_OUTPUT_COUNT
+#define PS_COLOR_OUTPUT_COUNT 1
 #endif
 
 #include "GlobalInclude.hlsl"
@@ -16,8 +16,11 @@ SamplerState gbufferSampler1 : register(s1, SPACE(PASS));
 Texture2D gbuffer2 : register(t2, SPACE(PASS));
 SamplerState gbufferSampler2 : register(s2, SPACE(PASS));
 
-Texture2D dbuffer : register(t3, SPACE(PASS));
-SamplerState dbufferSampler : register(s3, SPACE(PASS));
+Texture2D gbuffer3 : register(t3, SPACE(PASS));
+SamplerState gbufferSampler3 : register(s3, SPACE(PASS));
+
+Texture2D dbuffer : register(t4, SPACE(PASS));
+SamplerState dbufferSampler : register(s4, SPACE(PASS));
 
 float4 DefaultShading(SurfaceDataIn sdi)
 {
@@ -34,44 +37,51 @@ PS_OUTPUT main(VS_OUTPUT input)
     SurfaceDataIn sdi;
     float2 screenPos = input.pos.xy;
     float2 uv = input.uv;
-    sdi.albedo = gbuffer0.Sample(gbufferSampler0, TransformUV(uv)).rgb;
-    sdi.norWorld = UnpackNormal(gbuffer1.Sample(gbufferSampler1, TransformUV(uv)).rgb);
-    float depth = dbuffer.SampleLevel(dbufferSampler, TransformUV(uv), 0.0f).r;
-    float zView = DequantizeDepth(gbuffer0.Sample(gbufferSampler0, TransformUV(uv)).a, uPass.pNearClipPlane, uPass.pFarClipPlane);
-    float3 storedPosWorld_gbuffer = gbuffer2.Sample(gbufferSampler2, TransformUV(uv)).rgb;
-    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(uPass.pWidth, uPass.pHeight), zView, uPass.pFov, uPass.pNearClipPlane, uPass.pFarClipPlane, uPass.pViewInv);
-    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(uPass.pWidth, uPass.pHeight), depth, uPass.pNearClipPlane, uPass.pFarClipPlane, uPass.pViewProjInv);
-    sdi.posWorld = restoredPosWorld_gbuffer;
+	float4 albedoQuantizedZView = gbuffer0.Sample(gbufferSampler0, TransformUV(uv));
+	float4 packedNormalRoughness = gbuffer1.Sample(gbufferSampler1, TransformUV(uv));
+    float4 posWorldFresnel = gbuffer2.Sample(gbufferSampler2, TransformUV(uv));
+	float4 specularityMetallic = gbuffer3.Sample(gbufferSampler3, TransformUV(uv));
+	sdi.mAlbedo = albedoQuantizedZView.rgb;
+    sdi.mNorWorld = UnpackNormal(packedNormalRoughness.rgb);
+	sdi.mRoughness = packedNormalRoughness.a;
+	sdi.mFresnel = posWorldFresnel.a;
+	sdi.mSpecularity = specularityMetallic.r;
+	sdi.mMetallic = specularityMetallic.g;
+    float zView = DequantizeDepth(albedoQuantizedZView.a, uPass.mNearClipPlane, uPass.mFarClipPlane);
+	float depth = dbuffer.SampleLevel(dbufferSampler, TransformUV(uv), 0.0f).r;
+    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(uPass.mWidth, uPass.mHeight), zView, uPass.mFov, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewInv);
+    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(uPass.mWidth, uPass.mHeight), depth, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewProjInv);
+    sdi.mPosWorld = restoredPosWorld_gbuffer;
     
-    if (uScene.sMode == 0) // default
+    if (uScene.mMode == 0) // default
     {
         output.col0 = DefaultShading(sdi);
     }
-    else if (uScene.sMode == 1) // albedo
+    else if (uScene.mMode == 1) // albedo
     {
         output.col0 = gbuffer0.Sample(gbufferSampler0, TransformUV(uv));
     }
-    else if (uScene.sMode == 2) // normal
+    else if (uScene.mMode == 2) // normal
     {
         output.col0 = gbuffer1.Sample(gbufferSampler1, TransformUV(uv));
     }
-    else if (uScene.sMode == 3) // uv
+    else if (uScene.mMode == 3) // uv
     {
         output.col0 = float4(input.uv, 0.0f, 1.0f);
     }
-    else if (uScene.sMode == 4) // stored pos
+    else if (uScene.mMode == 4) // stored pos
     {
-        output.col0 = float4(storedPosWorld_gbuffer, 1.0f);
+        output.col0 = float4(posWorldFresnel.xyz, 1.0f);
     }
-    else if (uScene.sMode == 5) // restored pos g
+    else if (uScene.mMode == 5) // restored pos g
     {
         output.col0 = float4(restoredPosWorld_gbuffer, 1.0f);
     }
-    else if (uScene.sMode == 6) // restored pos d
+    else if (uScene.mMode == 6) // restored pos d
     {
         output.col0 = float4(restoredPosWorld_dbuffer, 1.0f);
     }
-    else if (uScene.sMode == 7) // abs diff pos
+    else if (uScene.mMode == 7) // abs diff pos
     {
         output.col0 = float4(abs(restoredPosWorld_gbuffer - restoredPosWorld_dbuffer), 1.0f);
     }

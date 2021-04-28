@@ -79,11 +79,11 @@ int Store::EstimateTotalCbvSrvUavCount(int frameCount)
 {
 	int totalCbvSrvUavCount = 0;
 	for(auto scene : mScenes)
-		totalCbvSrvUavCount += scene->GetTextureCount();
+		totalCbvSrvUavCount += scene->GetTextureCount() + 1; // plus 1 for unbounded resources
 	for(auto pass : mPasses)
-		totalCbvSrvUavCount += pass->GetCbvSrvUavCount();
+		totalCbvSrvUavCount += pass->GetCbvSrvUavCount() + 1; // plus 1 for unbounded resources
 	for (auto mesh : mMeshes)
-		totalCbvSrvUavCount += mesh->GetTextureCount();
+		totalCbvSrvUavCount += mesh->GetTextureCount() + 1; // plus 1 for unbounded resources
 	return totalCbvSrvUavCount * frameCount;
 }
 
@@ -123,18 +123,18 @@ void Store::InitStore(
 	for (auto shader : mShaders)
 		shader->InitShader(renderer);
 
+	for (auto texture : mTextures)
+		texture->InitTexture(renderer);
+
+	for (auto buffer : mBuffers)
+		buffer->InitBuffer(renderer);
+
 	for (auto mesh : mMeshes)
 		mesh->InitMesh(
 			renderer, 
 			frameCount, 
 			cbvSrvUavDescriptorHeap, 
 			samplerDescriptorHeap);
-
-	for (auto texture : mTextures)
-		texture->InitTexture(renderer);
-
-	for (auto buffer : mBuffers)
-		buffer->InitBuffer(renderer);
 
 	for (auto pass : mPasses)
 		pass->InitPass(

@@ -19,6 +19,7 @@
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
 const LPCTSTR WindowTitle = L"POM_1.0"; // title of the window
+const DebugMode gRendererDebugMode = DebugMode::ON; // turning on debug will impact the framerate badly
 IDirectInputDevice8* gDIKeyboard;
 IDirectInputDevice8* gDIMouse;
 DIMOUSESTATE gMouseLastState;
@@ -28,22 +29,13 @@ bool gMouseAcquired = false;
 LPDIRECTINPUT8 gDirectInput;
 bool gFullScreen = false; // is window full screen?
 bool gRunning = true; // we will exit the program when this becomes false
-int gUpdateCamera = 0;
-int gUpdateSettings = 0;
 int gPathTracerMode = 0;
-const int gWidthDeferred = 960;
-const int gHeightDeferred = 960;
-const int gWidthShadow = 960;
-const int gHeightShadow = 960;
-const int gFrameCount = 3;
-const int gMultiSampleCount = 1; // msaa doesn't work on deferred back buffer
-Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
-Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
+bool gPathTracerForceUpdate = false;
 
 Renderer gRenderer;
 Store gStoreDefault("default store");
 Scene gSceneDefault(L"default scene");
-PassDefault gPassPom(L"pom pass");
+PassDefault gPassPom(L"pom pass", true, true, true);
 PassDefault gPassStandard(L"standard pass", true, true, true);
 PassDefault gPassDeferred(L"deferred pass", true, false);
 PassDefault gPassSky(L"sky pass");
@@ -51,11 +43,10 @@ PassDefault gPassRedLightShadow(L"red light shadow", false);
 PassDefault gPassGreenLightShadow(L"green light shadow", false);
 PassDefault gPassBlueLightShadow(L"blue light shadow", false);
 PassDefault gPassPathTracerBlit(L"path tracer blit", true, false);
-OrbitCamera gMainCamera(4.f, 90.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 100.0f, 0.1f);
 Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
-Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 2, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "ball.obj");
+Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 1, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "box.obj");
 Mesh gPlaneX(L"planeX", Mesh::MeshType::PLANE, XMFLOAT3(-3, 0, 0), XMFLOAT3(0, 0, -90), XMFLOAT3(6, 1, 6));
 Mesh gPlaneY(L"planeY", Mesh::MeshType::PLANE, XMFLOAT3(0, -3, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(6, 1, 6));
 Mesh gPlaneZ(L"planeZ", Mesh::MeshType::PLANE, XMFLOAT3(0, 0, -3), XMFLOAT3(90, 0, 0), XMFLOAT3(6, 1, 6));
@@ -70,13 +61,14 @@ Texture gTextureAlbedo("brick_albedo.jpg", L"albedo", gSamplerLinear, true, Form
 Texture gTextureNormal("brick_normal.jpg", L"normal", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
 Texture gTextureHeight("brick_height.jpg", L"height", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
 Texture gTextureProbe("probe.jpg", L"probe", gSamplerLinear, true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTextureGbuffer0(TextureType::DEFAULT, L"gbuffer0", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureGbuffer1(TextureType::DEFAULT, L"gbuffer1", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureGbuffer2(TextureType::DEFAULT, L"gbuffer2", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureDbuffer(TextureType::DEFAULT, L"dbuffer", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FARTHEST_REVERSED_Z_SWITCH, 0);
-RenderTexture gRenderTextureRedLight(TextureType::DEFAULT, L"red light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FARTHEST_REVERSED_Z_SWITCH, 0);
-RenderTexture gRenderTextureGreenLight(TextureType::DEFAULT, L"green light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FARTHEST_REVERSED_Z_SWITCH, 0);
-RenderTexture gRenderTextureBlueLight(TextureType::DEFAULT, L"blue light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FARTHEST_REVERSED_Z_SWITCH, 0);
+RenderTexture gRenderTextureGbuffer0(TextureType::TEX_2D, L"gbuffer0", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureGbuffer1(TextureType::TEX_2D, L"gbuffer1", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureGbuffer2(TextureType::TEX_2D, L"gbuffer2", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureGbuffer3(TextureType::TEX_2D, L"gbuffer3", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, gSamplerPoint, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture gRenderTextureDbuffer(TextureType::TEX_2D, L"dbuffer", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
+RenderTexture gRenderTextureRedLight(TextureType::TEX_2D, L"red light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
+RenderTexture gRenderTextureGreenLight(TextureType::TEX_2D, L"green light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
+RenderTexture gRenderTextureBlueLight(TextureType::TEX_2D, L"blue light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, gSamplerPoint, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
 Light gLightRed("light red", XMFLOAT3(0.8f, 0.1f, 0.1f), XMFLOAT3(8, 0, 0), &gCameraRedLight, &gRenderTextureRedLight);
 Light gLightGreen("light green", XMFLOAT3(0.1f, 0.8f, 0.1f), XMFLOAT3(0, 8, 0), &gCameraGreenLight, &gRenderTextureGreenLight);
 Light gLightBlue("light blue", XMFLOAT3(0.1f, 0.1f, 0.8f), XMFLOAT3(0, 0, 8), &gCameraBlueLight, &gRenderTextureBlueLight);
@@ -86,7 +78,20 @@ ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
 void CreateStores()
 {
 	// A. Mesh
-	// mesh.AddTexture(...);
+	gMesh.AddTexture(&gTextureAlbedo);
+	gMesh.AddTexture(&gTextureNormal);
+	gCube.AddTexture(&gTextureAlbedo);
+	gCube.AddTexture(&gTextureNormal);
+	gCube.AddTexture(&gTextureHeight);
+	gPlaneX.AddTexture(&gTextureAlbedo);
+	gPlaneX.AddTexture(&gTextureNormal);
+	gPlaneX.AddTexture(&gTextureHeight);
+	gPlaneY.AddTexture(&gTextureAlbedo);
+	gPlaneY.AddTexture(&gTextureNormal);
+	gPlaneY.AddTexture(&gTextureHeight);
+	gPlaneZ.AddTexture(&gTextureAlbedo);
+	gPlaneZ.AddTexture(&gTextureNormal);
+	gPlaneZ.AddTexture(&gTextureHeight);
 
 	// B. Pass
 	gPassRedLightShadow.SetCamera(&gCameraRedLight);
@@ -116,7 +121,7 @@ void CreateStores()
 	gPassBlueLightShadow.AddShader(&gStandardVS);
 	gPassBlueLightShadow.AddRenderTexture(&gRenderTextureBlueLight, 0, 0, BlendState::NoBlend(), DS_REVERSED_Z_SWITCH);
 
-	gPassStandard.SetCamera(&gMainCamera);
+	gPassStandard.SetCamera(&gCameraMain);
 	gPassStandard.AddMesh(&gMesh);
 	gPassStandard.AddShader(&gStandardVS);
 	gPassStandard.AddShader(&gStandardPS);
@@ -126,8 +131,9 @@ void CreateStores()
 	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
 	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
 	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
 
-	gPassPom.SetCamera(&gMainCamera);
+	gPassPom.SetCamera(&gCameraMain);
 	gPassPom.AddMesh(&gCube);
 	gPassPom.AddMesh(&gPlaneX);
 	gPassPom.AddMesh(&gPlaneY);
@@ -141,29 +147,32 @@ void CreateStores()
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
 
 	// render to path tracer backbuffer
-	gPassPathTracerBlit.SetCamera(&gMainCamera);
+	gPassPathTracerBlit.SetCamera(&gCameraMain);
 	gPassPathTracerBlit.AddMesh(&gFullscreenTriangle);
 	gPassPathTracerBlit.AddShader(&gDeferredVS);
-	gPassPathTracerBlit.AddShader(&gBlitPS);
-	gPassPathTracerBlit.AddTexture(&PathTracer::sPtBackbuffer);
-
+	gPassPathTracerBlit.AddShader(&PathTracer::sPathTracerBlitPS);
+	gPassPathTracerBlit.AddTexture(&PathTracer::sBackbufferPT);
+	gPassPathTracerBlit.AddTexture(&PathTracer::sDebugBackbufferPT);
+	
 	// render to backbuffer
-	gPassDeferred.SetCamera(&gMainCamera);
+	gPassDeferred.SetCamera(&gCameraMain);
 	gPassDeferred.AddMesh(&gFullscreenTriangle);
 	gPassDeferred.AddShader(&gDeferredVS);
 	gPassDeferred.AddShader(&gDeferredPS);
 	gPassDeferred.AddTexture(&gRenderTextureGbuffer0);
 	gPassDeferred.AddTexture(&gRenderTextureGbuffer1);
 	gPassDeferred.AddTexture(&gRenderTextureGbuffer2);
+	gPassDeferred.AddTexture(&gRenderTextureGbuffer3);
 	gPassDeferred.AddTexture(&gRenderTextureDbuffer);
 	gPassDeferred.AddTexture(&gTextureProbe);
 	gPassDeferred.AddTexture(&ImageBasedLighting::sPrefilteredEnvMap);
 	gPassDeferred.AddTexture(&ImageBasedLighting::sLUT);
 
 	// render to back buffer
-	gPassSky.SetCamera(&gMainCamera);
+	gPassSky.SetCamera(&gCameraMain);
 	gPassSky.AddMesh(&gSky);
 	gPassSky.AddShader(&gSkyVS);
 	gPassSky.AddShader(&gSkyPS);
@@ -174,7 +183,6 @@ void CreateStores()
 	// renderer.mFrames[i].AddTexture(...);
 
 	// D. Scene
-	gSceneDefault.mSceneUniform.prefilteredEnvMapLevelCount = ImageBasedLighting::sPrefilteredEnvMapMipLevelCount;
 	gSceneDefault.AddPass(&gPassRedLightShadow);
 	gSceneDefault.AddPass(&gPassGreenLightShadow);
 	gSceneDefault.AddPass(&gPassBlueLightShadow);
@@ -189,7 +197,7 @@ void CreateStores()
 	// scene.AddTexture(...);
 
 	// E. Store
-	gStoreDefault.AddCamera(&gMainCamera); // camera
+	gStoreDefault.AddCamera(&gCameraMain); // camera
 	gStoreDefault.AddCamera(&gCameraDummy);
 	gStoreDefault.AddCamera(&gCameraRedLight);
 	gStoreDefault.AddCamera(&gCameraGreenLight);
@@ -217,7 +225,6 @@ void CreateStores()
 	gStoreDefault.AddShader(&gPomPS); 
 	gStoreDefault.AddShader(&gDeferredPS);
 	gStoreDefault.AddShader(&gSkyPS);
-	gStoreDefault.AddShader(&gBlitPS);
 	gStoreDefault.AddTexture(&gTextureAlbedo); // texture
 	gStoreDefault.AddTexture(&gTextureNormal); // texture
 	gStoreDefault.AddTexture(&gTextureHeight); // texture
@@ -228,6 +235,7 @@ void CreateStores()
 	gStoreDefault.AddTexture(&gRenderTextureGbuffer0);
 	gStoreDefault.AddTexture(&gRenderTextureGbuffer1);
 	gStoreDefault.AddTexture(&gRenderTextureGbuffer2);
+	gStoreDefault.AddTexture(&gRenderTextureGbuffer3);
 	gStoreDefault.AddTexture(&gRenderTextureDbuffer);
 
 	// F. Renderer
@@ -280,7 +288,7 @@ void UpdateDetectInput()
 
 	POINT mouseCurrentCursorPos = {};
 	GetCursorPos(&mouseCurrentCursorPos);
-	ScreenToClient(gHwnd, &mouseCurrentCursorPos);
+	//ScreenToClient(gHwnd, &mouseCurrentCursorPos); // don't want to use absolute position
 	
 	//keyboard control
 	//this is handled in mainloop, no need to do this here again
@@ -305,9 +313,9 @@ void UpdateDetectInput()
 
 	if (gMouseAcquired)
 	{
-		// camera control
-		bool orbit = false;
-		bool pan = false;
+		bool needToUpdateCamera = false;
+		bool needToRestartPathTracer = false;
+		bool needToUpdateSceneUniform = false;
 
 		// mouse control
 		DIMOUSESTATE mouseCurrentState = {};
@@ -316,9 +324,10 @@ void UpdateDetectInput()
 		// c + scroll to zoom
 		if (mouseCurrentState.lZ != 0)
 		{
-			float tempDistance = gMainCamera.GetDistance() - mouseCurrentState.lZ * 0.01;
+			float tempDistance = gCameraMain.GetDistance() - mouseCurrentState.lZ * 0.01;
 			if (tempDistance < 0 + EPSILON) tempDistance = 0.1 + EPSILON;
-			gMainCamera.SetDistance(tempDistance);
+			gCameraMain.SetDistance(tempDistance);
+			needToUpdateCamera = true;
 		}
 
 		// c + left button + drag to orbit
@@ -326,14 +335,16 @@ void UpdateDetectInput()
 		{
 			if (mouseCurrentState.lX != 0)
 			{
-				gMainCamera.SetHorizontalAngle(gMainCamera.GetHorizontalAngle() + mouseCurrentState.lX * -0.1f);
+				gCameraMain.SetHorizontalAngle(gCameraMain.GetHorizontalAngle() + mouseCurrentState.lX * -0.1f);
+				needToUpdateCamera = true;
 			}
 			if (mouseCurrentState.lY != 0)
 			{
-				float tempVerticalAngle = gMainCamera.GetVerticalAngle() + mouseCurrentState.lY * 0.1f;
+				float tempVerticalAngle = gCameraMain.GetVerticalAngle() + mouseCurrentState.lY * 0.1f;
 				if (tempVerticalAngle > 90 - EPSILON) tempVerticalAngle = 89.f - EPSILON;
 				if (tempVerticalAngle < -90 + EPSILON) tempVerticalAngle = -89.f + EPSILON;
-				gMainCamera.SetVerticalAngle(tempVerticalAngle);
+				gCameraMain.SetVerticalAngle(tempVerticalAngle);
+				needToUpdateCamera = true;
 			}
 		}
 
@@ -341,18 +352,53 @@ void UpdateDetectInput()
 		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
 		{
 			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.005f;
-			float dy = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.005f;
-			XMVECTOR originalTarget = XMLoadFloat3(&gMainCamera.GetTarget());
-			XMVECTOR right = XMLoadFloat3(&gMainCamera.GetRight());
-			XMVECTOR up = XMLoadFloat3(&gMainCamera.GetRealUp());
-			XMFLOAT3 newTarget = {};
-			XMStoreFloat3(&newTarget, originalTarget + right * dX + up * dy);
-			gMainCamera.SetTarget(newTarget);
+			float dY = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.005f;
+			if (dX || dY)
+			{
+				XMVECTOR originalTarget = XMLoadFloat3(&gCameraMain.GetTarget());
+				XMVECTOR right = XMLoadFloat3(&gCameraMain.GetRight());
+				XMVECTOR up = XMLoadFloat3(&gCameraMain.GetRealUp());
+				XMFLOAT3 newTarget = {};
+				XMStoreFloat3(&newTarget, originalTarget + right * dX + up * dY);
+				gCameraMain.SetTarget(newTarget);
+				needToUpdateCamera = true;
+			}
+		}
+
+		// c + right button to debug ray
+		if (BUTTONDOWN(mouseCurrentState.rgbButtons[1]))
+		{
+			bool xPosChanged = mouseCurrentCursorPos.x != gMouseLastCursorPos.x;
+			bool yPosChanged = mouseCurrentCursorPos.y != gMouseLastCursorPos.y;
+			if (xPosChanged || yPosChanged)
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugPixelX = mouseCurrentCursorPos.x;
+				gSceneDefault.mSceneUniform.mPathTracerDebugPixelY = mouseCurrentCursorPos.y;
+				needToRestartPathTracer = true;
+			}
+		}
+
+		needToRestartPathTracer = needToRestartPathTracer || needToUpdateCamera;
+		needToUpdateSceneUniform = needToUpdateSceneUniform || needToRestartPathTracer;
+
+		if (needToUpdateCamera)
+		{
+			gCameraMain.Update();
+			gCameraMain.SetPassUniformDirty();
+		}
+
+		if (needToRestartPathTracer)
+		{
+			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
+			gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
+		}
+
+		if (needToUpdateSceneUniform)
+		{
+			gSceneDefault.SetUniformDirty();
 		}
 
 		gMouseLastState = mouseCurrentState;
-		gMainCamera.Update();
-		gUpdateCamera = gRenderer.mFrameCount;
 	}
 	
 	gMouseLastCursorPos = mouseCurrentCursorPos;
@@ -377,7 +423,7 @@ bool InitImgui()
 	// Setup Platform/Renderer bindings
 	ImGui_ImplWin32_Init(gHwnd);
 	ImGui_ImplDX12_Init(gRenderer.mDevice,
-		gRenderer.mFrameCount,
+		gRenderer.mFramebufferCount,
 		Renderer::TranslateFormat(gSwapchainColorBufferFormat),
 		g_pd3dSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
 		g_pd3dSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
@@ -411,87 +457,115 @@ void UpdateGameLogic()
 void UpdateResourcesGPU()
 {
 	// update per frame resource (after waiting for the current frame to finish)
-	if (gUpdateCamera > 0)
-	{
-		// TODO: store a list of passes in camera and automate this shit
-		gMainCamera.UpdatePassUniformBuffer(gRenderer.mCurrentFrameIndex);
-		gUpdateCamera--;
-	}
-
-	if (gUpdateSettings > 0)
-	{
-		gSceneDefault.UpdateUniformBuffer(gRenderer.mCurrentFrameIndex);
-		gUpdateSettings--;
-	}
+	gRenderer.mFrames[gRenderer.mCurrentFramebufferIndex].mFrameUniform.mFrameCountSinceGameStart = gRenderer.mFrameCountSinceGameStart;
+	gRenderer.mFrames[gRenderer.mCurrentFramebufferIndex].UpdateUniformBuffer();
 }
 
 void WaitForCurrentFrame()
 {
-	if (!gRenderer.WaitForFrame(gRenderer.mCurrentFrameIndex))
+	if (!gRenderer.WaitForFrame(gRenderer.mCurrentFramebufferIndex))
 		debugbreak(gRunning = false);
 }
 
 void Record()
 {
-	if (!gRenderer.RecordBegin(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
+	ID3D12GraphicsCommandList* commandList = gRenderer.mCommandLists[gRenderer.mCurrentFramebufferIndex];
+
+	if (!gRenderer.RecordBegin(gRenderer.mCurrentFramebufferIndex, commandList))
 		debugbreak(gRunning = false);
 
-	if (gPathTracerMode)
+	if (gPathTracerMode) // path tracer
 	{
-		PathTracer::RunPathTracer(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderer.RecordPass(gPassPathTracerBlit, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
+		bool finished = gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex >= gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel;
+		if (finished && gPathTracerForceUpdate)
+			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
+		if (!finished || gPathTracerForceUpdate)
+		{
+			if (gSceneDefault.mSceneUniform.mPathTracerMode == PATH_TRACER_MODE_PROGRESSIVE)
+			{
+				PathTracer::RunPathTracer(commandList);
+				if (gSceneDefault.mSceneUniform.mPathTracerCurrentDepth < gSceneDefault.mSceneUniform.mPathTracerMaxDepth)
+				{
+					gSceneDefault.mSceneUniform.mPathTracerCurrentDepth++;
+				}
+				else
+				{
+					gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
+					gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex++;
+				}
+			}
+			else
+			{
+				PathTracer::RunPathTracer(commandList);
+				gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex++;
+			}
+		}
+
+		// always render debug passes for easier renderdoc capture
+		PathTracer::sDebugRayBuffer.MakeReadyToRead(commandList);
+		PathTracer::sDebugBackbufferPT.MakeReadyToRender(commandList);
+		PathTracer::sDepthbufferRenderPT.MakeReadyToRender(commandList);
+		gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugPass, commandList, PATH_TRACER_MAX_DEPTH_MAX, true, false, false);
+		gRenderer.RecordGraphicsPass(PathTracer::sPathTracerDebugFullscreenPass, commandList, false, false, false);
+
+		PathTracer::sBackbufferPT.MakeReadyToRead(commandList);
+		PathTracer::sDebugBackbufferPT.MakeReadyToRead(commandList);
+		gRenderer.RecordGraphicsPass(gPassPathTracerBlit, commandList, false, false, false);
+		gSceneDefault.SetUniformDirty(); // set dirty in the end for subsequent drawcalls (mainly for next frame)
 	}
-	else
+	else // rasterizer
 	{
-		gRenderTextureRedLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGreenLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureBlueLight.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureRedLight.MakeReadyToRender(commandList);
+		gRenderTextureGreenLight.MakeReadyToRender(commandList);
+		gRenderTextureBlueLight.MakeReadyToRender(commandList);
 
-		gRenderer.RecordPass(gPassRedLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
-		gRenderer.RecordPass(gPassGreenLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
-		gRenderer.RecordPass(gPassBlueLightShadow, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false);
+		gRenderer.RecordGraphicsPass(gPassRedLightShadow, commandList, false);
+		gRenderer.RecordGraphicsPass(gPassGreenLightShadow, commandList, false);
+		gRenderer.RecordGraphicsPass(gPassBlueLightShadow, commandList, false);
 
-		gRenderTextureRedLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGreenLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureBlueLight.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureRedLight.MakeReadyToRead(commandList);
+		gRenderTextureGreenLight.MakeReadyToRead(commandList);
+		gRenderTextureBlueLight.MakeReadyToRead(commandList);
 
-		gRenderTextureGbuffer0.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGbuffer1.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGbuffer2.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureDbuffer.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer0.MakeReadyToRender(commandList);
+		gRenderTextureGbuffer1.MakeReadyToRender(commandList);
+		gRenderTextureGbuffer2.MakeReadyToRender(commandList);
+		gRenderTextureGbuffer3.MakeReadyToRender(commandList);
+		gRenderTextureDbuffer.MakeReadyToRender(commandList);
 
-		gRenderer.RecordPass(gPassStandard, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderer.RecordPass(gPassPom, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+		gRenderer.RecordGraphicsPass(gPassStandard, commandList);
+		gRenderer.RecordGraphicsPass(gPassPom, commandList, false, false, false);
 
-		gRenderTextureGbuffer0.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGbuffer1.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureGbuffer2.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderTextureDbuffer.MakeReadyToRead(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+		gRenderTextureGbuffer0.MakeReadyToRead(commandList);
+		gRenderTextureGbuffer1.MakeReadyToRead(commandList);
+		gRenderTextureGbuffer2.MakeReadyToRead(commandList);
+		gRenderTextureGbuffer3.MakeReadyToRead(commandList);
+		gRenderTextureDbuffer.MakeReadyToRead(commandList);
 
-		gRenderer.RecordPass(gPassDeferred, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], true, false, false);
+		gRenderer.RecordGraphicsPass(gPassDeferred, commandList, true, false, false);
 
-		gRenderTextureDbuffer.MakeReadyToRender(gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
-		gRenderer.RecordPass(gPassSky, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex], false, false, false);
+		gRenderTextureDbuffer.MakeReadyToRender(commandList);
+		gRenderer.RecordGraphicsPass(gPassSky, commandList, false, false, false);
 	}
 
-	gRenderer.ResolveFrame(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	gRenderer.ResolveFrame(gRenderer.mCurrentFramebufferIndex, commandList);
 
 	///////// IMGUI PIPELINE /////////
 	//vvvvvvvvvvvvvvvvvvvvvvvvvvvvvv//
-	gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]->OMSetRenderTargets(1, &gRenderer.GetRtvHandle(gRenderer.mCurrentFrameIndex), FALSE, nullptr);
-	gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
+	commandList->OMSetRenderTargets(1, &gRenderer.GetRtvHandle(gRenderer.mCurrentFramebufferIndex), FALSE, nullptr);
+	commandList->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
 	ImGui::Render();
-	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]);
+	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 	///////// IMGUI PIPELINE /////////
 	//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 
-	if (!gRenderer.RecordEnd(gRenderer.mCurrentFrameIndex, gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex]))
+	if (!gRenderer.RecordEnd(gRenderer.mCurrentFramebufferIndex, commandList))
 		debugbreak(gRunning = false);
 }
 
 void Submit()
 {
-	if (!gRenderer.Submit(gRenderer.mCurrentFrameIndex, gRenderer.mGraphicsCommandQueue, { gRenderer.mCommandLists[gRenderer.mCurrentFrameIndex] }))
+	if (!gRenderer.Submit(gRenderer.mCurrentFramebufferIndex, gRenderer.mGraphicsCommandQueue, { gRenderer.mCommandLists[gRenderer.mCurrentFramebufferIndex] }))
 		debugbreak(gRunning = false);
 }
 
@@ -511,208 +585,266 @@ void Draw()
 	Record();
 	Submit();
 	Present();
-	gRenderer.mFrameCountTotal++;
 }
 
-void UpdateUI()
+void UpdateUI(bool initOnly = false)
 {
-	ImGui_ImplDX12_NewFrame();
-	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
+	static int mode = gSceneDefault.mSceneUniform.mMode = 0;
+	static int pomMarchStep = gSceneDefault.mSceneUniform.mPomMarchStep = 10;
+	static float pomScale = gSceneDefault.mSceneUniform.mPomScale = 0.07f;
+	static float pomBias = gSceneDefault.mSceneUniform.mPomBias = 0.3f;
+	static float skyScatterG = gSceneDefault.mSceneUniform.mSkyScatterG = 0.975f;
+	static int skyMarchStep = gSceneDefault.mSceneUniform.mSkyMarchStep = 10;
+	static int skyMarchStepTr = gSceneDefault.mSceneUniform.mSkyMarchStepTr = 5;
+	static XMFLOAT3 sunRadiance = gSceneDefault.mSceneUniform.mSunRadiance = XMFLOAT3(6.639f, 3.718f, 5.777f);
+	static float sunAzimuth = gSceneDefault.mSceneUniform.mSunAzimuth = 0.080f;
+	static float sunAltitude = gSceneDefault.mSceneUniform.mSunAltitude = 0.116f;
+	static int lightDebugOffset = gSceneDefault.mSceneUniform.mLightDebugOffset = 0;
+	static int lightDebugCount = gSceneDefault.mSceneUniform.mLightDebugCount = 0;
+	static float fresnel = gSceneDefault.mSceneUniform.mFresnel = 0.9f;
+	static float roughness = gSceneDefault.mSceneUniform.mRoughness = 0.265f;
+	static bool usePerPassTextures = gSceneDefault.mSceneUniform.mUsePerPassTextures = 0;
+	static XMFLOAT4 standardColor = gSceneDefault.mSceneUniform.mStandardColor = XMFLOAT4(0.9f, 0.8f, 0.05f, 1.0f);
+	static float metallic = gSceneDefault.mSceneUniform.mMetallic = 1.0f;
+	static float specularity = gSceneDefault.mSceneUniform.mSpecularity = 1.0f;
+	static int sampleNumIBL = gSceneDefault.mSceneUniform.mSampleNumIBL = 32;
+	static int showReferenceIBL = gSceneDefault.mSceneUniform.mShowReferenceIBL = 0;
+	static int useSceneLight = gSceneDefault.mSceneUniform.mUseSceneLight = 1;
+	static int useSunLight = gSceneDefault.mSceneUniform.mUseSunLight = 1;
+	static int useIBL = gSceneDefault.mSceneUniform.mUseIBL = 1;
+	static int pathTracerSPP = gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel = 10;
+	static int pathTracerMinDepth = gSceneDefault.mSceneUniform.mPathTracerMinDepth = 3;
+	static int pathTracerMaxDepth = gSceneDefault.mSceneUniform.mPathTracerMaxDepth = 10;
+	static bool pathTracerEnableDebug = gSceneDefault.mSceneUniform.mPathTracerEnableDebug = 0;
+	static bool pathTracerUpdateDebug = gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = 0;
+	bool needToUpdateSceneUniform = false;
+	bool needToRestartPathTracer = false;
 
-	static int mode = gSceneDefault.mSceneUniform.mode = 0;
-	static int pomMarchStep = gSceneDefault.mSceneUniform.pomMarchStep = 10;
-	static float pomScale = gSceneDefault.mSceneUniform.pomScale = 0.07f;
-	static float pomBias = gSceneDefault.mSceneUniform.pomBias = 0.3f;
-	static float skyScatterG = gSceneDefault.mSceneUniform.skyScatterG = 0.975f;
-	static int skyMarchStep = gSceneDefault.mSceneUniform.skyMarchStep = 10;
-	static int skyMarchStepTr = gSceneDefault.mSceneUniform.skyMarchStepTr = 5;
-	static XMFLOAT3 sunRadiance = gSceneDefault.mSceneUniform.sunRadiance = XMFLOAT3(6.639f, 3.718f, 5.777f);
-	static float sunAzimuth = gSceneDefault.mSceneUniform.sunAzimuth = 0.080f;
-	static float sunAltitude = gSceneDefault.mSceneUniform.sunAltitude = 0.116f;
-	static int lightDebugOffset = gSceneDefault.mSceneUniform.lightDebugOffset = 0;
-	static int lightDebugCount = gSceneDefault.mSceneUniform.lightDebugCount = 0;
-	static float fresnel = gSceneDefault.mSceneUniform.fresnel = 0.9f;
-	static float roughness = gSceneDefault.mSceneUniform.roughness = 0.265f;
-	static bool useStandardTextures = gSceneDefault.mSceneUniform.useStandardTextures = false;
-	static XMFLOAT4 standardColor = gSceneDefault.mSceneUniform.standardColor = XMFLOAT4(0.9f, 0.8f, 0.05f, 1.0f);
-	static float metallic = gSceneDefault.mSceneUniform.metallic = 1.0f;
-	static float specularity = gSceneDefault.mSceneUniform.specularity = 1.0f;
-	static int sampleNumIBL = gSceneDefault.mSceneUniform.sampleNumIBL = 32;
-	static int showReferenceIBL = gSceneDefault.mSceneUniform.showReferenceIBL = 0;
-	static int useSceneLight = gSceneDefault.mSceneUniform.useSceneLight = 1;
-	static int useSunLight = gSceneDefault.mSceneUniform.useSunLight = 1;
-	static int useIBL = gSceneDefault.mSceneUniform.useIBL = 1;
-	static bool needToUpdateSceneUniform = true;
-
-	ImGui::SetNextWindowPos(ImVec2(0, 0));
-
-	ImGui::Begin("Control Panel ");
-
-	if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
+	if (!initOnly)
 	{
-		gSceneDefault.mSceneUniform.mode = mode;
-		needToUpdateSceneUniform = true;
+		ImGui_ImplDX12_NewFrame();
+		ImGui_ImplWin32_NewFrame();
+		ImGui::NewFrame();
+
+		ImGui::SetNextWindowPos(ImVec2(0, 0));
+
+		ImGui::Begin("Control Panel ");
+
+		if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
+		{
+			gSceneDefault.mSceneUniform.mMode = mode;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("pomMarchStep", &pomMarchStep, 0, 50))
+		{
+			gSceneDefault.mSceneUniform.mPomMarchStep = pomMarchStep;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("pomScale", &pomScale, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mPomScale = pomScale;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("pomBias", &pomBias, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mPomBias = pomBias;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("skyScatterG", &skyScatterG, -2.0f, 2.0f))
+		{
+			gSceneDefault.mSceneUniform.mSkyScatterG = skyScatterG;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("skyMarchStep", &skyMarchStep, 0, 50))
+		{
+			gSceneDefault.mSceneUniform.mSkyMarchStep = skyMarchStep;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("skyMarchStepTr", &skyMarchStepTr, 0, 50))
+		{
+			gSceneDefault.mSceneUniform.mSkyMarchStepTr = skyMarchStepTr;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("sunRadianceR", &sunRadiance.x, 0.0f, 10.0f))
+		{
+			gSceneDefault.mSceneUniform.mSunRadiance.x = sunRadiance.x;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("sunRadianceG", &sunRadiance.y, 0.0f, 10.0f))
+		{
+			gSceneDefault.mSceneUniform.mSunRadiance.y = sunRadiance.y;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("sunRadianceB", &sunRadiance.z, 0.0f, 10.0f))
+		{
+			gSceneDefault.mSceneUniform.mSunRadiance.z = sunRadiance.z;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("sunAzimuth", &sunAzimuth, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mSunAzimuth = sunAzimuth;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mSunAltitude = sunAltitude;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("lightDebugOffset", &lightDebugOffset, 0, gSceneDefault.GetLightCount() - 1))
+		{
+			gSceneDefault.mSceneUniform.mLightDebugOffset = lightDebugOffset;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("lightDebugCount", &lightDebugCount, 0, gSceneDefault.GetLightCount()))
+		{
+			gSceneDefault.mSceneUniform.mLightDebugCount = lightDebugCount;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("fresnel", &fresnel, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mFresnel = fresnel;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mRoughness = roughness;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::Checkbox("useStandardTextures", &usePerPassTextures))
+		{
+			gSceneDefault.mSceneUniform.mUsePerPassTextures = usePerPassTextures ? 1 : 0;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::ColorEdit4("standardColor", (float*)&standardColor))
+		{
+			gSceneDefault.mSceneUniform.mStandardColor = standardColor;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mMetallic = metallic;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("specularity", &specularity, 0.0f, 1.0f))
+		{
+			gSceneDefault.mSceneUniform.mSpecularity = specularity;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("sampleNumIBL", &sampleNumIBL, 0, 128))
+		{
+			gSceneDefault.mSceneUniform.mSampleNumIBL = sampleNumIBL;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("showReferenceIBL", &showReferenceIBL, 0, 1))
+		{
+			gSceneDefault.mSceneUniform.mShowReferenceIBL = showReferenceIBL;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("useSceneLight", &useSceneLight, 0, 1))
+		{
+			gSceneDefault.mSceneUniform.mUseSceneLight = useSceneLight;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("useSunLight", &useSunLight, 0, 1))
+		{
+			gSceneDefault.mSceneUniform.mUseSunLight = useSunLight;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderInt("useIBL", &useIBL, 0, 1))
+		{
+			gSceneDefault.mSceneUniform.mUseIBL = useIBL;
+			needToUpdateSceneUniform = true;
+		}
+
+		ImGui::Separator();
+
+		if (ImGui::Combo("pathTracerMode", &gPathTracerMode, "off\0default\0progressive\0triangle\0light\0mesh\0albedo\0normal"))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerMode = gPathTracerMode;
+			needToRestartPathTracer = true;
+		}
+
+		ImGui::Checkbox("pathTracerForceUpdate", &gPathTracerForceUpdate);
+
+		if (ImGui::SliderInt("pathTracerSPP", &pathTracerSPP, 1, 100))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel = pathTracerSPP;
+			needToRestartPathTracer = true;
+		}
+
+		if (ImGui::SliderInt("pathTracerMinDepth", &pathTracerMinDepth, 0, PATH_TRACER_MIN_DEPTH_MAX))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerMinDepth = pathTracerMinDepth;
+			needToRestartPathTracer = true;
+		}
+
+		if (ImGui::SliderInt("pathTracerMaxDepth", &pathTracerMaxDepth, PATH_TRACER_MIN_DEPTH_MAX + 1, PATH_TRACER_MAX_DEPTH_MAX))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerMaxDepth = pathTracerMaxDepth;
+			needToRestartPathTracer = true;
+		}
+
+		if (ImGui::Checkbox("pathTracerEnableDebug", &pathTracerEnableDebug))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerEnableDebug = pathTracerEnableDebug;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::Checkbox("pathTracerUpdateDebug", &pathTracerUpdateDebug))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = pathTracerUpdateDebug;
+			needToUpdateSceneUniform = true;
+		}
+		
+		ImGui::Text("[Path Tracer Debug] Debug Pixel Pos (%d,%d)",
+			gSceneDefault.mSceneUniform.mPathTracerDebugPixelX,
+			gSceneDefault.mSceneUniform.mPathTracerDebugPixelY);
+		ImGui::Text("[Path Tracer] (%d/%d) depth (%d/%d) sample per pixel done",
+			gSceneDefault.mSceneUniform.mPathTracerCurrentDepth,
+			gSceneDefault.mSceneUniform.mPathTracerMaxDepth,
+			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex,
+			gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel);
+		ImGui::Text("%.3f ms/frame (%.1f FPS) ", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+		ImGui::Text("Hold C and use mouse to rotate camera.");
+		ImGui::End();
 	}
 
-	if (ImGui::SliderInt("pomMarchStep", &pomMarchStep, 0, 50))
-	{
-		gSceneDefault.mSceneUniform.pomMarchStep = pomMarchStep;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("pomScale", &pomScale, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.pomScale = pomScale;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("pomBias", &pomBias, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.pomBias = pomBias;
-		needToUpdateSceneUniform = true;
-	}
+	needToRestartPathTracer = needToRestartPathTracer || initOnly;
+	needToUpdateSceneUniform = needToUpdateSceneUniform || needToRestartPathTracer;
 	
-	if (ImGui::SliderFloat("skyScatterG", &skyScatterG, -2.0f, 2.0f))
+	if (needToRestartPathTracer)
 	{
-		gSceneDefault.mSceneUniform.skyScatterG = skyScatterG;
-		needToUpdateSceneUniform = true;
+		gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
+		gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
 	}
-
-	if (ImGui::SliderInt("skyMarchStep", &skyMarchStep, 0, 50))
-	{
-		gSceneDefault.mSceneUniform.skyMarchStep = skyMarchStep;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("skyMarchStepTr", &skyMarchStepTr, 0, 50))
-	{
-		gSceneDefault.mSceneUniform.skyMarchStepTr = skyMarchStepTr;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("sunRadianceR", &sunRadiance.x, 0.0f, 10.0f))
-	{
-		gSceneDefault.mSceneUniform.sunRadiance.x = sunRadiance.x;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("sunRadianceG", &sunRadiance.y, 0.0f, 10.0f))
-	{
-		gSceneDefault.mSceneUniform.sunRadiance.y = sunRadiance.y;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("sunRadianceB", &sunRadiance.z, 0.0f, 10.0f))
-	{
-		gSceneDefault.mSceneUniform.sunRadiance.z = sunRadiance.z;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("sunAzimuth", &sunAzimuth, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.sunAzimuth = sunAzimuth;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.sunAltitude = sunAltitude;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("lightDebugOffset", &lightDebugOffset, 0, gSceneDefault.GetLightCount() - 1))
-	{
-		gSceneDefault.mSceneUniform.lightDebugOffset = lightDebugOffset;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("lightDebugCount", &lightDebugCount, 0, gSceneDefault.GetLightCount()))
-	{
-		gSceneDefault.mSceneUniform.lightDebugCount = lightDebugCount;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("fresnel", &fresnel, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.fresnel = fresnel;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.roughness = roughness;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::Checkbox("useStandardTextures", &useStandardTextures))
-	{
-		gSceneDefault.mSceneUniform.useStandardTextures = useStandardTextures ? 1.0f : 0.0f;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::ColorEdit4("standardColor", (float*)&standardColor))
-	{
-		gSceneDefault.mSceneUniform.standardColor = standardColor;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.metallic = metallic;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderFloat("specularity", &specularity, 0.0f, 1.0f))
-	{
-		gSceneDefault.mSceneUniform.specularity = specularity;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("sampleNumIBL", &sampleNumIBL, 0, 128))
-	{
-		gSceneDefault.mSceneUniform.sampleNumIBL = sampleNumIBL;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("showReferenceIBL", &showReferenceIBL, 0, 1))
-	{
-		gSceneDefault.mSceneUniform.showReferenceIBL = showReferenceIBL;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("useSceneLight", &useSceneLight, 0, 1))
-	{
-		gSceneDefault.mSceneUniform.useSceneLight = useSceneLight;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("useSunLight", &useSunLight, 0, 1))
-	{
-		gSceneDefault.mSceneUniform.useSunLight = useSunLight;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("useIBL", &useIBL, 0, 1))
-	{
-		gSceneDefault.mSceneUniform.useIBL = useIBL;
-		needToUpdateSceneUniform = true;
-	}
-
-	if (ImGui::SliderInt("pathTracerMode", &gPathTracerMode, 0, 1))
-	{
-		gSceneDefault.mSceneUniform.pathTracerMode = gPathTracerMode;
-		needToUpdateSceneUniform = true;
-	}
-
-	ImGui::Text("%.3f ms/frame (%.1f FPS) ", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-	ImGui::Text("Hold C and use mouse to rotate camera.");
-	ImGui::End();
 
 	if (needToUpdateSceneUniform)
 	{
-		gUpdateSettings = gRenderer.mFrameCount;
-		needToUpdateSceneUniform = false;
+		gSceneDefault.SetUniformDirty();
 	}
 }
 
@@ -859,7 +991,7 @@ void MainLoop()
 	}
 }
 
-void CreateSystems()
+void InitSystems()
 {
 	ImageBasedLighting::InitIBL(gStoreDefault, gSceneDefault);
 	PathTracer::InitPathTracer(gStoreDefault, gSceneDefault);
@@ -867,13 +999,14 @@ void CreateSystems()
 
 void PrepareSystems()
 {
-	gUpdateCamera = gRenderer.mFrameCount + 1; // 1 for preparation, rest for initialization
+	gCameraMain.SetPassUniformDirty();
+	gSceneDefault.SetUniformDirty();
 	UpdateResourcesGPU();
 
 	ID3D12GraphicsCommandList* commandList = gRenderer.BeginSingleTimeCommands();
 
 	ImageBasedLighting::PrepareIBL(commandList);
-	PathTracer::PreparePathTracer();
+	PathTracer::PreparePathTracer(commandList, gSceneDefault);
 
 	gRenderer.EndSingleTimeCommands(commandList);
 }
@@ -883,7 +1016,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	InitConsole();
 
 	// create the window
-	if (!InitWindow(hInstance, gWidth, gHeight, nShowCmd, gFullScreen))
+	if (!InitWindow(hInstance, gWindowWidth, gWindowHeight, nShowCmd, gFullScreen))
 	{
 		MessageBox(0, L"Window Initialization - Failed", L"Error", MB_OK);
 		return 1;
@@ -896,22 +1029,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
-	// use hard coded data to create the store
+	// use hard coded data to create the stores and the scene structure
 	CreateStores();
 
-	// create systems
-	CreateSystems();
+	// init systems and update related scene structures
+	InitSystems();
 
 	// initialize renderer
 	if (!gRenderer.InitRenderer(
 		gHwnd, 
 		gFrameCount, 
 		gMultiSampleCount, 
-		gWidth, 
-		gHeight,
+		gWindowWidth, 
+		gWindowHeight,
 		gSwapchainColorBufferFormat,
 		gSwapchainDepthStencilBufferFormat,
-		DebugMode::GBV))
+		gRendererDebugMode))
 	{
 		MessageBox(0, L"Failed to initialize renderer", L"Error", MB_OK);
 		Cleanup();
@@ -926,6 +1059,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		return 1;
 	}
 
+	// force flush UI once so that debug data are updated and marked dirty
+	UpdateUI(true);
+
 	// prepare systems
 	PrepareSystems();
 
@@ -936,18 +1072,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	Cleanup();
 
 	return 0;
-}
-
-int GetUniformSlot(RegisterSpace space, RegisterType type)
-{
-	// constant buffer is root parameter, SRV, sampler and UAV are stored in table
-	//                 b0 CBV | t0 SRV | s0 sampler | u0 UAV |
-	// space 0 scene   0      | 4      | 8          | 12     |
-	// space 1 frame   1      | 5      | 9          | 13     |
-	// space 2 pass    2      | 6      | 10         | 14     |
-	// space 3 object  3      | 7      | 11         | 15     |
-
-	return (int)space + (int)type * (int)RegisterSpace::COUNT;
 }
 
 // return true if it is error

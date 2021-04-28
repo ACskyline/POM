@@ -52,7 +52,7 @@ public:
 	float GetFov();
 	void SetTarget(XMFLOAT3 target);
 	void AddPass(Pass* pass);
-	void UpdatePassUniformBuffer(int frameIndex);
+	void SetPassUniformDirty(int frameIndex = -1);
 	XMFLOAT3 ScreenToWorld(XMFLOAT2 screenPos, bool useNearClipPlane = false);
 
 protected:

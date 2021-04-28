@@ -26,6 +26,7 @@ public:
 	XMFLOAT4X4 GetProjInvMatrix() const;
 	RenderTexture* GetRenderTexture() const;
 	int GetTextureIndex() const;
+	LightData CreateLightData() const;
 
 	void SetTextureIndex(int index);
 	void SetScene(Scene* scene);
@@ -34,7 +35,7 @@ public:
 	void Release();
 
 private:
-	int mTextureIndex; // corresponding texture index in a scene
+	int mTextureIndex; // corresponding texture index in a scene, currently only shadow maps
 	bool mUseShadow;
 	string mName;
 	XMFLOAT3 mColor;

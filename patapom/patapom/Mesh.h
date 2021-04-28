@@ -6,21 +6,18 @@
 class Mesh
 {
 public:
-	enum class MeshType { 
+	enum class MeshType
+	{ 
 		PLANE, 
 		CUBE, 
 		FULLSCREEN_QUAD, 
 		FULLSCREEN_TRIANGLE, 
 		SKY_FULLSCREEN_TRIANGLE, // z value is at the farthest
 		MESH, 
-		COUNT };
-
-	struct ObjectUniform
-	{
-		XMFLOAT4X4 mModel;
-		XMFLOAT4X4 mModelInv;
+		LINE,
+		COUNT 
 	};
-	
+
 	Mesh(const wstring& debugName,
 		const MeshType& type,
 		const XMFLOAT3& position,
@@ -50,21 +47,27 @@ public:
 
 	void Release(bool checkOnly = false);
 
-	D3D_PRIMITIVE_TOPOLOGY GetPrimitiveType();
-	D3D12_VERTEX_BUFFER_VIEW GetVertexBufferView();
-	D3D12_INDEX_BUFFER_VIEW GetIndexBufferView();
-	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE GetSamplerDescriptorHeapTableHandle(int frameIndex);
-
+	PrimitiveType GetPrimitiveType() const;
+	D3D12_VERTEX_BUFFER_VIEW GetVertexBufferView() const;
+	D3D12_INDEX_BUFFER_VIEW GetIndexBufferView() const;
+	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex) const; 
+	D3D12_GPU_DESCRIPTOR_HANDLE GetCbvSrvUavDescriptorHeapTableHandle(int frameIndex) const;
+	D3D12_GPU_DESCRIPTOR_HANDLE GetSamplerDescriptorHeapTableHandle(int frameIndex) const;
+	
+	void AddTexture(Texture* texture);
 	void SetPosition(const XMFLOAT3&position);
 	void SetRotation(const XMFLOAT3&rotation);
 	XMFLOAT3 GetPosition();
 	XMFLOAT3 GetRotation();
-	int GetIndexCount();
-	int GetTextureCount();
-	void ConvertMeshToTriangles(vector<Triangle>& outTriangles);
-	
+	int GetIndexCount() const;
+	int GetTextureCount() const;
+	vector<Texture*>& GetTextures();
+	wstring GetDebugName() const;
+
+	void ConvertMeshToTrianglesPT(vector<TrianglePT>& outTriangles, u32 meshIndex);
+	Vertex TransformVertexToWorldSpace(const Vertex& vertex, const XMFLOAT4X4& m, const XMFLOAT4X4& mInv);
+
+	ObjectUniform mObjectUniform;
 private:
 	struct Point
 	{
@@ -82,10 +85,9 @@ private:
 
 	vector<Vertex> mVertexVec;
 	vector<uint32_t> mIndexVec;
-	vector<Texture*> mTextureVec;
+	vector<Texture*> mTextures;
 
 	Renderer* mRenderer;
-	ObjectUniform mObjectUniform;
 
 	UINT mVertexBufferSizeInBytes;
 	UINT mIndexBufferSizeInBytes;
@@ -95,11 +97,12 @@ private:
 	ID3D12Resource* mIndexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW mVertexBufferView;
 	D3D12_INDEX_BUFFER_VIEW mIndexBufferView;
-	D3D_PRIMITIVE_TOPOLOGY mPrimitiveType;
+	PrimitiveType mPrimitiveType;
 	vector<ID3D12Resource*> mUniformBufferVec;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mCbvSrvUavDescriptorHeapTableHandleVec;
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandleVec;
 
+	void UpdateMatrix();
 	void SetCube();
 	void SetPlane();
 	void SetFullscreenQuad();
@@ -107,6 +110,7 @@ private:
 	void SetFullscreenTriangle();
 	void SetSkyFullscreenTriangle();
 	void SetMesh();
+	void SetLine();
 
 	void AssembleObjMesh(
 		const vector<XMFLOAT3> &vecPos,

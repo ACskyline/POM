@@ -4,7 +4,7 @@
 #include "Light.h"
 
 Scene::Scene(const wstring& debugName) : 
-	mRenderer(nullptr), mDebugName(debugName)
+	mRenderer(nullptr), mDebugName(debugName), mUniformDirtyFlag(0)
 {
 }
 
@@ -35,9 +35,30 @@ void Scene::AddLight(Light* light)
 	}
 }
 
+void Scene::SetUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		mUniformDirtyFlag = ~0;
+	else
+		mUniformDirtyFlag |= 1 << frameIndex;
+}
+
+void Scene::ResetUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		mUniformDirtyFlag = 0;
+	else
+		mUniformDirtyFlag &= ~(1 << frameIndex);
+}
+
 vector<Pass*>& Scene::GetPasses()
 {
 	return mPasses;
+}
+
+vector<Light*>& Scene::GetLights()
+{
+	return mLights;
 }
 
 int Scene::GetTextureCount()
@@ -58,6 +79,14 @@ D3D12_GPU_DESCRIPTOR_HANDLE Scene::GetCbvSrvUavDescriptorHeapTableHandle(int fra
 D3D12_GPU_DESCRIPTOR_HANDLE Scene::GetSamplerDescriptorHeapTableHandle(int frameIndex)
 {
 	return mSamplerDescriptorHeapTableHandles[frameIndex];
+}
+
+bool Scene::IsUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		return mUniformDirtyFlag;
+	else
+		return mUniformDirtyFlag & (1 << frameIndex);
 }
 
 void Scene::InitScene(
@@ -111,25 +140,16 @@ void Scene::CreateUniformBuffer(int frameCount)
 
 void Scene::UpdateUniformBuffer(int frameIndex)
 {
-	mSceneUniform.lightCount = mLights.size();
-	for(int i = 0;i<mLights.size() && i<MAX_LIGHTS_PER_SCENE;i++)
-	{
-		mSceneUniform.lights[i].view = mLights[i]->GetViewMatrix();
-		mSceneUniform.lights[i].viewInv = mLights[i]->GetViewInvMatrix();
-		mSceneUniform.lights[i].proj = mLights[i]->GetProjMatrix();
-		mSceneUniform.lights[i].projInv = mLights[i]->GetProjInvMatrix();
-		mSceneUniform.lights[i].color = mLights[i]->GetColor();
-		mSceneUniform.lights[i].position = mLights[i]->GetPosition();
-		mSceneUniform.lights[i].nearClipPlane = mLights[i]->GetNearClipPlane();
-		mSceneUniform.lights[i].farClipPlane = mLights[i]->GetFarClipPlane();
-		mSceneUniform.lights[i].textureIndex = mLights[i]->GetTextureIndex();
-	}
+	mSceneUniform.mLightCount = mLights.size();
+	for (int i = 0; i < mLights.size() && i < LIGHT_COUNT_PER_SCENE_MAX; i++)
+		mSceneUniform.mLightData[i] = mLights[i]->CreateLightData();
 
 	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
 	void* cpuAddress;
 	mUniformBuffers[frameIndex]->Map(0, &readRange, &cpuAddress);
 	memcpy(cpuAddress, &mSceneUniform, sizeof(mSceneUniform));
-	mUniformBuffers[frameIndex]->Unmap(0, &readRange);
+	mUniformBuffers[frameIndex]->Unmap(0, nullptr);
+	ResetUniformDirty(frameIndex);
 }
 
 void Scene::Release(bool checkOnly)

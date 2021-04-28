@@ -117,6 +117,23 @@ int Light::GetTextureIndex() const
 	return mTextureIndex;
 }
 
+LightData Light::CreateLightData() const
+{
+	LightData ld;
+	ld.mView = GetViewMatrix();
+	ld.mViewInv = GetViewInvMatrix();
+	ld.mProj = GetProjMatrix();
+	ld.mProjInv = GetProjInvMatrix();
+	ld.mColor = GetColor();
+	ld.mPosWorld = GetPosition();
+	ld.mNearClipPlane = GetNearClipPlane();
+	ld.mFarClipPlane = GetFarClipPlane();
+	ld.mTextureIndex = GetTextureIndex();
+	// TODO: create different light types from Light
+	ld.mLightType = LIGHT_TYPE_POINT;
+	return ld;
+}
+
 void Light::SetTextureIndex(int index)
 {
 	mTextureIndex = index;

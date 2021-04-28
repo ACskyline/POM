@@ -85,7 +85,7 @@ void Frame::UpdateUniformBuffer()
 	void* cpuAddress;
 	mUniformBuffer->Map(0, &readRange, &cpuAddress);
 	memcpy(cpuAddress, &mFrameUniform, sizeof(mFrameUniform));
-	mUniformBuffer->Unmap(0, &readRange);
+	mUniformBuffer->Unmap(0, nullptr);
 }
 
 void Frame::Release(bool checkOnly)

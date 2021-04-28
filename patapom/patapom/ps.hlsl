@@ -1,50 +1,65 @@
-#ifndef PS_OUTPUT_COUNT
-#define PS_OUTPUT_COUNT 2
+#ifndef PS_COLOR_OUTPUT_COUNT
+#define PS_COLOR_OUTPUT_COUNT 4
 #endif
 
 #include "GlobalInclude.hlsl"
 #include "Lighting.hlsl"
 
-Texture2D albedoTex : register(t0, SPACE(PASS));
-SamplerState albedoSampler : register(s0, SPACE(PASS));
+Texture2D pAlbedoTex : register(t0, SPACE(PASS));
+SamplerState pAlbedoSampler : register(s0, SPACE(PASS));
 
-Texture2D normalTex : register(t1, SPACE(PASS));
-SamplerState normalSampler : register(s1, SPACE(PASS));
+Texture2D pNormalTex : register(t1, SPACE(PASS));
+SamplerState pNormalSampler : register(s1, SPACE(PASS));
+
+Texture2D oAlbedoTex : register(t0, SPACE(OBJECT));
+SamplerState oAlbedoSampler : register(s0, SPACE(OBJECT));
+
+Texture2D oNormalTex : register(t1, SPACE(OBJECT));
+SamplerState oNormalSampler : register(s1, SPACE(OBJECT));
 
 PS_OUTPUT main(VS_OUTPUT input)
 {
     SurfaceDataOut sdo;
-    sdo.uv = input.uv;
+    sdo.mUV = input.uv;
     sdo.posWorld = input.posWorld;
     sdo.norWorld = normalize(input.norWorld);
     sdo.tanWorld = normalize(input.tanWorld);
     sdo.bitanWorld = normalize(input.bitanWorld);
-    sdo.eyeDirWorld = normalize(uPass.pEyePos - sdo.posWorld);
-    sdo.albedo = uScene.sStandardColor.rgb;
-    
+    sdo.eyeDirWorld = normalize(uPass.mEyePos - sdo.posWorld);
+    sdo.albedo = uScene.mStandardColor.rgb;
+	// TODO: add support to per object parameter
+	sdo.mRoughness = uScene.mRoughness;
+	sdo.mFresnel = uScene.mFresnel;
+	sdo.mSpecularity = uScene.mSpecularity;
+	sdo.mMetallic = uScene.mMetallic;
+
 #ifdef USE_POM
     float3 newPosWorld;
     float2 newUV;
     newUV = POM(sdo, newPosWorld);
-    sdo.uv = newUV;
+    sdo.mUV = newUV;
     sdo.posWorld = newPosWorld;
 #endif
     
     // recalculate depth after pom
-    float zView = mul(uPass.pView, float4(sdo.posWorld, 1.0f)).z;
-    sdo.depth = QuantizeDepth(zView, uPass.pNearClipPlane, uPass.pFarClipPlane);
+    float zView = mul(uPass.mView, float4(sdo.posWorld, 1.0f)).z;
+    sdo.mQuantizedZView = QuantizeDepth(zView, uPass.mNearClipPlane, uPass.mFarClipPlane);
     
     // sample textures
-#ifndef USE_POM
-    if (uScene.sUseStandardTextures)
-#endif
+	float4 normalCol = 0.0f.xxxx;
+    if (uScene.mUsePerPassTextures)
     {
-        sdo.albedo = albedoTex.Sample(albedoSampler, TransformUV(sdo.uv)).rgb;
-        float4 normalCol = normalTex.Sample(normalSampler, TransformUV(sdo.uv));
-        float3x3 tanToWorld = float3x3(sdo.tanWorld, sdo.bitanWorld, sdo.norWorld); // constructed row by row
-        float3 paintedNormal = UnpackNormal(normalCol.rgb);
-        sdo.norWorld = normalize(mul(paintedNormal, tanToWorld)); // post multiply because tanToWorld is constructed row by row
+        sdo.albedo = pAlbedoTex.Sample(pAlbedoSampler, TransformUV(sdo.mUV)).rgb;
+        normalCol = pNormalTex.Sample(pNormalSampler, TransformUV(sdo.mUV));
     }
+	else
+	{
+		sdo.albedo = oAlbedoTex.Sample(oAlbedoSampler, TransformUV(sdo.mUV)).rgb;
+		normalCol = oNormalTex.Sample(oNormalSampler, TransformUV(sdo.mUV));
+	}
+	float3x3 tanToWorld = float3x3(sdo.tanWorld, sdo.bitanWorld, sdo.norWorld); // constructed row by row
+	float3 paintedNormal = UnpackNormal(normalCol.rgb);
+	sdo.norWorld = normalize(mul(paintedNormal, tanToWorld)); // post multiply because tanToWorld is constructed row by row
     
     return PackGbuffer(sdo);
 }

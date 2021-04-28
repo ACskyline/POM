@@ -118,7 +118,7 @@ public:
 		Format renderTargetFormat,
 		Format depthStencilFormat,
 		XMFLOAT4 colorClearValue = XMFLOAT4(0.f, 0.f, 0.f, 0.f),
-		float depthClearValue = REVERSED_Z_SWITCH(0.0f, 1.f),
+		float depthClearValue = DEPTH_FAR_REVERSED_Z_SWITCH,
 		u8 stencilClearValue = 0,
 		u8 multiSampleCount = 1);
 

@@ -30,12 +30,15 @@ Pass::Pass()
 Pass::Pass(const wstring& debugName,
 	bool outputRenderTarget,
 	bool outputDepthStencil,
-	bool shareMeshesWithPathTracer) :
+	bool shareMeshesWithPathTracer,
+	PrimitiveType primitiveType) :
 	mRenderer(nullptr), mDebugName(debugName),
 	mConstantBlendFactorsUsed(false), mStencilReferenceUsed(false),
 	mRenderTargetCount(0), mDepthStencilCount(0), mDepthStencilIndex(-1),
 	mUseRenderTarget(outputRenderTarget), mUseDepthStencil(outputDepthStencil),
-	mShareMeshesWithPathTracer(shareMeshesWithPathTracer)
+	mShareMeshesWithPathTracer(shareMeshesWithPathTracer),
+	mPrimitiveType(primitiveType),
+	mUniformDirtyFlag(0)
 {
 	memset(mShaders, 0, sizeof(mShaders));
 }
@@ -124,6 +127,22 @@ void Pass::AddWriteTexture(RenderTexture* writeTexture, u32 mipSlice)
 	mWriteTargets.push_back(wt);
 }
 
+void Pass::SetUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		mUniformDirtyFlag = ~0;
+	else
+		mUniformDirtyFlag |= 1 << frameIndex;
+}
+
+void Pass::ResetUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		mUniformDirtyFlag = 0;
+	else
+		mUniformDirtyFlag &= ~(1 << frameIndex);
+}
+
 void Pass::Release(bool checkOnly)
 {
 	for (auto& uniformBuffer : mUniformBuffers)
@@ -185,6 +204,11 @@ const wstring& Pass::GetDebugName()
 	return mDebugName;
 }
 
+PrimitiveType Pass::GetPrimitiveType()
+{
+	return mPrimitiveType;
+}
+
 void Pass::InitPass(
 	Renderer* renderer,
 	int frameCount,
@@ -193,6 +217,7 @@ void Pass::InitPass(
 	DescriptorHeap& rtvDescriptorHeap,
 	DescriptorHeap& dsvDescriptorHeap)
 {
+	fatalAssertf(mCamera, "pass must have a camera");
 	fatalAssertf(mMeshes.size() || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no mesh in this pass!");
 	// revisit the two asserts below after adding support for compute shaders
 	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr, "no vertex shader in this pass!");
@@ -300,9 +325,6 @@ void Pass::InitPass(
 		}
 	}
 
-	// create PSO
-	mPrimitiveType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
 	if (mShaders[Shader::COMPUTE_SHADER])
 		mRenderer->CreateComputePSO(*this, &mPso, mRootSignature, mShaders[Shader::COMPUTE_SHADER], mDebugName);
 	else
@@ -310,7 +332,7 @@ void Pass::InitPass(
 			*this,
 			&mPso,
 			mRootSignature,
-			mPrimitiveType,
+			Renderer::TranslatePrimitiveTopologyType(mPrimitiveType),
 			mShaders[Shader::VERTEX_SHADER],
 			mShaders[Shader::HULL_SHADER],
 			mShaders[Shader::DOMAIN_SHADER],
@@ -349,9 +371,9 @@ vector<ShaderTarget>& Pass::GetShaderTargets()
 	return mShaderTargets;
 }
 
-RenderTexture* Pass::GetRenderTexture(int i)
+ShaderTarget Pass::GetShaderTarget(int i)
 {
-	return mShaderTargets[i].mRenderTexture;
+	return mShaderTargets[i];
 }
 
 int Pass::GetRenderTargetCount()
@@ -382,6 +404,14 @@ bool Pass::UseDepthStencil()
 bool Pass::ShareMeshesWithPathTracer()
 {
 	return mShareMeshesWithPathTracer;
+}
+
+bool Pass::IsUniformDirty(int frameIndex)
+{
+	if (frameIndex < 0)
+		return mUniformDirtyFlag;
+	else
+		return mUniformDirtyFlag & (1 << frameIndex);
 }
 
 Camera* Pass::GetCamera()
@@ -418,4 +448,24 @@ int Pass::GetMaxMeshTextureCount()
 			maxTextureCount = obj->GetTextureCount();
 	}
 	return maxTextureCount;
+}
+
+bool ShaderTarget::IsRenderTargetUsed()
+{
+	return mRenderTexture->IsRenderTargetUsed();
+}
+
+bool ShaderTarget::IsDepthStencilUsed()
+{
+	return mRenderTexture->IsDepthStencilUsed();
+}
+
+u32 ShaderTarget::GetHeight()
+{
+	return mRenderTexture->GetHeight(mMipSlice);
+}
+
+u32 ShaderTarget::GetWidth()
+{
+	return mRenderTexture->GetWidth(mMipSlice);
 }

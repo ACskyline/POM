@@ -184,10 +184,25 @@
     <FxCompile Include="ps_prefilterEnvMap.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
-    <FxCompile Include="cs_raytracer.hlsl">
+    <FxCompile Include="cs_pathtracer.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
-    <FxCompile Include="ps_blit.hlsl">
+    <FxCompile Include="vs_pathtracer_debug.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_debug.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_copydepth.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="vs_pathtracer_copydepth.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_blit.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_debug_fullscreen.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
   </ItemGroup>

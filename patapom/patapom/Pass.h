@@ -18,6 +18,10 @@ struct ShaderTarget
 	DepthStencilState mDepthStencilState;
 	u32 mDepthSlice;
 	u32 mMipSlice;
+	bool IsRenderTargetUsed();
+	bool IsDepthStencilUsed();
+	u32 GetHeight();
+	u32 GetWidth();
 };
 
 struct WriteTarget
@@ -29,35 +33,6 @@ struct WriteTarget
 		RenderTexture* mRenderTexture;
 		WriteBuffer* mWriteBuffer;
 	};
-};
-
-// we will pass these uniforms directly to be consumed by GPU so no virtual pointer is allowed, 
-// which means no virtual function in this class and all its child classes
-struct PassUniformBase
-{
-protected:
-	PassUniformBase() {}; // can't instantiate this
-};
-
-struct PassUniformDefault : PassUniformBase
-{
-	XMFLOAT4X4 mViewProj;
-	XMFLOAT4X4 mViewProjInv;
-	XMFLOAT4X4 mView;
-	XMFLOAT4X4 mViewInv;
-	XMFLOAT4X4 mProj;
-	XMFLOAT4X4 mProjInv;
-	u32 mPassIndex;
-	XMFLOAT3 mEyePos;
-	float mNearClipPlane;
-	float mFarClipPlane;
-	float mWidth;
-	float mHeight;
-	float mFov;
-	u32 PADDING_0;
-	u32 PADDING_1;
-	u32 PADDING_2;
-	void Update(Camera* camera);
 };
 
 class Pass
@@ -76,6 +51,8 @@ public:
 	void AddBuffer(Buffer* buffer);
 	void AddWriteBuffer(WriteBuffer* writeBuffer);
 	void AddWriteTexture(RenderTexture* writeTexture, u32 mipSlice);
+	void SetUniformDirty(int frameIndex = -1);
+	void ResetUniformDirty(int frameIndex = -1);
 
 	int GetCbvSrvUavCount();
 	int GetShaderResourceCount();
@@ -83,13 +60,14 @@ public:
 	int GetWriteTargetCount();
 	vector<ShaderResource*>& GetShaderResources();
 	vector<ShaderTarget>& GetShaderTargets();
-	RenderTexture* GetRenderTexture(int i);
+	ShaderTarget GetShaderTarget(int i);
 	int GetRenderTargetCount();
 	int GetDepthStencilCount();
 	int GetDepthStencilIndex();
 	bool UseRenderTarget();
 	bool UseDepthStencil();
 	bool ShareMeshesWithPathTracer();
+	bool IsUniformDirty(int frameIndex);
 	Camera* GetCamera();
 	Scene* GetScene();
 	vector<Mesh*>& GetMeshVec();
@@ -106,6 +84,7 @@ public:
 	float* GetConstantBlendFactors();
 	uint32_t GetStencilReference();
 	const wstring& GetDebugName();
+	PrimitiveType GetPrimitiveType();
 
 	virtual void InitPass(
 		Renderer* renderer,
@@ -116,9 +95,10 @@ public:
 		DescriptorHeap& dsvDescriptorHeap);
 
 	// abstract class
+	virtual void UpdateUniform() = 0;
 	virtual void CreateUniformBuffer(int frameCount) = 0;
 	virtual void UpdateUniformBuffer(int frameIndex) = 0;
-	virtual void UpdateUniformBuffer(int frameIndex, void* src) = 0;
+	virtual void UpdateUniformBuffer(int frameIndex, void* src, size_t sizeInByte) = 0;
 	void Release(bool checkOnly = false);
 
 protected:
@@ -132,7 +112,7 @@ protected:
 	// default constructor for using in a container
 	Pass();
 	// common class can't be instantiated
-	Pass(const wstring& debugName, bool useRenderTarget, bool useDepthStencil, bool shareMeshesWithPathTracer);
+	Pass(const wstring& debugName, bool useRenderTarget, bool useDepthStencil, bool shareMeshesWithPathTracer, PrimitiveType primitiveType);
 
 private:
 	Scene* mScene;
@@ -147,6 +127,7 @@ private:
 	bool mUseRenderTarget; // if use render target but has 0 render target, then output to back buffer
 	bool mUseDepthStencil; // if use depth stencil but has 0 depth stencil, then output to back buffer
 	bool mShareMeshesWithPathTracer;
+	u8 mUniformDirtyFlag; // 1 bit for each frame
 
 	// one for each frame
 	// TODO: hide API specific implementation in Renderer
@@ -157,7 +138,7 @@ private:
 	vector<D3D12_GPU_DESCRIPTOR_HANDLE> mSamplerDescriptorHeapTableHandles;
 	ID3D12PipelineState* mPso;
 	ID3D12RootSignature* mRootSignature;
-	D3D12_PRIMITIVE_TOPOLOGY_TYPE mPrimitiveType;
+	PrimitiveType mPrimitiveType;
 
 	// these values are set using OMSet... functions in D3D12, so we cache them here
 	bool mConstantBlendFactorsUsed;
@@ -170,19 +151,22 @@ private:
 	int GetMaxMeshTextureCount();
 };
 
+// we will pass these uniforms directly to be consumed by GPU so no virtual pointer is allowed, 
+// which means no virtual function in this class and all its child classes
+
 template<class UniformType>
 class PassCommon : public Pass
 {
 public:
 	// default constructor for using in a container
 	PassCommon() :
-		Pass(L"unnamed pass", false, false, false)
+		Pass(L"unnamed pass", false, false, false, PrimitiveType::TRIANGLE)
 	{
 
 	}
 
-	PassCommon(const wstring& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false) :
-		Pass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer)
+	PassCommon(const wstring& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false, PrimitiveType primitiveType = PrimitiveType::TRIANGLE) :
+		Pass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer, primitiveType)
 	{
 
 	}
@@ -198,15 +182,33 @@ public:
 		void* cpuAddress;
 		mUniformBuffers[frameIndex]->Map(0, &readRange, &cpuAddress);
 		memcpy(cpuAddress, &mPassUniform, sizeof(UniformType));
-		mUniformBuffers[frameIndex]->Unmap(0, &readRange);
+		mUniformBuffers[frameIndex]->Unmap(0, nullptr);
+		ResetUniformDirty(frameIndex);
+	}
+
+	void UpdateAllUniformBuffers()
+	{
+		for (int i = 0; i < mUniformBuffers.size(); i++)
+		{
+			UpdateUniformBuffer(i);
+		}
 	}
 
 	// caller must guarantee src is of the same size as the dest
-	virtual void UpdateUniformBuffer(int frameIndex, void* src) override
+	// this function depends on the uniform structure being strictly POD (allows single inheritance without virtual functions though)
+	virtual void UpdateUniformBuffer(int frameIndex, void* src, size_t sizeInByte) override
 	{
 		fatalAssertf(src, "source is nullptr");
-		memcpy(&mPassUniform, src, sizeof(UniformType));
+		memcpy(&mPassUniform, src, sizeInByte);
 		UpdateUniformBuffer(frameIndex);
+	}
+
+	void UpdateAllUniformBuffers(void* src, size_t sizeInByte)
+	{
+		for (int i = 0; i < mUniformBuffers.size(); i++)
+		{
+			UpdateUniformBuffer(i, src, sizeInByte);
+		}
 	}
 
 	virtual void CreateUniformBuffer(int frameCount) override

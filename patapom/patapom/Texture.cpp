@@ -51,8 +51,8 @@ Texture::Texture(
 	ShaderResource(debugName, ShaderResource::Type::TEXTURE)
 {
 	mSrv.mType = View::Type::SRV;
-	fatalAssertf(mTextureType != TextureType::DEFAULT || mDepth == 1, "2d render texture can only have 1 depth slice at the moment");
-	fatalAssertf(mTextureType != TextureType::CUBE || mDepth == 6, "cube map must have 6 slices");
+	fatalAssertf(mTextureType != TextureType::TEX_2D || mDepth == 1, "2d render texture can only have 1 depth slice at the moment");
+	fatalAssertf(mTextureType != TextureType::TEX_CUBE || mDepth == 6, "cube map must have 6 slices");
 }
 
 Texture::~Texture()
@@ -105,7 +105,7 @@ void Texture::CreateTextureBuffer()
 	}
 
 	// TODO: add support for reading .dds file so that we can load cube maps or volume textures directly
-	mTextureType = TextureType::DEFAULT;
+	mTextureType = TextureType::TEX_2D;
 	mDepth = 1;
 
 	D3D12_RESOURCE_DESC textureDesc = {};
@@ -460,9 +460,17 @@ RenderTexture::~RenderTexture()
 
 void RenderTexture::Release(bool checkOnly)
 {
+	bool textureBufferIsRenderTargetBuffer = mTextureBuffer == mRenderTargetBuffer;
+	bool textureBufferIsDepthStencilBuffer = mTextureBuffer == mDepthStencilBuffer;
 	Texture::Release(checkOnly);
-	SAFE_RELEASE(mRenderTargetBuffer, checkOnly);
-	SAFE_RELEASE(mDepthStencilBuffer, checkOnly);
+	if (textureBufferIsRenderTargetBuffer)
+		mRenderTargetBuffer = nullptr;
+	else
+		SAFE_RELEASE(mRenderTargetBuffer, checkOnly);
+	if (textureBufferIsDepthStencilBuffer)
+		mDepthStencilBuffer = nullptr;
+	else
+		SAFE_RELEASE(mDepthStencilBuffer, checkOnly);
 }
 
 void RenderTexture::CreateTextureBuffer()
@@ -519,7 +527,10 @@ void RenderTexture::CreateTextureBuffer()
 		depthStencilDesc.SampleDesc.Count = mMultiSampleCount;
 		depthStencilDesc.SampleDesc.Quality = 0;
 		depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-		depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		// D3D12 ERROR: ID3D12Device::CreateCommittedResource: D3D12_RESOURCE_DESC::Flags cannot have D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL set 
+		// with D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, nor D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS. 
+		// [ STATE_CREATION ERROR #599: CREATERESOURCE_INVALIDMISCFLAGS]
+		depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; // | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS; // can't set this due to the error  above
 
 		D3D12_CLEAR_VALUE depthStencilClearValue = {};
 		depthStencilClearValue.Format = Renderer::TranslateFormat(mDepthStencilFormat);
@@ -555,7 +566,7 @@ void RenderTexture::CreateTextureBuffer()
 		{
 			mTextureFormat = mDepthStencilFormat;
 			textureDesc = depthStencilDesc;
-			textureDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
+			textureDesc.Format = Renderer::TranslateFormatToRead(mTextureFormat, mReadFrom);
 			textureDesc.SampleDesc.Count = 1;
 		}
 		else
@@ -700,11 +711,11 @@ D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc(u32 depthSlice, u32 mipS
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = mRtvMip0.mRtvDesc;
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		if (!IsMultiSampleUsed()) // multi sampled rtv doesn't have mip map
 			rtvDesc.Texture2D.MipSlice = mipSlice;
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		if (IsMultiSampleUsed())
 		{
 			rtvDesc.Texture2DArray.ArraySize = 1; // TODO: only render to 1 depth slice, add support to render to multiple array slices
@@ -717,7 +728,7 @@ D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc(u32 depthSlice, u32 mipS
 			rtvDesc.Texture2DArray.FirstArraySlice = depthSlice;
 		}
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		if (IsMultiSampleUsed())
 		{
 			fatalf("volume rtv can't be multisampled");
@@ -744,11 +755,11 @@ D3D12_DEPTH_STENCIL_VIEW_DESC RenderTexture::GetDsvDesc(u32 depthSlice, u32 mipS
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = mDsvMip0.mDsvDesc;
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		if (!IsMultiSampleUsed()) // multi sampled dsv doesn't have mip map
 			dsvDesc.Texture2D.MipSlice = mipSlice;
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		if (IsMultiSampleUsed())
 		{
 			dsvDesc.Texture2DMSArray.ArraySize = 1; // TODO: only render to 1 depth slice, add support to render to multiple array slices
@@ -761,7 +772,7 @@ D3D12_DEPTH_STENCIL_VIEW_DESC RenderTexture::GetDsvDesc(u32 depthSlice, u32 mipS
 			dsvDesc.Texture2DArray.FirstArraySlice = depthSlice;
 		}
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		fatalf("volume dsv is not allowed");
 		break;
 	default:
@@ -776,12 +787,12 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetUavDesc(u32 mipSlice)
 	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = mUavMip0.mUavDesc;
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 		uavDesc.Texture2D.MipSlice = mipSlice;
 		uavDesc.Texture2D.PlaneSlice = 0;
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		// when write to cube map, access all depth slices
 		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
 		uavDesc.Texture2DArray.ArraySize = CubeFace::COUNT;
@@ -789,7 +800,7 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetUavDesc(u32 mipSlice)
 		uavDesc.Texture2DArray.FirstArraySlice = 0;
 		uavDesc.Texture2DArray.PlaneSlice = 0;
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		// when write to volume texture, access all depth slices
 		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
 		uavDesc.Texture3D.MipSlice = mipSlice;
@@ -895,7 +906,7 @@ void RenderTexture::CreateRtv()
 	mRtvMip0.mRtvDesc.Format = Renderer::TranslateFormat(mRenderTargetFormat);
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		if (IsMultiSampleUsed())
 		{
 			mRtvMip0.mRtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
@@ -908,7 +919,7 @@ void RenderTexture::CreateRtv()
 			mRtvMip0.mRtvDesc.Texture2D.PlaneSlice = 0;
 		}
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		if (IsMultiSampleUsed())
 		{
 			mRtvMip0.mRtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
@@ -924,7 +935,7 @@ void RenderTexture::CreateRtv()
 			mRtvMip0.mRtvDesc.Texture2DArray.PlaneSlice = 0;
 		}
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		if (IsMultiSampleUsed())
 		{
 			fatalf("volume rtv can't be multisampled");
@@ -949,7 +960,7 @@ void RenderTexture::CreateDsv()
 	mDsvMip0.mDsvDesc.Flags = D3D12_DSV_FLAG_NONE; // TODO: this flag contains samilar feature as Vulkan layouts like VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		if (IsMultiSampleUsed())
 		{
 			mDsvMip0.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
@@ -961,7 +972,7 @@ void RenderTexture::CreateDsv()
 			mDsvMip0.mDsvDesc.Texture2D.MipSlice = 0;
 		}
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		if (IsMultiSampleUsed())
 		{
 			mDsvMip0.mDsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
@@ -976,7 +987,7 @@ void RenderTexture::CreateDsv()
 			mDsvMip0.mDsvDesc.Texture2DArray.ArraySize = 1;
 		}
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		fatalf("volume dsv is not allowed");
 		break;
 	default:
@@ -987,11 +998,11 @@ void RenderTexture::CreateDsv()
 void RenderTexture::CreateSrv()
 {
 	mSrv.mType = View::Type::SRV;
-	mSrv.mSrvDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
+	mSrv.mSrvDesc.Format = Renderer::TranslateFormatToRead(mTextureFormat, mReadFrom);
 	mSrv.mSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		if (ReadFromMultiSampledBuffer())
 		{
 			mSrv.mSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
@@ -1006,7 +1017,7 @@ void RenderTexture::CreateSrv()
 			mSrv.mSrvDesc.Texture2D.ResourceMinLODClamp = 0;
 		}
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		if (ReadFromMultiSampledBuffer())
 		{
 			fatalf("cube srv can't be multisampled");
@@ -1019,7 +1030,7 @@ void RenderTexture::CreateSrv()
 			mSrv.mSrvDesc.TextureCube.ResourceMinLODClamp = 0;
 		}
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		if (ReadFromMultiSampledBuffer())
 		{
 			fatalf("volume srv can't be multisampled");
@@ -1040,22 +1051,22 @@ void RenderTexture::CreateSrv()
 void RenderTexture::CreateUav()
 {
 	mUavMip0.mType = View::Type::UAV;
-	mUavMip0.mUavDesc.Format = Renderer::TranslateFormatToAccess(mTextureFormat, mReadFrom);
+	mUavMip0.mUavDesc.Format = Renderer::TranslateFormatToRead(mTextureFormat, mReadFrom);
 	switch (mTextureType)
 	{
-	case TextureType::DEFAULT:
+	case TextureType::TEX_2D:
 		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 		mUavMip0.mUavDesc.Texture2D.MipSlice = 0;
 		mUavMip0.mUavDesc.Texture2D.PlaneSlice = 0;
 		break;
-	case TextureType::CUBE:
+	case TextureType::TEX_CUBE:
 		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
 		mUavMip0.mUavDesc.Texture2DArray.ArraySize = CubeFace::COUNT;
 		mUavMip0.mUavDesc.Texture2DArray.MipSlice = 0;
 		mUavMip0.mUavDesc.Texture2DArray.FirstArraySlice = 0;
 		mUavMip0.mUavDesc.Texture2DArray.PlaneSlice = 0;
 		break;
-	case TextureType::VOLUME:
+	case TextureType::TEX_VOLUME:
 		mUavMip0.mUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
 		mUavMip0.mUavDesc.Texture3D.MipSlice = 0;
 		mUavMip0.mUavDesc.Texture3D.FirstWSlice = 0;
