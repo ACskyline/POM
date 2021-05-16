@@ -464,4 +464,10 @@ bool IsNotBlack(float3 col)
 	return (col.r > 0.0f || col.g > 0.0f || col.b > 0.0f);
 }
 
+bool HitAnything(Ray ray)
+{
+	return ray.mHitLightIndex != INVALID_UINT32 ||
+		ray.mHitTriangleIndex != INVALID_UINT32;
+}
+
 #endif

@@ -18,6 +18,7 @@
 #define EPSILON 0.0001f
 #define FLOAT_MAX 3.402823466e+38F
 #define EQUALF(a, b) (abs(a - b) < EPSILON)
+#define INVALID_UINT32 0xffffffff
 
 #define USE_REVERSED_Z
 #ifdef USE_REVERSED_Z
@@ -50,6 +51,7 @@
 #define PATH_TRACER_BACKBUFFER_HEIGHT					960
 #define PATH_TRACER_MIN_DEPTH_MAX						5
 #define PATH_TRACER_MAX_DEPTH_MAX						10
+#define PATH_TRACER_DEBUG_LINE_COUNT_PER_RAY			3
 
 #define PATH_TRACER_MODE_OFF							0
 #define PATH_TRACER_MODE_DEFAULT						1
@@ -128,7 +130,10 @@ struct Ray
 	UINT mSeed;
 	FLOAT3 mNextDir;
 	UINT mHitMeshIndex;
+	FLOAT4 mLightSampleRayEnd; // if hit it's a point, otherwise it's a direction
+	FLOAT4 mMaterialSampleRayEnd; // if hit it's a point, otherwise it's a direction
 	UINT mHitTriangleIndex;
+	UINT mHitLightIndex;
 };
 
 struct LightData
@@ -193,10 +198,15 @@ struct SceneUniform
 	UINT mPathTracerMode;
 	UINT mPathTracerCurrentDepth; // starting from 0
 	//
+	UINT mPathTracerEnableRussianRoulette;
 	UINT mPathTracerDebugPixelX;
 	UINT mPathTracerDebugPixelY;
 	UINT mPathTracerEnableDebug;
-	UINT mPathTracerUpdateDebug; // these paddings are necessary
+	//
+	UINT mPathTracerEnableDebugSampleRay;
+	float mPathTracerDebugDirLength;
+	UINT mPathTracerUpdateDebug;
+	UINT PADDING0;
 	//
 	LightData mLightData[LIGHT_COUNT_PER_SCENE_MAX];
 };

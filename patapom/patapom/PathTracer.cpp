@@ -181,10 +181,23 @@ void PathTracer::RunPathTracer(ID3D12GraphicsCommandList* commandList)
 	sDepthbufferWritePT.MakeReadyToWrite(commandList);
 	sDebugRayBuffer.MakeReadyToWrite(commandList);
 	gRenderer.RecordComputePass(sPathTracerPass, commandList, sThreadGroupCountX, sThreadGroupCountY, sThreadGroupCountZ);
-	
+}
+
+void PathTracer::CopyDepthBuffer(ID3D12GraphicsCommandList* commandList)
+{
 	sDepthbufferWritePT.MakeReadyToRead(commandList);
 	sDepthbufferRenderPT.MakeReadyToRender(commandList);
 	gRenderer.RecordGraphicsPass(sPathTracerCopyDepthPass, commandList, false, true);
+}
+
+void PathTracer::DebugDraw(ID3D12GraphicsCommandList* commandList)
+{
+	// always render debug passes for easier renderdoc capture
+	PathTracer::sDebugRayBuffer.MakeReadyToRead(commandList);
+	PathTracer::sDebugBackbufferPT.MakeReadyToRender(commandList);
+	PathTracer::sDepthbufferRenderPT.MakeReadyToRender(commandList);
+	gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugPass, commandList, PATH_TRACER_MAX_DEPTH_MAX * PATH_TRACER_DEBUG_LINE_COUNT_PER_RAY, true, false, false);
+	gRenderer.RecordGraphicsPass(PathTracer::sPathTracerDebugFullscreenPass, commandList, false, false, false);
 }
 
 void PathTracer::Shutdown()

@@ -479,7 +479,8 @@ void Record()
 		bool finished = gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex >= gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel;
 		if (finished && gPathTracerForceUpdate)
 			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
-		if (!finished || gPathTracerForceUpdate)
+		bool runPathTracer = !finished || gPathTracerForceUpdate;
+		if (runPathTracer)
 		{
 			if (gSceneDefault.mSceneUniform.mPathTracerMode == PATH_TRACER_MODE_PROGRESSIVE)
 			{
@@ -500,18 +501,14 @@ void Record()
 				gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex++;
 			}
 		}
-
-		// always render debug passes for easier renderdoc capture
-		PathTracer::sDebugRayBuffer.MakeReadyToRead(commandList);
-		PathTracer::sDebugBackbufferPT.MakeReadyToRender(commandList);
-		PathTracer::sDepthbufferRenderPT.MakeReadyToRender(commandList);
-		gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugPass, commandList, PATH_TRACER_MAX_DEPTH_MAX, true, false, false);
-		gRenderer.RecordGraphicsPass(PathTracer::sPathTracerDebugFullscreenPass, commandList, false, false, false);
-
+		// always copy depth buffer even when we don't run path tracer to refresh the depth buffer
+		PathTracer::CopyDepthBuffer(commandList);
+		PathTracer::DebugDraw(commandList);
 		PathTracer::sBackbufferPT.MakeReadyToRead(commandList);
 		PathTracer::sDebugBackbufferPT.MakeReadyToRead(commandList);
 		gRenderer.RecordGraphicsPass(gPassPathTracerBlit, commandList, false, false, false);
-		gSceneDefault.SetUniformDirty(); // set dirty in the end for subsequent drawcalls (mainly for next frame)
+		if (runPathTracer)
+			gSceneDefault.SetUniformDirty(); // set dirty in the end for subsequent drawcalls (mainly for next frame)
 	}
 	else // rasterizer
 	{
@@ -616,7 +613,10 @@ void UpdateUI(bool initOnly = false)
 	static int pathTracerMinDepth = gSceneDefault.mSceneUniform.mPathTracerMinDepth = 3;
 	static int pathTracerMaxDepth = gSceneDefault.mSceneUniform.mPathTracerMaxDepth = 10;
 	static bool pathTracerEnableDebug = gSceneDefault.mSceneUniform.mPathTracerEnableDebug = 0;
+	static bool pathTracerEnableDebugSampleRay = gSceneDefault.mSceneUniform.mPathTracerEnableDebugSampleRay = 0;
 	static bool pathTracerUpdateDebug = gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = 0;
+	static bool pathTracerEnableRussianRoulette = gSceneDefault.mSceneUniform.mPathTracerEnableRussianRoulette = true;
+	static float pathTracerDebugDirLength = gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = 0.0f;
 	bool needToUpdateSceneUniform = false;
 	bool needToRestartPathTracer = false;
 
@@ -796,6 +796,12 @@ void UpdateUI(bool initOnly = false)
 			needToRestartPathTracer = true;
 		}
 
+		if (ImGui::Checkbox("pathTracerEnableRussianRoulette", &pathTracerEnableRussianRoulette))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerEnableRussianRoulette = pathTracerEnableRussianRoulette;
+			needToRestartPathTracer = true;
+		}
+
 		if (ImGui::SliderInt("pathTracerMinDepth", &pathTracerMinDepth, 0, PATH_TRACER_MIN_DEPTH_MAX))
 		{
 			gSceneDefault.mSceneUniform.mPathTracerMinDepth = pathTracerMinDepth;
@@ -819,7 +825,19 @@ void UpdateUI(bool initOnly = false)
 			gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = pathTracerUpdateDebug;
 			needToUpdateSceneUniform = true;
 		}
-		
+
+		if (ImGui::Checkbox("pathTracerEnableDebugSampleRay", &pathTracerEnableDebugSampleRay))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerEnableDebugSampleRay = pathTracerEnableDebugSampleRay;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::SliderFloat("pathTracerDebugDirLength", &pathTracerDebugDirLength, 0.0f, 10.0f))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = pathTracerDebugDirLength;
+			needToUpdateSceneUniform = true;
+		}
+
 		ImGui::Text("[Path Tracer Debug] Debug Pixel Pos (%d,%d)",
 			gSceneDefault.mSceneUniform.mPathTracerDebugPixelX,
 			gSceneDefault.mSceneUniform.mPathTracerDebugPixelY);

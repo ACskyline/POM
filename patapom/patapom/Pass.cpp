@@ -76,6 +76,8 @@ void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mi
 	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthWriteEnable), "render texture does not have depth stencil buffer but trying to enable depth write!");
 	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthTestEnable), "render texture does not have depth stencil buffer but trying to enable depth test!");
 	fatalAssertf(depthSlice < renderTexture->GetDepth() && mipSlice < renderTexture->GetMipLevelCount(), "render texture depth/mip out of range");
+	fatalAssertf(!(renderTexture->IsRenderTargetUsed() && !mUseRenderTarget), "pass doesn't support render target buffer"); 
+	fatalAssertf(!(renderTexture->IsDepthStencilUsed() && !mUseDepthStencil), "pass doesn't support depth stencil buffer");
 	ShaderTarget st = { renderTexture, blendState, depthStencilState, depthSlice, mipSlice };
 	mShaderTargets.push_back(st);
 	if (renderTexture->IsRenderTargetUsed())

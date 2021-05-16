@@ -37,6 +37,7 @@ bool gDebugPixel = false;
 struct Intersection 
 {
 	uint mTriangleIndex;
+	uint mMeshIndex;
 	uint mLightIndex;
 	float3 mPointWorld;
 	float3 mPointModel;
@@ -54,20 +55,37 @@ struct SurfaceDataInPT : SurfaceDataIn
 Ray InitRay(uint maxDepth, uint seed, float3 ori, float3 dir)
 {
 	Ray ray = (Ray)0;
-	ray.mReadyForDebug = false;
-	ray.mRemainingDepth = maxDepth;
-	ray.mTerminated = false;
-	ray.mSeed = seed;
-	ray.mResultWritten = false;
-	ray.mIsLastBounceSpecular = false;
 	ray.mOri = ori;
+	ray.mReadyForDebug = false;
 	ray.mDir = dir;
-	ray.mNextOri = ori;
-	ray.mNextDir = dir;
-	ray.mEnd = ray.mOri;
+	ray.mTerminated = false;
+	ray.mEnd = ori;
+	ray.mResultWritten = false;
 	ray.mThroughput = 1.0f.xxx;
+	ray.mIsLastBounceSpecular = false;
 	ray.mResult = 0.0f.xxx;
+	ray.mRemainingDepth = maxDepth;
+	ray.mNextOri = ori; // important, this is used to initialize first bounce
+	ray.mSeed = seed;
+	ray.mNextDir = dir; // important, this is used to initialize first bounce
+	ray.mHitMeshIndex = INVALID_UINT32;
+	ray.mLightSampleRayEnd = 0.0f.xxxx; // if hit it's a point, otherwise it's a direction
+	ray.mMaterialSampleRayEnd = 0.0f.xxxx; // if hit it's a point, otherwise it's a direction
+	ray.mHitTriangleIndex = INVALID_UINT32;
+	ray.mHitLightIndex = INVALID_UINT32;
 	return ray;
+}
+
+Intersection InitIntersection()
+{
+	Intersection it = (Intersection)0;
+	it.mTriangleIndex = INVALID_UINT32;
+	it.mMeshIndex = INVALID_UINT32;
+	it.mLightIndex = INVALID_UINT32;
+	it.mPointWorld = 0.0f.xxx;
+	it.mPointModel = 0.0f.xxx;
+	it.mIntersectionFlags = 0;
+	return it;
 }
 
 float RaySphere(float3 p, float r, float3 ori, float3 dir)
@@ -148,8 +166,9 @@ float RayLight(LightData ld, float3 ori, float3 dir)
 	return t;
 }
 
-float IntersectLights(inout Intersection it, float3 ori, float3 dir)
+float IntersectLights(out Intersection it, float3 ori, float3 dir)
 {
+	it = InitIntersection();
 	float tmin = FLOAT_MAX;
 	for (uint i = 0; i < uPass.mLightCountPT; i++)
 	{
@@ -168,8 +187,9 @@ float IntersectLights(inout Intersection it, float3 ori, float3 dir)
 	return tmin;
 }
 
-float IntersectTriangles(inout Intersection it, float3 ori, float3 dir)
+float IntersectTriangles(out Intersection it, float3 ori, float3 dir)
 {
+	it = InitIntersection();
 	float tmin = FLOAT_MAX;
 	float4x4 modelInv;
 	float4x4 model;
@@ -193,6 +213,7 @@ float IntersectTriangles(inout Intersection it, float3 ori, float3 dir)
 		{
 			tmin = t;
 			it.mTriangleIndex = i;
+			it.mMeshIndex = tri.mMeshIndex;
 			it.mPointModel = oriModel + dirModel * tModel;
 			it.mPointWorld = mul(model, float4(it.mPointModel, 1)).xyz;
 			uint bitsToUnset = ~(PATH_TRACER_INTERSECTION_TYPE_MASK);
@@ -203,11 +224,11 @@ float IntersectTriangles(inout Intersection it, float3 ori, float3 dir)
 	return tmin;
 }
 
-float IntersectInternal(inout Intersection it, float3 ori, float3 dir)
+float IntersectInternal(out Intersection it, float3 ori, float3 dir)
 {
 	float tmin = FLOAT_MAX;
-	Intersection itTriangles = (Intersection)0;
-	Intersection itLights = (Intersection)0;
+	Intersection itTriangles;
+	Intersection itLights;
 	ori = ori + dir * PATH_TRACER_SPAWN_RAY_BIAS;
 	float tTriangles = IntersectTriangles(itTriangles, ori, dir);
 	float tLights = IntersectLights(itLights, ori, dir);
@@ -224,7 +245,7 @@ float IntersectInternal(inout Intersection it, float3 ori, float3 dir)
 	return tmin;
 }
 
-bool Intersect(inout Intersection it, float3 ori, float3 dir)
+bool Intersect(out Intersection it, float3 ori, float3 dir)
 {
 	float tmin = IntersectInternal(it, ori, dir);
 	if (tmin > 0.0f && tmin < FLOAT_MAX)
@@ -233,9 +254,9 @@ bool Intersect(inout Intersection it, float3 ori, float3 dir)
 		return false;
 }
 
-bool IsLightVisibleInternal(uint lightIndex, float3 ori, float3 dir, inout float3 p)
+bool IsLightVisibleInternal(uint lightIndex, float3 ori, float3 dir, out float3 p)
 {
-	Intersection it = (Intersection)0;
+	Intersection it = InitIntersection();
 	if(Intersect(it, ori, dir))
 	{
 		if((it.mIntersectionFlags & PATH_TRACER_INTERSECTION_TYPE_LIGHT) && (lightIndex == it.mLightIndex))
@@ -253,7 +274,7 @@ bool IsLightVisible(uint lightIndex, float3 ori, float3 dir)
 	return IsLightVisibleInternal(lightIndex, ori, dir, p);
 }
 
-void BarycentricInterpolate(float3 p, TrianglePT tri, inout float2 uv, inout float3 nor, inout float4 tan)
+void BarycentricInterpolate(float3 p, TrianglePT tri, out float2 uv, out float3 nor, out float4 tan)
 {
 	float s = 0.5f * length(cross(tri.mVertices[0].pos - tri.mVertices[1].pos, tri.mVertices[0].pos - tri.mVertices[2].pos));
 	float s0 = 0.5f * length(cross(p - tri.mVertices[1].pos, p - tri.mVertices[2].pos)) / s;
@@ -264,7 +285,7 @@ void BarycentricInterpolate(float3 p, TrianglePT tri, inout float2 uv, inout flo
 	tan = s0 * tri.mVertices[0].tan + s1 * tri.mVertices[1].tan + s2 * tri.mVertices[2].tan;
 }
 
-void EvaluateSurface(inout SurfaceDataInPT sdiPT, Intersection it)
+void EvaluateSurface(out SurfaceDataInPT sdiPT, Intersection it)
 {
 	if (it.mIntersectionFlags & PATH_TRACER_INTERSECTION_TYPE_MATERIAL)
 	{
@@ -308,7 +329,7 @@ void EvaluateSurface(inout SurfaceDataInPT sdiPT, Intersection it)
 	}
 }
 
-float3 EvaluateLight(float3 itPos, float3 lightPos, uint lightIndex, inout float3 wi, inout float pdf)
+float3 EvaluateLight(float3 itPos, float3 lightPos, uint lightIndex, out float3 wi, out float pdf)
 {
 	float3 result = 0.0f.xxx;
 	float3 nLight = 0.0f.xxx;
@@ -345,14 +366,14 @@ float3 EvaluateLight(float3 itPos, float3 lightPos, uint lightIndex, inout float
 	return result;
 }
 
-float3 EvaluateLight(float3 itPos, float3 lightPos, uint lightIndex, inout float pdf)
+float3 EvaluateLight(float3 itPos, float3 lightPos, uint lightIndex, out float pdf)
 {
 	float3 wi = 0.0f.xxx;
 	return EvaluateLight(itPos, lightPos, lightIndex, wi, pdf);
 }
 
 // TODO: evaluate and pass in light surface if needed
-float3 SampleLight(float3 itPos, float2 xi, uint lightIndex, inout float3 wi, inout float pdf)
+float3 SampleLight(float3 itPos, float2 xi, uint lightIndex, out float3 wi, out float pdf)
 {
 	float3 result = 0.0f.xxx;
 	float3 p = 0.0f.xxx;
@@ -375,7 +396,7 @@ float3 SampleLight(float3 itPos, float2 xi, uint lightIndex, inout float3 wi, in
 }
 
 // cosine term in LTE is handled in BRDF functions
-float3 EvaluateMaterial(SurfaceDataInPT sdiPT, float3 wo, float3 wi, inout float pdf)
+float3 EvaluateMaterial(SurfaceDataInPT sdiPT, float3 wo, float3 wi, out float pdf)
 {
 	float3 result = 0.0f.xxx;
 	if (sdiPT.mMaterialType == MATERIAL_TYPE_GGX)
@@ -398,7 +419,7 @@ float3 EvaluateMaterial(SurfaceDataInPT sdiPT, float3 wo, float3 wi, inout float
 	return result;
 }
 
-float3 SampleMaterial(SurfaceDataInPT sdiPT, float2 xi, float3 wo, inout float3 wi, inout float pdf)
+float3 SampleMaterial(SurfaceDataInPT sdiPT, float2 xi, float3 wo, out float3 wi, out float pdf)
 {
 	if (sdiPT.mMaterialType == MATERIAL_TYPE_GGX)
 	{
@@ -424,31 +445,40 @@ float PowerHeuristic(int nf, float fPdf, int ng, float gPdf)
 }
 
 // termination doesn't mean hitting nothing necessarily
-bool PathTraceCommon(inout uint seed, inout uint remainingDepth, inout bool isLastBounceSpecular, inout float3 color, inout float3 throughput, inout float3 ori, inout float3 dir, out float3 pos, out bool terminated, uint minDepth, uint maxDepth)
+bool PathTraceCommon(inout Ray ray, uint minDepth, uint maxDepth)
 {
+	// assuming ray is already initialized
 	bool hitAnything = false;
-	terminated = true;
-	float3 wo = -dir;
-	// 1. intersection detection
-	Intersection it = (Intersection)0;
-	if (Intersect(it, ori, dir))
+	ray.mTerminated = true;
+	ray.mReadyForDebug = true;
+	ray.mHitTriangleIndex = INVALID_UINT32;
+	ray.mHitMeshIndex = INVALID_UINT32;
+	ray.mHitLightIndex = INVALID_UINT32;
+	ray.mRemainingDepth--; // decrease depth no matter hit or not to prevent from early return writing to the same debug ray
+	float3 wo = -ray.mDir;
+	// I. intersection detection
+	Intersection it = InitIntersection();
+	if (Intersect(it, ray.mOri, ray.mDir))
 	{
-		pos = it.mPointWorld;
+		ray.mEnd = it.mPointWorld;
+		ray.mHitTriangleIndex = it.mTriangleIndex;
+		ray.mHitMeshIndex = it.mMeshIndex;
+		ray.mHitLightIndex = it.mLightIndex;
 		hitAnything = true;
 
 		if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_TRIANGLE_INTERSECTION) // debug triangle intersection
 		{
-			color = float3((it.mTriangleIndex + 1.0f) / uPass.mTriangleCountPT, 0.0f, 0.0f);
+			ray.mResult = float3((it.mTriangleIndex + 1.0f) / uPass.mTriangleCountPT, 0.0f, 0.0f);
 			return hitAnything;
 		}
 		else if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_LIGHT_INTERSECTION) // debug light intersection
 		{
-			color = float3(0.0f, (it.mLightIndex + 1.0f) / uPass.mLightCountPT, 0.0f);
+			ray.mResult = float3(0.0f, (it.mLightIndex + 1.0f) / uPass.mLightCountPT, 0.0f);
 			return hitAnything;
 		}
 		else if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_MESH_INTERSECTION) // debug mesh intersection
 		{
-			color = float3(0.0f, 0.0f, (gTriangleBufferPT[it.mTriangleIndex].mMeshIndex + 1.0f) / uPass.mMeshCountPT);
+			ray.mResult = float3(0.0f, 0.0f, (it.mMeshIndex + 1.0f) / uPass.mMeshCountPT);
 			return hitAnything;
 		}
 
@@ -457,19 +487,19 @@ bool PathTraceCommon(inout uint seed, inout uint remainingDepth, inout bool isLa
 
 		if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_ALBEDO)
 		{
-			color = sdiPT.mAlbedo;
+			ray.mResult = sdiPT.mAlbedo;
 			return hitAnything;
 		}
 		else if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_NORMAL)
 		{
-			color = sdiPT.mNorWorld * 0.5f + 0.5f;
+			ray.mResult = sdiPT.mNorWorld * 0.5f + 0.5f;
 			return hitAnything;
 		}
 
 		// no need to include light source except for first bounce or specular bounce, 
 		// because both direct and indirect light bounces are covered explicitly
-		if (remainingDepth == maxDepth || isLastBounceSpecular)
-			color += throughput * sdiPT.mEmissive;
+		if (ray.mRemainingDepth == maxDepth - 1 || ray.mIsLastBounceSpecular)
+			ray.mResult += ray.mThroughput * sdiPT.mEmissive;
 
 		// terminate on lights
 		if (it.mIntersectionFlags & PATH_TRACER_INTERSECTION_TYPE_LIGHT)
@@ -479,16 +509,19 @@ bool PathTraceCommon(inout uint seed, inout uint remainingDepth, inout bool isLa
 
 		// 2. sample light
 		float lightPdf = 1.0f;
+		float3 lightPoint = 0.0f.xxx;
 		float3 lightWi = 0.0f.xxx;
-		float2 lightXi = frandom2(seed);
-		uint lightIndex = frandom(seed) * uPass.mLightCountPT;
+		float2 lightXi = frandom2(ray.mSeed);
+		uint lightIndex = frandom(ray.mSeed) * uPass.mLightCountPT;
 		float3 lightCol = SampleLight(it.mPointWorld, lightXi, lightIndex, lightWi, lightPdf);
+		ray.mLightSampleRayEnd = float4(lightWi, 0.0f);
 		if (IsNotBlack(lightCol))
 		{
 			float lightMaterialPdf = 1.0f;
 			float3 lightMaterialCol = EvaluateMaterial(sdiPT, wo, lightWi, lightMaterialPdf);
-			if (IsNotBlack(lightMaterialCol) && lightMaterialPdf > 0.0f && IsLightVisible(lightIndex, it.mPointWorld, lightWi))
+			if (IsNotBlack(lightMaterialCol) && lightMaterialPdf > 0.0f && IsLightVisibleInternal(lightIndex, it.mPointWorld, lightWi, lightPoint))
 			{
+				ray.mLightSampleRayEnd = float4(lightPoint, 1.0f);
 				if (lightPdf > 0.0f)
 				{
 					float weight = PowerHeuristic(1.0f, lightPdf, 1.0f, lightMaterialPdf);
@@ -505,10 +538,12 @@ bool PathTraceCommon(inout uint seed, inout uint remainingDepth, inout bool isLa
 			float materialPdf = 1.0f;
 			float3 materialLightPoint = 0.0f.xxx;
 			float3 materialWi = 0.0f.xxx;
-			float2 materialXi = frandom2(seed);
+			float2 materialXi = frandom2(ray.mSeed);
 			float3 materialCol = SampleMaterial(sdiPT, materialXi, wo, materialWi, materialPdf);
+			ray.mMaterialSampleRayEnd = float4(materialWi, 0.0f);
 			if (IsNotBlack(materialCol) && materialPdf > 0.0f && IsLightVisibleInternal(lightIndex, it.mPointWorld, materialWi, materialLightPoint))
 			{
+				ray.mMaterialSampleRayEnd = float4(materialLightPoint, 1.0f);
 				float materialLightPdf = 1.0f;
 				float3 materialLightCol = EvaluateLight(it.mPointWorld, materialLightPoint, lightIndex, materialLightPdf);
 				if (materialLightPdf > 0.0f)
@@ -521,116 +556,81 @@ bool PathTraceCommon(inout uint seed, inout uint remainingDepth, inout bool isLa
 		}
 
 		// 4. final color
-		color += Ld * throughput * uPass.mLightCountPT;
+		ray.mResult += Ld * ray.mThroughput * uPass.mLightCountPT;
 
 		// 5. GI
 		float giPdf = 0.0f;
 		float3 giWi = 0.0f.xxx;
-		float2 giXi = frandom2(seed);
+		float2 giXi = frandom2(ray.mSeed);
 		float3 giColor = SampleMaterial(sdiPT, giXi, wo, giWi, giPdf);
 		if (IsNotBlack(giColor) && giPdf > 0.0f)
 		{
-			isLastBounceSpecular = (sdiPT.mMaterialType & (MATERIAL_TYPE_SPECULAR_REFLECTIIVE | MATERIAL_TYPE_SPECULAR_TRANSMISSIVE));
-			throughput *= giColor / giPdf;
+			ray.mIsLastBounceSpecular = 
+				(sdiPT.mMaterialType == MATERIAL_TYPE_SPECULAR_REFLECTIIVE ||
+					sdiPT.mMaterialType == MATERIAL_TYPE_SPECULAR_TRANSMISSIVE);
+			ray.mThroughput *= giColor / giPdf;
 		}
 		else
 			return hitAnything;
 
 		// 6. spawn new ray
-		ori = it.mPointWorld;
-		dir = giWi;
+		ray.mNextOri = it.mPointWorld;
+		ray.mNextDir = giWi;
 	}
 	else
 		return hitAnything;
 
-	// 2. russian roulette
-	if (maxDepth - remainingDepth >= minDepth)
+	// II. russian roulette
+	if (uScene.mPathTracerEnableRussianRoulette && ray.mRemainingDepth <= maxDepth - minDepth)
 	{
 		float russian = 0.0f;
-		float throughputMax = max(max(throughput.x, throughput.y), throughput.z);
+		float throughputMax = max(max(ray.mThroughput.x, ray.mThroughput.y), ray.mThroughput.z);
 		if (throughputMax < russian)
-			return terminated;
-		throughput /= throughputMax;
+			return hitAnything;
+		ray.mThroughput /= throughputMax;
 	}
 
-	remainingDepth--;
-	terminated = bool(remainingDepth <= 0);
+	ray.mTerminated = bool(ray.mRemainingDepth <= 0);
 	return hitAnything;
 }
 
 bool PathTrace(uint seed, float3 eyePos, float3 eyeDir, uint minDepth, uint maxDepth, out float3 finalColor, out float3 firstPos, bool debugPixel)
 {
-	uint remainingDepth = maxDepth;
-	float3 throughput = 1.0f.xxx;
-	float3 color = 0.0f.xxx;
-	float3 ori = eyePos;
-	float3 dir = eyeDir;
-	bool terminated = false;
+	Ray ray = InitRay(maxDepth, seed, eyePos, eyeDir);
 	bool hitAnything = false;
 	bool firstBounce = true;
-
-	while (!terminated && remainingDepth > 0)
+	while (!ray.mTerminated && ray.mRemainingDepth > 0)
 	{
-		float3 pos = 0.0f.xxx;
-		float3 oldOri = ori;
-		float3 oldDir = dir;
-		bool isLastBounceSpecular = false;
-		bool hitSomething = PathTraceCommon(seed, remainingDepth, isLastBounceSpecular, color, throughput, ori, dir, pos, terminated, minDepth, maxDepth);
+		ray.mOri = ray.mNextOri;
+		ray.mDir = ray.mNextDir;
+		bool hitSomething = PathTraceCommon(ray, minDepth, maxDepth);
 		hitAnything = hitAnything || hitSomething;
 		
 		if (firstBounce && hitSomething)
-			firstPos = pos;
+			firstPos = ray.mEnd;
 
-		if (debugPixel)
+		if (debugPixel && maxDepth > ray.mRemainingDepth)
 		{
-			Ray ray = InitRay(remainingDepth, seed, oldOri, oldDir);
-			ray.mNextOri = ori;
-			ray.mNextDir = dir;
-			ray.mReadyForDebug = hitSomething;
-			ray.mTerminated = terminated;
-			ray.mResultWritten = false;
-			ray.mIsLastBounceSpecular = isLastBounceSpecular;
-			ray.mEnd = pos;
-			ray.mThroughput = throughput;
-			ray.mResult = color;
-			if (maxDepth > remainingDepth)
-				gDebugRayBuffer[maxDepth - remainingDepth - 1] = ray;
+			gDebugRayBuffer[maxDepth - ray.mRemainingDepth - 1] = ray;
 		}
 
 		firstBounce = false;
 	}
-	finalColor = color;
+	finalColor = ray.mResult;
 	return hitAnything;
 }
 
 bool PathTraceOnce(inout Ray ray, uint minDepth, uint maxDepth, out float3 pos, bool debugPixel)
 {
-	uint seed = ray.mSeed;
-	uint remainingDepth = ray.mRemainingDepth;
-	bool terminated = ray.mTerminated; // TODO: order rays so that we only launch compute shaders on non-terminated rays, this will require a new way to address pixel at a given screen position
-	bool isLastBounceSpecular = ray.mIsLastBounceSpecular;
-	float3 color = ray.mResult;
-	float3 throughput = ray.mThroughput;
-	float3 ori = ray.mNextOri;
-	float3 dir = ray.mNextDir;
 	bool hitAnything = false;
-
-	if (!terminated && remainingDepth > 0)
+	if (!ray.mTerminated && ray.mRemainingDepth > 0)
 	{
-		ray.mOri = ori;
-		ray.mDir = dir;
-		hitAnything = PathTraceCommon(seed, remainingDepth, isLastBounceSpecular, color, throughput, ori, dir, pos, terminated, minDepth, maxDepth);
-		ray.mNextOri = ori;
-		ray.mNextDir = dir;
-		ray.mReadyForDebug = hitAnything;
-		ray.mRemainingDepth = remainingDepth;
-		ray.mTerminated = terminated;
-		ray.mSeed = seed;
-		ray.mEnd = pos;
-		ray.mThroughput = throughput;
-		ray.mResult = color;
-		if (debugPixel && maxDepth > remainingDepth)
-			gDebugRayBuffer[maxDepth - remainingDepth - 1] = ray;
+		ray.mOri = ray.mNextOri;
+		ray.mDir = ray.mNextDir;
+		hitAnything = PathTraceCommon(ray, minDepth, maxDepth);
+		pos = ray.mEnd;
+		if (debugPixel && maxDepth > ray.mRemainingDepth)
+			gDebugRayBuffer[maxDepth - ray.mRemainingDepth - 1] = ray;
 	}
 	return hitAnything;
 }

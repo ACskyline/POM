@@ -52,6 +52,8 @@ public:
 	static void AddMeshesFromPass(Pass& pass);
 	static void PreparePathTracer(ID3D12GraphicsCommandList* commandList, Scene& scene);
 	static void RunPathTracer(ID3D12GraphicsCommandList* commandList);
+	static void CopyDepthBuffer(ID3D12GraphicsCommandList* commandList);
+	static void DebugDraw(ID3D12GraphicsCommandList* commandList);
 	static void Shutdown();
 	static void BuildBVH();
 };

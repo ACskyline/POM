@@ -1459,7 +1459,6 @@ void Renderer::CreateGraphicsPSO(
 	if (shaderTargets.size() > 0) 
 	{ 
 		// if render textures are used
-		depthStencilDesc = Renderer::TranslateDepthStencilState(shaderTargets[0].mDepthStencilState);
 		multiSampleCount = shaderTargets[0].mRenderTexture->GetMultiSampleCount();
 		if (shaderTargets.size() > 1)
 			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, TODO: add it as a member variable to pass class
@@ -1492,12 +1491,15 @@ void Renderer::CreateGraphicsPSO(
 				depthStencilCount++;
 			}
 		}
+
+		fatalAssertf(renderTargetCount == pass.GetRenderTargetCount(), "render target count mismatch!");
+		fatalAssertf(depthStencilCount == pass.GetDepthStencilCount(), "depth stencil count mismatch!");
+		fatalAssertf(depthStencilCount <= 0 || depthStencilIndex == pass.GetDepthStencilIndex(), "depth stencil index mismatch!");
+
+		if (depthStencilCount > 0)
+			depthStencilDesc = Renderer::TranslateDepthStencilState(shaderTargets[depthStencilIndex].mDepthStencilState);
 	}
-
-	fatalAssertf(renderTargetCount == pass.GetRenderTargetCount(), "render target count mismatch!");
-	fatalAssertf(depthStencilCount == pass.GetDepthStencilCount(), "depth stencil count mismatch!");
-	fatalAssertf(depthStencilIndex == pass.GetDepthStencilIndex(), "depth stencil index mismatch!");
-
+	
 	if (renderTargetCount == 0 && pass.UseRenderTarget())
 	{
 		// use backbuffer parameters
