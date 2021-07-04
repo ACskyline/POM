@@ -135,6 +135,22 @@ struct BlendState {
 			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
 		};
 	}
+
+	static BlendState PremultipliedAlphaBlend()
+	{
+		return BlendState{
+			true,
+			false,
+			BlendState::BlendFactor::ONE,
+			BlendState::BlendFactor::INV_SRC_ALPHA,
+			BlendState::BlendOp::ADD,
+			BlendState::BlendFactor::ONE,
+			BlendState::BlendFactor::INV_SRC_ALPHA,
+			BlendState::BlendOp::ADD,
+			BlendState::LogicOp::NOOP,
+			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
+		};
+	}
 };
 
 struct DepthStencilState {

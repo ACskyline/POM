@@ -1,5 +1,5 @@
-#ifndef SHARED_MACROS
-#define SHARED_MACROS
+#ifndef SHARED_HEADER
+#define SHARED_HEADER
 
 #define PASTE(x, y) x ## y
 
@@ -17,8 +17,10 @@
 
 #define EPSILON 0.0001f
 #define FLOAT_MAX 3.402823466e+38F
+#define FLOAT_MIN 1.175494351e-38F
 #define EQUALF(a, b) (abs(a - b) < EPSILON)
-#define INVALID_UINT32 0xffffffff
+#define MAX_UINT32 0xffffffff
+#define INVALID_UINT32 MAX_UINT32
 
 #define USE_REVERSED_Z
 #ifdef USE_REVERSED_Z
@@ -41,12 +43,13 @@
 #define MATERIAL_TYPE_SPECULAR_TRANSMISSIVE		0x00000003
 #define MATERIAL_TYPE_EMISSIVE					0x00000004
 
-#define PATH_TRACER_TRIANGLE_COUNT_MAX					10000
+#define PATH_TRACER_TRIANGLE_BVH_STACK_SIZE				256 // 256 uint array so it's actually 256 * 4 bytes per compute shader
+#define PATH_TRACER_TRIANGLE_BVH_TREE_HEIGHT_MAX		PATH_TRACER_TRIANGLE_BVH_STACK_SIZE
+#define PATH_TRACER_TOTAL_TRIANGLE_COUNT_MAX			300000
 #define PATH_TRACER_MESH_COUNT_MAX						10
 #define PATH_TRACER_LIGHT_COUNT_MAX						LIGHT_COUNT_PER_SCENE_MAX
 #define PATH_TRACER_THREAD_COUNT_X						8
 #define PATH_TRACER_THREAD_COUNT_Y						8
-#define PATH_TRACER_THREAD_COUNT_Z						1
 #define PATH_TRACER_BACKBUFFER_WIDTH					960
 #define PATH_TRACER_BACKBUFFER_HEIGHT					960
 #define PATH_TRACER_MIN_DEPTH_MAX						5
@@ -76,18 +79,27 @@ struct Triangle
 
 struct TrianglePT : Triangle
 {
-	FLOAT3 mCentroid;
 	UINT mMeshIndex;
 	UINT mMortonCode;
+	UINT mBvhIndexLocal;
 };
 
-struct TriangleBVH 
+struct AABB
 {
 	FLOAT3 mMin;
-	UINT mLeftIndex;
 	FLOAT3 mMax;
-	UINT mRightIndex;
-	UINT mTriangleIndex;
+};
+
+struct BVH 
+{
+	AABB mAABB; // this is in model space for triangle bvh, but in world space for mesh bvh
+	UINT mParentIndexLocal;
+	UINT mLeftIndexLocal;
+	UINT mRightIndexLocal;
+	UINT mLeftIsLeaf;
+	UINT mRightIsLeaf;
+	UINT mVisited;
+	UINT mMeshIndex;
 };
 
 struct MeshPT
@@ -99,19 +111,12 @@ struct MeshPT
 	float mRoughness;
 	float mFresnel;
 	float mMetallic;
-	int mTextureStartIndex;
-	int mTextureCount;
-};
-
-struct MeshBVH
-{
-	FLOAT3 mMin;
-	UINT mLeftIndex;
-	FLOAT3 mMax;
-	UINT mRightIndex;
-	FLOAT3 mCentroid;
-	UINT mTriangleBvhIndex;
-	UINT mMortonCode;
+	UINT mTriangleCount;
+	UINT mTriangleIndexLocalToGlobalOffset;
+	UINT mTriangleBvhIndexLocalToGlobalOffset;
+	UINT mRootTriangleBvhIndexLocal;
+	UINT mTextureIndexOffset;
+	UINT mTextureCount;
 };
 
 struct Ray
@@ -134,6 +139,7 @@ struct Ray
 	FLOAT4 mMaterialSampleRayEnd; // if hit it's a point, otherwise it's a direction
 	UINT mHitTriangleIndex;
 	UINT mHitLightIndex;
+	UINT mRayAabbTestCount;
 };
 
 struct LightData
@@ -203,10 +209,25 @@ struct SceneUniform
 	UINT mPathTracerDebugPixelY;
 	UINT mPathTracerEnableDebug;
 	//
-	UINT mPathTracerEnableDebugSampleRay;
+	UINT mPathTracerDebugSampleRay;
 	float mPathTracerDebugDirLength;
 	UINT mPathTracerUpdateDebug;
-	UINT PADDING0;
+	UINT mPathTracerMeshBvhCount;
+	//
+	UINT mPathTracerTriangleBvhCount;
+	UINT mPathTracerDebugMeshBVH;
+	UINT mPathTracerDebugTriangleBVH;
+	UINT mPathTracerMeshBvhRootIndex;
+	//
+	UINT mPathTracerTileCountX SHARED_HEADER_CPP_ONLY(= 1);
+	UINT mPathTracerTileCountY SHARED_HEADER_CPP_ONLY(= 1);
+	UINT mPathTracerThreadGroupPerTileX;
+	UINT mPathTracerThreadGroupPerTileY;
+	//
+	UINT mPathTracerTileCount;
+	UINT mPathTracerCurrentTileIndex;
+	UINT mPathTracerUseBVH;
+	UINT PADDING_0;
 	//
 	LightData mLightData[LIGHT_COUNT_PER_SCENE_MAX];
 };
@@ -255,6 +276,11 @@ struct PassUniformPathTracer : PassUniformDefault
 	UINT mMeshCountPT;
 	UINT mLightCountPT;
 	UINT PADDING_0;
+};
+
+struct PassUniformPathTracerBuildBVH : PassUniformDefault
+{
+	// TODO:
 };
 
 struct ObjectUniform

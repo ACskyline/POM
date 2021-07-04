@@ -187,12 +187,6 @@
     <FxCompile Include="cs_pathtracer.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
-    <FxCompile Include="vs_pathtracer_debug.hlsl">
-      <Filter>Resource Files</Filter>
-    </FxCompile>
-    <FxCompile Include="ps_pathtracer_debug.hlsl">
-      <Filter>Resource Files</Filter>
-    </FxCompile>
     <FxCompile Include="ps_pathtracer_copydepth.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
@@ -203,6 +197,21 @@
       <Filter>Resource Files</Filter>
     </FxCompile>
     <FxCompile Include="ps_pathtracer_debug_fullscreen.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_debug_line.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="vs_pathtracer_debug_line.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="vs_pathtracer_debug_cube.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="ps_pathtracer_debug_cube.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="cs_pathtracer_build_bvh.hlsl">
       <Filter>Resource Files</Filter>
     </FxCompile>
   </ItemGroup>

@@ -28,7 +28,7 @@ VS_OUTPUT main(VS_INPUT input)
 			{
 				if (HitAnything(ray))
 					pos = ray.mEnd;
-				else // if the doesn't hit anything
+				else // if the ray doesn't hit anything
 					pos = ray.mOri + uScene.mPathTracerDebugDirLength * normalize(ray.mNextDir.xyz);
 				if (ray.mTerminated)
 					col = float4(0.0f, 0.0f, 1.0f, 1.0f);
@@ -36,7 +36,7 @@ VS_OUTPUT main(VS_INPUT input)
 					col = float4(0.0f, 1.0f, 0.0f, 1.0f);
 			}
 		}
-		else if (debugLineIndex == 1 && uScene.mPathTracerEnableDebugSampleRay) // sample light
+		else if (debugLineIndex == 1 && uScene.mPathTracerDebugSampleRay) // sample light
 		{
 			if ((input.vertexID & 1) == 0) // start of the line
 			{
@@ -49,7 +49,7 @@ VS_OUTPUT main(VS_INPUT input)
 				col = float4(0.0f, 1.0f, 1.0f, 1.0f);
 			}
 		}
-		else if (debugLineIndex == 2 && uScene.mPathTracerEnableDebugSampleRay) // sample material
+		else if (debugLineIndex == 2 && uScene.mPathTracerDebugSampleRay) // sample material
 		{
 			if ((input.vertexID & 1) == 0) // start of the line
 			{

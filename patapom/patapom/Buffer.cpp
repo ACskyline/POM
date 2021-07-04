@@ -75,6 +75,7 @@ void Buffer::CreateView()
 // pass in nullptr to zero out the memory
 void Buffer::SetBufferData(void* data, int sizeInByte)
 {
+	fatalAssertf(sizeInByte <= mElementSizeInByte * mElementCount, "setting out of range memory");
 	CD3DX12_RANGE readRange(0, 0); // "It is valid to specify the CPU didn't write any data by passing a range where End is less than or equal to Begin."
 	void* cpuAddress;
 	mBuffer->Map(0, &readRange, &cpuAddress); // "A null pointer indicates the entire subresource might be read by the CPU."
@@ -196,6 +197,7 @@ void WriteBuffer::CreateUav()
 
 void WriteBuffer::SetBufferDataInternal(ID3D12GraphicsCommandList* commandList, void* data, int sizeInByte)
 {
+	fatalAssertf(sizeInByte <= mElementSizeInByte * mElementCount, "setting out of range memory");
 	// "Map and Unmap can not be called on a resource associated with 
 	// a heap that has the CPU page properties of D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE.
 	// Heaps of the type D3D12_HEAP_TYPE_DEFAULT should be assumed to have these properties."

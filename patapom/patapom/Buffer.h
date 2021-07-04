@@ -11,6 +11,7 @@ public:
 
 	ID3D12Resource* GetBuffer();
 	D3D12_SHADER_RESOURCE_VIEW_DESC GetSrvDesc() const;
+	u32 GetElementCount() const { return mElementCount; }
 
 	void InitBuffer(Renderer* renderer);
 	virtual void SetBufferData(void* data, int sizeInByte);

@@ -2,6 +2,7 @@
 #include "Pass.h"
 #include "Texture.h"
 #include "Light.h"
+#include "PathTracer.h"
 
 Scene::Scene(const wstring& debugName) : 
 	mRenderer(nullptr), mDebugName(debugName), mUniformDirtyFlag(0)
@@ -140,16 +141,23 @@ void Scene::CreateUniformBuffer(int frameCount)
 
 void Scene::UpdateUniformBuffer(int frameIndex)
 {
-	mSceneUniform.mLightCount = mLights.size();
-	for (int i = 0; i < mLights.size() && i < LIGHT_COUNT_PER_SCENE_MAX; i++)
-		mSceneUniform.mLightData[i] = mLights[i]->CreateLightData();
-
+	UpdateUniform();
 	CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU. (so end is less than or equal to begin)
 	void* cpuAddress;
 	mUniformBuffers[frameIndex]->Map(0, &readRange, &cpuAddress);
 	memcpy(cpuAddress, &mSceneUniform, sizeof(mSceneUniform));
 	mUniformBuffers[frameIndex]->Unmap(0, nullptr);
 	ResetUniformDirty(frameIndex);
+}
+
+void Scene::UpdateUniform()
+{
+	mSceneUniform.mPathTracerTileCount = mSceneUniform.mPathTracerTileCountX * mSceneUniform.mPathTracerTileCountY;
+	mSceneUniform.mPathTracerThreadGroupPerTileX = ROUNDUP_DIVISION(PathTracer::sThreadGroupCountX, mSceneUniform.mPathTracerTileCountX),
+	mSceneUniform.mPathTracerThreadGroupPerTileY = ROUNDUP_DIVISION(PathTracer::sThreadGroupCountY, mSceneUniform.mPathTracerTileCountY),
+	mSceneUniform.mLightCount = mLights.size();
+	for (int i = 0; i < mLights.size() && i < LIGHT_COUNT_PER_SCENE_MAX; i++)
+		mSceneUniform.mLightData[i] = mLights[i]->CreateLightData();
 }
 
 void Scene::Release(bool checkOnly)

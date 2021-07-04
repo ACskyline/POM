@@ -34,6 +34,7 @@ public:
 		DescriptorHeap& samplerDescriptorHeap);
 	void CreateUniformBuffer(int frameCount);
 	void UpdateUniformBuffer(int frameIndex);
+	void UpdateUniform();
 	void Release(bool checkOnly = false);
 	
 	SceneUniform mSceneUniform;

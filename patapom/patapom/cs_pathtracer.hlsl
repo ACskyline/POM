@@ -27,12 +27,10 @@ RWTexture2D<float> gDepthbufferPT : register(u3, SPACE(PASS));
 StructuredBuffer<TrianglePT> gTriangleBufferPT : register(t0, SPACE(PASS));
 StructuredBuffer<MeshPT> gMeshBufferPT : register(t1, SPACE(PASS));
 StructuredBuffer<LightData> gLightDataBufferPT : register(t2, SPACE(PASS));
-StructuredBuffer<MeshBVH> gMeshBvhBuffer : register(t3, SPACE(PASS));
-StructuredBuffer<TriangleBVH> gTriangleBvhBuffer : register(t4, SPACE(PASS));
-Texture2D gTextures[] : register(t5, SPACE(PASS)); // unbounded texture array
+StructuredBuffer<BVH> gMeshWorldBvhBuffer : register(t3, SPACE(PASS));
+StructuredBuffer<BVH> gTriangleModelBvhBuffer : register(t4, SPACE(PASS));
+Texture2D gMeshTextures[] : register(t5, SPACE(PASS)); // unbounded texture array
 SamplerState gSamplers[] : register(s5, SPACE(PASS)); // unbounded sampler array
-
-bool gDebugPixel = false;
 
 struct Intersection 
 {
@@ -42,6 +40,7 @@ struct Intersection
 	float3 mPointWorld;
 	float3 mPointModel;
 	uint mIntersectionFlags; // to cache small but important information so that we don't need to constantly evaluate surface during intersection test
+	uint mRayAabbTestCount;
 };
 
 struct SurfaceDataInPT : SurfaceDataIn
@@ -73,6 +72,7 @@ Ray InitRay(uint maxDepth, uint seed, float3 ori, float3 dir)
 	ray.mMaterialSampleRayEnd = 0.0f.xxxx; // if hit it's a point, otherwise it's a direction
 	ray.mHitTriangleIndex = INVALID_UINT32;
 	ray.mHitLightIndex = INVALID_UINT32;
+	ray.mRayAabbTestCount = 0;
 	return ray;
 }
 
@@ -85,6 +85,21 @@ Intersection InitIntersection()
 	it.mPointWorld = 0.0f.xxx;
 	it.mPointModel = 0.0f.xxx;
 	it.mIntersectionFlags = 0;
+	it.mRayAabbTestCount = 0;
+	return it;
+}
+
+Intersection SetIntersection(uint meshIndex, uint triangleIndex, float4x4 model, float3 oriModel, float3 dirModel, float tModel, uint itFlag)
+{
+	Intersection it = (Intersection)0;
+	it.mTriangleIndex = triangleIndex;
+	it.mMeshIndex = meshIndex;
+	it.mPointModel = oriModel + dirModel * tModel;
+	it.mPointWorld = mul(model, float4(it.mPointModel, 1)).xyz;
+	uint bitsToUnset = ~(PATH_TRACER_INTERSECTION_TYPE_MASK);
+	it.mIntersectionFlags &= bitsToUnset;
+	it.mIntersectionFlags |= itFlag;
+	it.mRayAabbTestCount = 0;
 	return it;
 }
 
@@ -166,14 +181,105 @@ float RayLight(LightData ld, float3 ori, float3 dir)
 	return t;
 }
 
+float RayAabbFace(AABB aabb, uint face, float3 ori, float3 dir)
+{
+	float3 nor = float3(0.0f, 0.0f, 0.0f);
+	float3 pos = float3(0.0f, 0.0f, 0.0f);
+
+	switch (face)
+	{
+	case 0:
+		nor = float3(0.0f, 0.0f, -1.0f);
+		pos = aabb.mMin;
+		break;
+	case 1:
+		nor = float3(1.0f, 0.0f, 0.0f);
+		pos = aabb.mMax;
+		break;
+	case 2:
+		nor = float3(0.0f, 0.0f, 1.0f);
+		pos = aabb.mMax;
+		break;
+	case 3:
+		nor = float3(-1.0f, 0.0f, 0.0f);
+		pos = aabb.mMin;
+		break;
+	case 4:
+		nor = float3(0.0f, -1.0f, 0.0f);
+		pos = aabb.mMin;
+		break;
+	case 5:
+		nor = float3(0.0f, 1.0f, 0.0f);
+		pos = aabb.mMax;
+		break;
+	default:
+		return false;
+		break;
+	}
+
+	if (dot(dir, nor) == 0.0f) 
+		return false;
+	float t = dot(pos - ori, nor) / dot(dir, nor);
+	float3 p = ori + t * dir;
+
+	switch (face)
+	{
+	case 0:
+	case 2:
+		if (p.x < aabb.mMin.x || p.x > aabb.mMax.x || p.y < aabb.mMin.y || p.y > aabb.mMax.y)
+			t = -1.0f;
+		break;
+	case 1:
+	case 3:
+		if (p.z < aabb.mMin.z || p.z > aabb.mMax.z || p.y < aabb.mMin.y || p.y > aabb.mMax.y)
+			t = -1.0f;
+		break;
+	case 4:
+	case 5:
+		if (p.x < aabb.mMin.x || p.x > aabb.mMax.x || p.z < aabb.mMin.z || p.z > aabb.mMax.z)
+			t = -1.0f;
+		break;
+	default:
+		t = -1.0f;
+		break;
+	}
+	return t;
+}
+
+float RayAABB(AABB aabb, float3 ori, float3 dir)
+{
+	float minT = -1.0f;
+	float maxT = -1.0f;
+
+	[unroll]
+	for (uint i = 0; i < 6; i++)
+	{
+		float t = RayAabbFace(aabb, i, ori, dir);
+		if (t > 0.0f)
+		{
+			if (minT < 0.0f || t < minT)
+			{
+				minT = t;
+			}
+			if (maxT < 0.0f || t > maxT)
+			{
+				maxT = t;
+			}
+		}
+	}
+
+	// not using maxT for now
+	return minT;
+}
+
 float IntersectLights(out Intersection it, float3 ori, float3 dir)
 {
 	it = InitIntersection();
-	float tmin = FLOAT_MAX;
+	float tmin = -1.0f;
 	for (uint i = 0; i < uPass.mLightCountPT; i++)
 	{
 		float t = RayLight(gLightDataBufferPT[i], ori, dir);
-		if (t > 0.0f && t < tmin)
+		if (t > 0.0f && (t < tmin || tmin < 0.0f))
 		{
 			tmin = t;
 			it.mLightIndex = i;
@@ -187,10 +293,200 @@ float IntersectLights(out Intersection it, float3 ori, float3 dir)
 	return tmin;
 }
 
+float TraverseTriangleLeafBVH(inout Intersection it, uint triangleIndex, float4x4 model, float3 oriModel, float3 dirModel)
+{
+	TrianglePT tri = gTriangleBufferPT[triangleIndex];
+	float tModel = RayTriangle(tri, oriModel, dirModel);
+	if (tModel > 0.0f)
+		it = SetIntersection(tri.mMeshIndex, triangleIndex, model, oriModel, dirModel, tModel, PATH_TRACER_INTERSECTION_TYPE_MATERIAL);
+	else
+		tModel = -1.0f;
+	return tModel;
+}
+
+float TraverseTriangleBVH(
+	out Intersection it,
+	uint triangleBvhLocalIndex, 
+	uint triangleBvhIndexLocalToGlobalOffset, 
+	uint triangleIndexLocalToGlobalOffset,
+	float4x4 model,
+	float3 oriModel, 
+	float3 dirModel)
+{
+	float tMin = -1.0f;
+	uint stack[PATH_TRACER_TRIANGLE_BVH_STACK_SIZE];
+	uint top = 0;
+	uint rayAabbTestCount = 0;
+	stack[top++] = triangleBvhLocalIndex;
+	while (top > 0 && top < PATH_TRACER_TRIANGLE_BVH_STACK_SIZE - 2)
+	{
+		rayAabbTestCount++;
+		BVH triangleBVH = gTriangleModelBvhBuffer[stack[--top] + triangleBvhIndexLocalToGlobalOffset];
+		if (RayAABB(triangleBVH.mAABB, oriModel, dirModel) > 0.0f)
+		{
+			float tLeft = -1.0f;
+			float tRight = -1.0f;
+			Intersection itLeft = InitIntersection();
+			Intersection itRight = InitIntersection();
+
+			// left
+			if (triangleBVH.mLeftIsLeaf)
+				tLeft = TraverseTriangleLeafBVH(itLeft, triangleBVH.mLeftIndexLocal + triangleIndexLocalToGlobalOffset, model, oriModel, dirModel);
+			else
+				stack[top++] = triangleBVH.mLeftIndexLocal;
+
+			// right
+			if (triangleBVH.mRightIsLeaf)
+				tRight = TraverseTriangleLeafBVH(itRight, triangleBVH.mRightIndexLocal + triangleIndexLocalToGlobalOffset, model, oriModel, dirModel);
+			else
+				stack[top++] = triangleBVH.mRightIndexLocal;
+
+			// intersection
+			if (tLeft > 0.0f && tRight > 0.0f)
+			{
+				if (tLeft < tRight)
+				{
+					if (tMin < 0.0f || tLeft < tMin)
+					{
+						tMin = tLeft;
+						it = itLeft;
+					}
+				}
+				else
+				{
+					if (tMin < 0.0f || tRight < tMin)
+					{
+						tMin = tRight;
+						it = itRight;
+					}
+				}
+			}
+			else if (tLeft > 0.0f)
+			{
+				if (tMin < 0.0f || tLeft < tMin)
+				{
+					tMin = tLeft;
+					it = itLeft;
+				}
+			}
+			else if (tRight > 0.0f)
+			{
+				if (tMin < 0.0f || tRight < tMin)
+				{
+					tMin = tRight;
+					it = itRight;
+				}
+			}
+			rayAabbTestCount += itLeft.mRayAabbTestCount + itRight.mRayAabbTestCount;
+		}
+	}
+	it.mRayAabbTestCount = rayAabbTestCount;
+	return tMin;
+}
+
+float TraverseMeshLeafBVH(out Intersection it, uint leafIndex, float3 ori, float3 dir)
+{
+	MeshPT mesh = gMeshBufferPT[leafIndex];
+	float4x4 modelInv = mesh.mModelInv;
+	float3 oriModel = mul(modelInv, float4(ori, 1.0f)).xyz;
+	float3 dirModel = mul(modelInv, float4(dir, 0.0f)).xyz;
+	float dirModelLength = length(dirModel);
+	dirModel = normalize(dirModel);
+	float tModel = TraverseTriangleBVH(
+		it,
+		mesh.mRootTriangleBvhIndexLocal,
+		mesh.mTriangleBvhIndexLocalToGlobalOffset,
+		mesh.mTriangleIndexLocalToGlobalOffset,
+		mesh.mModel,
+		oriModel,
+		dirModel);
+	return tModel / dirModelLength;
+}
+
+float TraverseMeshBVH(out Intersection it, uint meshBvhIndex, float3 ori, float3 dir)
+{
+	float tMin = -1.0f;
+	uint stack[PATH_TRACER_MESH_COUNT_MAX];
+	uint top = 0;
+	uint rayAabbTestCount = 0;
+	stack[top++] = meshBvhIndex;
+	while (top > 0 && top < PATH_TRACER_MESH_COUNT_MAX - 2)
+	{
+		rayAabbTestCount++;
+		BVH meshBVH = gMeshWorldBvhBuffer[stack[--top]];
+		if (RayAABB(meshBVH.mAABB, ori, dir) > 0.0f)
+		{
+			float tLeft = -1.0f;
+			float tRight = -1.0f;
+			Intersection itLeft = InitIntersection();
+			Intersection itRight = InitIntersection();
+
+			// left
+			if (meshBVH.mLeftIsLeaf)
+				tLeft = TraverseMeshLeafBVH(itLeft, meshBVH.mLeftIndexLocal, ori, dir);
+			else
+				stack[top++] = meshBVH.mLeftIndexLocal;
+
+			// right
+			if (meshBVH.mRightIsLeaf)
+				tRight = TraverseMeshLeafBVH(itRight, meshBVH.mRightIndexLocal, ori, dir);
+			else
+				stack[top++] = meshBVH.mRightIndexLocal;
+
+			// intersection
+			if (tLeft > 0.0f && tRight > 0.0f)
+			{
+				if (tLeft < tRight)
+				{
+					if (tMin < 0.0f || tLeft < tMin)
+					{
+						tMin = tLeft;
+						it = itLeft;
+					}
+				}
+				else
+				{
+					if (tMin < 0.0f || tRight < tMin)
+					{
+						tMin = tRight;
+						it = itRight;
+					}
+				}
+			}
+			else if (tLeft > 0.0f)
+			{
+				if (tMin < 0.0f || tLeft < tMin)
+				{
+					tMin = tLeft;
+					it = itLeft;
+				}
+			}
+			else if (tRight > 0.0f)
+			{
+				if (tMin < 0.0f || tRight < tMin)
+				{
+					tMin = tRight;
+					it = itRight;
+				}
+			}
+			rayAabbTestCount += itLeft.mRayAabbTestCount + itRight.mRayAabbTestCount;
+		}
+	}
+	it.mRayAabbTestCount = rayAabbTestCount;
+	return tMin;
+}
+
+float IntersectMeshBVH(out Intersection it, float3 ori, float3 dir)
+{
+	float t = TraverseMeshBVH(it, uScene.mPathTracerMeshBvhRootIndex, ori, dir);
+	if (t < 0.0f)
+		t = -1.0f;
+	return t;
+}
+
 float IntersectTriangles(out Intersection it, float3 ori, float3 dir)
 {
-	it = InitIntersection();
-	float tmin = FLOAT_MAX;
+	float tmin = -1.0f;
 	float4x4 modelInv;
 	float4x4 model;
 	uint meshIndexLast = uPass.mMeshCountPT;
@@ -209,16 +505,10 @@ float IntersectTriangles(out Intersection it, float3 ori, float3 dir)
 		dirModel = normalize(dirModel);
 		float tModel = RayTriangle(tri, oriModel, dirModel);
 		float t = tModel / dirModelLength; // modelInv * (ori + t * dir) = oriModel + tModel * dirModel, if length(dir) == length(dirModel) == 1, then t * modelINv * dir = tModel * dirModel
-		if (t > 0.0f && t < tmin)
+		if (t > 0.0f && (t < tmin || tmin < 0.0f))
 		{
+			it = SetIntersection(tri.mMeshIndex, i, model, oriModel, dirModel, tModel, PATH_TRACER_INTERSECTION_TYPE_MATERIAL);
 			tmin = t;
-			it.mTriangleIndex = i;
-			it.mMeshIndex = tri.mMeshIndex;
-			it.mPointModel = oriModel + dirModel * tModel;
-			it.mPointWorld = mul(model, float4(it.mPointModel, 1)).xyz;
-			uint bitsToUnset = ~(PATH_TRACER_INTERSECTION_TYPE_MASK);
-			it.mIntersectionFlags &= bitsToUnset;
-			it.mIntersectionFlags |= (PATH_TRACER_INTERSECTION_TYPE_MATERIAL);
 		}
 	}
 	return tmin;
@@ -226,18 +516,37 @@ float IntersectTriangles(out Intersection it, float3 ori, float3 dir)
 
 float IntersectInternal(out Intersection it, float3 ori, float3 dir)
 {
-	float tmin = FLOAT_MAX;
+	float tmin = -1.0f;
 	Intersection itTriangles;
 	Intersection itLights;
 	ori = ori + dir * PATH_TRACER_SPAWN_RAY_BIAS;
-	float tTriangles = IntersectTriangles(itTriangles, ori, dir);
+	float tTriangles = -1.0f;
+	// can't use tTriangles = uScene.mPathTracerUseBVH ? IntersectMeshBVH(itTriangles, ori, dir) : IntersectTriangles(itTriangles, ori, dir);
+	// because both brach will be evaluated
+	if (uScene.mPathTracerUseBVH)
+		tTriangles = IntersectMeshBVH(itTriangles, ori, dir);
+	else
+		tTriangles = IntersectTriangles(itTriangles, ori, dir);
 	float tLights = IntersectLights(itLights, ori, dir);
-	if (tTriangles < tLights)
+	if (tTriangles > 0.0f && tLights > 0.0f)
+	{
+		if (tTriangles < tLights)
+		{
+			tmin = tTriangles;
+			it = itTriangles;
+		}
+		else
+		{
+			tmin = tLights;
+			it = itLights;
+		}
+	}
+	else if (tTriangles > 0.0f)
 	{
 		tmin = tTriangles;
 		it = itTriangles;
 	}
-	else
+	else if (tLights > 0.0f)
 	{
 		tmin = tLights;
 		it = itLights;
@@ -248,7 +557,7 @@ float IntersectInternal(out Intersection it, float3 ori, float3 dir)
 bool Intersect(out Intersection it, float3 ori, float3 dir)
 {
 	float tmin = IntersectInternal(it, ori, dir);
-	if (tmin > 0.0f && tmin < FLOAT_MAX)
+	if (tmin > 0.0f)
 		return true;
 	else
 		return false;
@@ -307,10 +616,10 @@ void EvaluateSurface(out SurfaceDataInPT sdiPT, Intersection it)
 		sdiPT.mMetallic = uScene.mMetallic;
 		if (!uScene.mUsePerPassTextures)
 		{
-			if (mesh.mTextureStartIndex >= 0 && mesh.mTextureCount >= 0)
+			if (mesh.mTextureCount > 0 && mesh.mTextureIndexOffset >= 0)
 			{
 				// currently only albedo
-				sdiPT.mAlbedo = gTextures[mesh.mTextureStartIndex].SampleLevel(gSamplers[mesh.mTextureStartIndex], TransformUV(sdiPT.mUV), 0.0f).rgb;
+				sdiPT.mAlbedo = gMeshTextures[mesh.mTextureIndexOffset].SampleLevel(gSamplers[mesh.mTextureIndexOffset], TransformUV(sdiPT.mUV), 0.0f).rgb;
 			}
 		}
 		sdiPT.mPosWorld = it.mPointWorld;
@@ -464,6 +773,7 @@ bool PathTraceCommon(inout Ray ray, uint minDepth, uint maxDepth)
 		ray.mHitTriangleIndex = it.mTriangleIndex;
 		ray.mHitMeshIndex = it.mMeshIndex;
 		ray.mHitLightIndex = it.mLightIndex;
+		ray.mRayAabbTestCount = it.mRayAabbTestCount;
 		hitAnything = true;
 
 		if (uScene.mPathTracerMode == PATH_TRACER_MODE_DEBUG_TRIANGLE_INTERSECTION) // debug triangle intersection
@@ -635,10 +945,13 @@ bool PathTraceOnce(inout Ray ray, uint minDepth, uint maxDepth, out float3 pos, 
 	return hitAnything;
 }
 
-[numthreads(PATH_TRACER_THREAD_COUNT_X, PATH_TRACER_THREAD_COUNT_Y, PATH_TRACER_THREAD_COUNT_Z)]
+[numthreads(PATH_TRACER_THREAD_COUNT_X, PATH_TRACER_THREAD_COUNT_Y, 1)]
 void main(uint3 gDispatchThreadID : SV_DispatchThreadID)
 {
-	uint2 screenPos = gDispatchThreadID.xy;
+	uint2 tileIndex = uint2(uScene.mPathTracerCurrentTileIndex % uScene.mPathTracerTileCountX, uScene.mPathTracerCurrentTileIndex / uScene.mPathTracerTileCountX);
+	uint2 threadGroupPerTile = uint2(uScene.mPathTracerThreadGroupPerTileX, uScene.mPathTracerThreadGroupPerTileY);
+	uint2 pixelPerThreadGroup = uint2(PATH_TRACER_THREAD_COUNT_X, PATH_TRACER_THREAD_COUNT_Y);
+	uint2 screenPos = gDispatchThreadID.xy + tileIndex * threadGroupPerTile * pixelPerThreadGroup;
 	uint2 screenSize = uint2(PATH_TRACER_BACKBUFFER_WIDTH, PATH_TRACER_BACKBUFFER_HEIGHT);
 	if (screenPos.x < screenSize.x && screenPos.y < screenSize.y)
 	{

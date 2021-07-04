@@ -62,12 +62,15 @@ public:
 	int GetIndexCount() const;
 	int GetTextureCount() const;
 	vector<Texture*>& GetTextures();
-	wstring GetDebugName() const;
+	string GetDebugName() const;
 
 	void ConvertMeshToTrianglesPT(vector<TrianglePT>& outTriangles, u32 meshIndex);
 	Vertex TransformVertexToWorldSpace(const Vertex& vertex, const XMFLOAT4X4& m, const XMFLOAT4X4& mInv);
 
 	ObjectUniform mObjectUniform;
+
+	inline static u32 GenerateMortonCode(XMFLOAT3 position);
+
 private:
 	struct Point
 	{

@@ -664,6 +664,7 @@ D3D12_RESOURCE_DIMENSION Renderer::GetResourceDimensionFromTextureType(TextureTy
 	default:
 		fatalf("wrong texture type");
 	}
+	return D3D12_RESOURCE_DIMENSION_UNKNOWN;
 }
 
 D3D12_SAMPLER_DESC Renderer::TranslateSamplerDesc(Sampler sampler)
@@ -1357,7 +1358,7 @@ void Renderer::EnableDebugLayer()
 	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&mDebugController))))
 		mDebugController->EnableDebugLayer();
 	else
-		displayf("can't enable debug layer");
+		displayfln("can't enable debug layer");
 }
 
 void Renderer::EnableGBV()
@@ -1368,11 +1369,11 @@ void Renderer::EnableGBV()
 
 	hr = D3D12GetDebugInterface(IID_PPV_ARGS(&spDebugController0));
 	if (CheckError(hr))
-		displayf("can't enable GBV");
+		displayfln("can't enable GBV");
 
 	hr = spDebugController0->QueryInterface(IID_PPV_ARGS(&spDebugController1));
 	if (CheckError(hr))
-		displayf("can't enable GBV");
+		displayfln("can't enable GBV");
 
 	spDebugController1->SetEnableGPUBasedValidation(true);
 }

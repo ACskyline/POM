@@ -282,13 +282,14 @@ vector<Texture*>& Mesh::GetTextures()
 	return mTextures;
 }
 
-wstring Mesh::GetDebugName() const
+string Mesh::GetDebugName() const
 {
-	return mDebugName;
+	return WstringToString(mDebugName);
 }
 
-inline u32 LeftShift3(u32 x)
+inline u32 LeftShift3(float fx)
 {
+	u32 x = (u32)fx;
 	if (x == (1 << 10)) --x;
 	x = (x | (x << 16)) & 0b00000011000000000000000011111111;
 	x = (x | (x << 8)) & 0b00000011000000001111000000001111;
@@ -297,7 +298,7 @@ inline u32 LeftShift3(u32 x)
 	return x;
 }
 
-inline u32 GenerateMortonCode(XMFLOAT3 position)
+u32 Mesh::GenerateMortonCode(XMFLOAT3 position)
 {
 	return LeftShift3(position.z) << 2 | LeftShift3(position.y) << 1 | LeftShift3(position.x);
 }
@@ -306,14 +307,31 @@ void Mesh::ConvertMeshToTrianglesPT(vector<TrianglePT>& outTriangles, u32 meshIn
 {
 	fatalAssertf(mIndexVec.size() > 0 && mIndexVec.size() % 3 == 0, "number of indices is not a multiple of 3");
 	outTriangles.resize(mIndexVec.size() / 3);
+	fatalAssertf(outTriangles.size() < pow(2, PATH_TRACER_TRIANGLE_BVH_TREE_HEIGHT_MAX - 1), "a bvh tree of %d triangles might exceed the max height %d", outTriangles.size(), PATH_TRACER_TRIANGLE_BVH_TREE_HEIGHT_MAX);
+	XMVECTOR minPos = XMLoadFloat3(&mVertexVec[mIndexVec[0]].pos);
+	XMVECTOR maxPos = XMLoadFloat3(&mVertexVec[mIndexVec[0]].pos);
 	for (int i = 0; i < outTriangles.size(); i++)
 	{
-		outTriangles[i].mVertices[0] = mVertexVec[mIndexVec[i * 3]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3]], mObjectUniform.mModel, mObjectUniform.mModelInv);
-		outTriangles[i].mVertices[1] = mVertexVec[mIndexVec[i * 3 + 1]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3 + 1]], mObjectUniform.mModel, mObjectUniform.mModelInv);
-		outTriangles[i].mVertices[2] = mVertexVec[mIndexVec[i * 3 + 2]]; // TransformVertexToWorldSpace(mVertexVec[mIndexVec[i * 3 + 2]], mObjectUniform.mModel, mObjectUniform.mModelInv);
+		const Vertex& v0 = mVertexVec[mIndexVec[i * 3]];
+		const Vertex& v1 = mVertexVec[mIndexVec[i * 3 + 1]];
+		const Vertex& v2 = mVertexVec[mIndexVec[i * 3 + 2]];
+		outTriangles[i].mVertices[0] = v0;
+		outTriangles[i].mVertices[1] = v1;
+		outTriangles[i].mVertices[2] = v2;
 		outTriangles[i].mMeshIndex = meshIndex;
-		XMStoreFloat3(&outTriangles[i].mCentroid, (XMLoadFloat3(&outTriangles[i].mVertices[0].pos) + XMLoadFloat3(&outTriangles[i].mVertices[1].pos) + XMLoadFloat3(&outTriangles[i].mVertices[2].pos)) / 3.0f);
-		outTriangles[i].mMortonCode = GenerateMortonCode(outTriangles[i].mCentroid);
+		minPos = XMVectorMin(minPos, XMVectorMin(XMLoadFloat3(&v0.pos), XMVectorMin(XMLoadFloat3(&v1.pos), XMLoadFloat3(&v2.pos))));
+		maxPos = XMVectorMax(maxPos, XMVectorMax(XMLoadFloat3(&v0.pos), XMVectorMax(XMLoadFloat3(&v1.pos), XMLoadFloat3(&v2.pos))));
+		outTriangles[i].mBvhIndexLocal = INVALID_UINT32;
+	}
+	// scale centroid to get a better distribution of mortoncode, hence a more balanced bvh tree
+	for (int i = 0; i < outTriangles.size(); i++)
+	{
+		const Vertex& v0 = outTriangles[i].mVertices[0];
+		const Vertex& v1 = outTriangles[i].mVertices[1];
+		const Vertex& v2 = outTriangles[i].mVertices[2];
+		XMFLOAT3 centroid;
+		XMStoreFloat3(&centroid, ((XMLoadFloat3(&v0.pos) + XMLoadFloat3(&v1.pos) + XMLoadFloat3(&v2.pos)) / 3.0f - minPos) / (maxPos - minPos));
+		outTriangles[i].mMortonCode = GenerateMortonCode(centroid);
 	}
 }
 

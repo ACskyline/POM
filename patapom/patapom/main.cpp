@@ -19,7 +19,7 @@
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
 const LPCTSTR WindowTitle = L"POM_1.0"; // title of the window
-const DebugMode gRendererDebugMode = DebugMode::ON; // turning on debug will impact the framerate badly
+const DebugMode gRendererDebugMode = DebugMode::OFF; // turning on debug will impact the framerate badly
 IDirectInputDevice8* gDIKeyboard;
 IDirectInputDevice8* gDIMouse;
 DIMOUSESTATE gMouseLastState;
@@ -46,7 +46,7 @@ PassDefault gPassPathTracerBlit(L"path tracer blit", true, false);
 Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
-Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 1, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(0.5f, 0.5f, 0.5f), "box.obj");
+Mesh gMesh(L"mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 1, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(1.0f, 1.0f, 1.0f), "ball.obj");
 Mesh gPlaneX(L"planeX", Mesh::MeshType::PLANE, XMFLOAT3(-3, 0, 0), XMFLOAT3(0, 0, -90), XMFLOAT3(6, 1, 6));
 Mesh gPlaneY(L"planeY", Mesh::MeshType::PLANE, XMFLOAT3(0, -3, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(6, 1, 6));
 Mesh gPlaneZ(L"planeZ", Mesh::MeshType::PLANE, XMFLOAT3(0, 0, -3), XMFLOAT3(90, 0, 0), XMFLOAT3(6, 1, 6));
@@ -389,8 +389,7 @@ void UpdateDetectInput()
 
 		if (needToRestartPathTracer)
 		{
-			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
-			gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
+			PathTracer::Restart(gSceneDefault);
 		}
 
 		if (needToUpdateSceneUniform)
@@ -487,7 +486,15 @@ void Record()
 				PathTracer::RunPathTracer(commandList);
 				if (gSceneDefault.mSceneUniform.mPathTracerCurrentDepth < gSceneDefault.mSceneUniform.mPathTracerMaxDepth)
 				{
-					gSceneDefault.mSceneUniform.mPathTracerCurrentDepth++;
+					if (gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex < gSceneDefault.mSceneUniform.mPathTracerTileCount)
+					{
+						gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex++;
+					}
+					else
+					{
+						gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex = 0;
+						gSceneDefault.mSceneUniform.mPathTracerCurrentDepth++;
+					}
 				}
 				else
 				{
@@ -497,8 +504,17 @@ void Record()
 			}
 			else
 			{
-				PathTracer::RunPathTracer(commandList);
-				gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex++;
+				PathTracer::RunPathTracer(commandList); 
+				if (gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex < gSceneDefault.mSceneUniform.mPathTracerTileCount)
+				{
+					gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex++;
+				}
+				else
+				{
+					gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex = 0;
+					gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
+					gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex++;
+				}
 			}
 		}
 		// always copy depth buffer even when we don't run path tracer to refresh the depth buffer
@@ -612,10 +628,16 @@ void UpdateUI(bool initOnly = false)
 	static int pathTracerSPP = gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel = 10;
 	static int pathTracerMinDepth = gSceneDefault.mSceneUniform.mPathTracerMinDepth = 3;
 	static int pathTracerMaxDepth = gSceneDefault.mSceneUniform.mPathTracerMaxDepth = 10;
+	static int pathTracerTileCountX = gSceneDefault.mSceneUniform.mPathTracerTileCountX = 1;
+	static int pathTracerTileCountY = gSceneDefault.mSceneUniform.mPathTracerTileCountY = 1;
+	static int pathTracerTileCount = gSceneDefault.mSceneUniform.mPathTracerTileCount = gSceneDefault.mSceneUniform.mPathTracerTileCountX * gSceneDefault.mSceneUniform.mPathTracerTileCountY;
 	static bool pathTracerEnableDebug = gSceneDefault.mSceneUniform.mPathTracerEnableDebug = 0;
-	static bool pathTracerEnableDebugSampleRay = gSceneDefault.mSceneUniform.mPathTracerEnableDebugSampleRay = 0;
+	static bool pathTracerDebugSampleRay = gSceneDefault.mSceneUniform.mPathTracerDebugSampleRay = 0;
+	static bool pathTracerDebugMeshBVH = gSceneDefault.mSceneUniform.mPathTracerDebugMeshBVH = 0;
+	static bool pathTracerDebugTriangleBVH = gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBVH = 0;
 	static bool pathTracerUpdateDebug = gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = 0;
 	static bool pathTracerEnableRussianRoulette = gSceneDefault.mSceneUniform.mPathTracerEnableRussianRoulette = true;
+	static bool pathTracerUseBVH = gSceneDefault.mSceneUniform.mPathTracerUseBVH = true;
 	static float pathTracerDebugDirLength = gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = 0.0f;
 	bool needToUpdateSceneUniform = false;
 	bool needToRestartPathTracer = false;
@@ -802,6 +824,12 @@ void UpdateUI(bool initOnly = false)
 			needToRestartPathTracer = true;
 		}
 
+		if (ImGui::Checkbox("pathTracerUseBVH", &pathTracerUseBVH))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerUseBVH = pathTracerUseBVH;
+			needToRestartPathTracer = true;
+		}
+
 		if (ImGui::SliderInt("pathTracerMinDepth", &pathTracerMinDepth, 0, PATH_TRACER_MIN_DEPTH_MAX))
 		{
 			gSceneDefault.mSceneUniform.mPathTracerMinDepth = pathTracerMinDepth;
@@ -811,6 +839,18 @@ void UpdateUI(bool initOnly = false)
 		if (ImGui::SliderInt("pathTracerMaxDepth", &pathTracerMaxDepth, PATH_TRACER_MIN_DEPTH_MAX + 1, PATH_TRACER_MAX_DEPTH_MAX))
 		{
 			gSceneDefault.mSceneUniform.mPathTracerMaxDepth = pathTracerMaxDepth;
+			needToRestartPathTracer = true;
+		}
+
+		if (ImGui::SliderInt("pathTracerTileCountX", &pathTracerTileCountX, 1, PathTracer::sThreadGroupCountX))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerTileCountX = pathTracerTileCountX;
+			needToRestartPathTracer = true;
+		}
+
+		if (ImGui::SliderInt("pathTracerTileCountY", &pathTracerTileCountY, 1, PathTracer::sThreadGroupCountY))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerTileCountY = pathTracerTileCountY;
 			needToRestartPathTracer = true;
 		}
 
@@ -826,9 +866,21 @@ void UpdateUI(bool initOnly = false)
 			needToUpdateSceneUniform = true;
 		}
 
-		if (ImGui::Checkbox("pathTracerEnableDebugSampleRay", &pathTracerEnableDebugSampleRay))
+		if (ImGui::Checkbox("pathTracerDebugSampleRay", &pathTracerDebugSampleRay))
 		{
-			gSceneDefault.mSceneUniform.mPathTracerEnableDebugSampleRay = pathTracerEnableDebugSampleRay;
+			gSceneDefault.mSceneUniform.mPathTracerDebugSampleRay = pathTracerDebugSampleRay;
+			needToUpdateSceneUniform = true;
+		}
+
+		if (ImGui::Checkbox("pathTracerDebugMeshBVH", &pathTracerDebugMeshBVH))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerDebugMeshBVH = pathTracerDebugMeshBVH;
+			needToUpdateSceneUniform = true;
+		}
+		
+		if (ImGui::Checkbox("pathTracerDebugTriangleBVH", &pathTracerDebugTriangleBVH))
+		{
+			gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBVH = pathTracerDebugTriangleBVH;
 			needToUpdateSceneUniform = true;
 		}
 
@@ -841,7 +893,9 @@ void UpdateUI(bool initOnly = false)
 		ImGui::Text("[Path Tracer Debug] Debug Pixel Pos (%d,%d)",
 			gSceneDefault.mSceneUniform.mPathTracerDebugPixelX,
 			gSceneDefault.mSceneUniform.mPathTracerDebugPixelY);
-		ImGui::Text("[Path Tracer] (%d/%d) depth (%d/%d) sample per pixel done",
+		ImGui::Text("[Path Tracer] tile:%d/%d, depth:%d/%d, sample:%d/%d per pixel done",
+			gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex,
+			gSceneDefault.mSceneUniform.mPathTracerTileCount,
 			gSceneDefault.mSceneUniform.mPathTracerCurrentDepth,
 			gSceneDefault.mSceneUniform.mPathTracerMaxDepth,
 			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex,
@@ -856,19 +910,19 @@ void UpdateUI(bool initOnly = false)
 	
 	if (needToRestartPathTracer)
 	{
-		gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex = 0;
-		gSceneDefault.mSceneUniform.mPathTracerCurrentDepth = 0;
+		PathTracer::Restart(gSceneDefault);
 	}
 
 	if (needToUpdateSceneUniform)
 	{
-		gSceneDefault.SetUniformDirty();
+		gSceneDefault.UpdateUniform(); // for CPU
+		gSceneDefault.SetUniformDirty(); // for GPU
 	}
 }
 
 void Cleanup()
 {
-	displayf("clean up");
+	displayfln("clean up");
 	gRenderer.WaitAllFrames();
 	gRenderer.Release();
 
@@ -1092,16 +1146,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	return 0;
 }
 
-// return true if it is error
 bool CheckError(HRESULT hr, ID3D12Device* device, ID3D10Blob* error_message)
 {
 	if (FAILED(hr))
 	{
-		displayf("FAILED: 0x%x", hr);
+		displayfln("FAILED: 0x%x", hr);
 		if (error_message != nullptr)
-			displayf("return value: %d, error message: %s", hr, (char*)error_message->GetBufferPointer());
+			displayfln("return value: %d, error message: %s", hr, (char*)error_message->GetBufferPointer());
 		if (hr == 0x887A0005 && device != nullptr)
-			displayf("device removed reason: 0x%x", device->GetDeviceRemovedReason());
+			displayfln("device removed reason: 0x%x", device->GetDeviceRemovedReason());
 		fatalf("check error failed!");
 		return true;
 	}
