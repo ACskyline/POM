@@ -1,0 +1,4 @@
+#-printBvh
+#-debugMode=2
+-buildBvhGpu
+#-loadRawShaders

@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.136
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "patapom", "patapom\patapom.vcxproj", "{C1877DC0-A486-49EA-A449-FA625BD3422B}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "patapom_engine", "patapom_engine_VS_project\patapom_engine.vcxproj", "{C1877DC0-A486-49EA-A449-FA625BD3422B}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "patapom_shader", "patapom_shader_VS_project\patapom_shader.vcxproj", "{05A416E5-28D0-4D3D-974D-489E3F9A8644}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,14 @@ Global
 		{C1877DC0-A486-49EA-A449-FA625BD3422B}.Release|x64.Build.0 = Release|x64
 		{C1877DC0-A486-49EA-A449-FA625BD3422B}.Release|x86.ActiveCfg = Release|Win32
 		{C1877DC0-A486-49EA-A449-FA625BD3422B}.Release|x86.Build.0 = Release|Win32
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Debug|x64.ActiveCfg = Debug|x64
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Debug|x64.Build.0 = Debug|x64
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Debug|x86.ActiveCfg = Debug|Win32
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Debug|x86.Build.0 = Debug|Win32
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Release|x64.ActiveCfg = Release|x64
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Release|x64.Build.0 = Release|x64
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Release|x86.ActiveCfg = Release|Win32
+		{05A416E5-28D0-4D3D-974D-489E3F9A8644}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

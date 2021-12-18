@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui.cpp" />
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui_impl_dx12.cpp" />
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\patapom\src\dependency\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Buffer.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Camera.cpp" />
+    <ClCompile Include="..\patapom\src\engine\CommandLineArg.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Frame.cpp" />
+    <ClCompile Include="..\patapom\src\engine\ImageBasedLighting.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Light.cpp" />
+    <ClCompile Include="..\patapom\src\engine\main.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Mesh.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Pass.cpp" />
+    <ClCompile Include="..\patapom\src\engine\PathTracer.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Renderer.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Scene.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Shader.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Store.cpp" />
+    <ClCompile Include="..\patapom\src\engine\Texture.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\patapom\src\dependency\imgui\imconfig.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imgui.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imgui_impl_dx12.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imgui_impl_win32.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imgui_internal.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imstb_textedit.h" />
+    <ClInclude Include="..\patapom\src\dependency\imgui\imstb_truetype.h" />
+    <ClInclude Include="..\patapom\src\engine\Buffer.h" />
+    <ClInclude Include="..\patapom\src\engine\Camera.h" />
+    <ClInclude Include="..\patapom\src\engine\CommandLineArg.h" />
+    <ClInclude Include="..\patapom\src\engine\Frame.h" />
+    <ClInclude Include="..\patapom\src\engine\GlobalInclude.h" />
+    <ClInclude Include="..\patapom\src\engine\ImageBasedLighting.h" />
+    <ClInclude Include="..\patapom\src\engine\Light.h" />
+    <ClInclude Include="..\patapom\src\engine\Mesh.h" />
+    <ClInclude Include="..\patapom\src\engine\Pass.h" />
+    <ClInclude Include="..\patapom\src\engine\PathTracer.h" />
+    <ClInclude Include="..\patapom\src\engine\Renderer.h" />
+    <ClInclude Include="..\patapom\src\engine\Scene.h" />
+    <ClInclude Include="..\patapom\src\engine\Shader.h" />
+    <ClInclude Include="..\patapom\src\engine\SharedHeader.h" />
+    <ClInclude Include="..\patapom\src\engine\Store.h" />
+    <ClInclude Include="..\patapom\src\engine\Texture.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{C1877DC0-A486-49EA-A449-FA625BD3422B}</ProjectGuid>
+    <RootNamespace>patapomengine</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
+    <ProjectName>patapom_engine</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)\patapom\build\engine\</OutDir>
+    <IntDir>$(SolutionDir)\patapom\build\engine\$(ProjectName)_$(Platform)_$(Configuration)_cache\</IntDir>
+    <TargetName>$(ProjectName)_$(Platform)_$(Configuration)</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;dinput8.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_X64;_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;dinput8.lib;dxguid.lib;$(SolutionDir)\patapom\src\dependency\pix\WinPixEventRuntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;dinput8.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;dinput8.lib;dxguid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
