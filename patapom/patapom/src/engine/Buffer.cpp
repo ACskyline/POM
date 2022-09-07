@@ -109,7 +109,7 @@ WriteBuffer::WriteBuffer(const string& debugName, u32 elementSizeInByte, u32 ele
 
 WriteBuffer::~WriteBuffer()
 {
-	
+	WriteBuffer::Release(true);
 }
 
 D3D12_UNORDERED_ACCESS_VIEW_DESC WriteBuffer::GetUavDesc() const
@@ -128,9 +128,11 @@ void WriteBuffer::RecordSetBufferData(CommandList commandList, void* data, int s
 
 void WriteBuffer::RecordPrepareToGetBufferData(CommandList commandList, int sizeInByte)
 {
+	if (sizeInByte < 0)
+		sizeInByte = mElementSizeInByte * mElementCount;
 	fatalAssertf(sizeInByte <= mElementSizeInByte * mElementCount, "setting out of range memory");
 	TransitionLayout(commandList, ResourceLayout::COPY_SRC);
-	mRenderer->PrepareToReadDataFromBuffer(commandList, mBuffer, mUploadBuffer, sizeInByte);
+	mRenderer->PrepareToReadDataFromBuffer(commandList, mBuffer, mReadbackBuffer, sizeInByte);
 	TransitionLayout(commandList, ResourceLayout::SHADER_WRITE);
 }
 
@@ -158,6 +160,7 @@ void WriteBuffer::Release(bool checkOnly)
 {
 	Buffer::Release(checkOnly);
 	SAFE_RELEASE(mUploadBuffer, checkOnly);
+	SAFE_RELEASE(mReadbackBuffer, checkOnly);
 }
 
 bool WriteBuffer::TransitionLayout(CommandList commandList, ResourceLayout newLayout)
@@ -182,6 +185,22 @@ void WriteBuffer::MakeReadyToWriteAgain(CommandList commandList)
 {
 	fatalAssertf(mLayout == ResourceLayout::SHADER_WRITE, "resource is not in shader write state, no need to use uav barrier");
 	mRenderer->RecordBarrierWithoutTransition(commandList, mBuffer);
+}
+
+void WriteBuffer::MakeReadyToWriteAuto(CommandList commandList)
+{
+	if (mLayout == ResourceLayout::SHADER_WRITE)
+		MakeReadyToWriteAgain(commandList);
+	else
+		MakeReadyToWrite(commandList);
+}
+
+void WriteBuffer::MakeReadyToWriteOrAgain(CommandList commandList)
+{
+	if (mLayout == ResourceLayout::SHADER_WRITE)
+		MakeReadyToWriteAgain(commandList);
+	else
+		MakeReadyToWrite(commandList);
 }
 
 void WriteBuffer::CreateBuffer()

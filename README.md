@@ -20,3 +20,7 @@ A project for parallel occlusion mapping study
 ## POM
 
 ![pom](./img/7.JPG)
+
+## FLIP
+
+![FLIP](./img/flip.gif)

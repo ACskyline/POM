@@ -1,0 +1,95 @@
+#pragma once
+
+#include "Pass.h"
+
+typedef PassCommon<PassUniformWaterSim> PassWaterSim;
+
+class WaterSim
+{
+public:
+	static PassWaterSim sPassWaterSimP2G;
+	static PassWaterSim sPassWaterSimUpdateGrid;
+	static PassWaterSim sPassWaterSimAdvectCellFace;
+	static PassWaterSim sPassWaterSimProject;
+	static PassWaterSim sPassWaterSimG2P;
+	static PassWaterSim sPassWaterSimClear;
+	static PassWaterSim sPassWaterSimRasterizer;
+	static PassWaterSim sPassWaterSimBlit;
+	static PassWaterSim sPassWaterSimResetParticles;
+	static PassWaterSim sPassWaterSimResetGrid;
+	static PassWaterSim sPassWaterSimDebugLine;
+	static PassWaterSim sPassWaterSimDebugCube;
+	static Shader sWaterSimP2GCS;
+	static Shader sWaterSimUpdateGridCS;
+	static Shader sWaterSimAdvectCellFaceCS;
+	static Shader sWaterSimProjectCS;
+	static Shader sWaterSimG2PCS;
+	static Shader sWaterSimClearMinMaxBufferCS;
+	static Shader sWaterSimRasterizerCS;
+	static Shader sWaterSimBlitBackbufferPS;
+	static Shader sWaterSimResetParticlesCS;
+	static Shader sWaterSimResetGridCS;
+	static Shader sWaterSimDebugLineVS;
+	static Shader sWaterSimDebugLinePS;
+	static Shader sWaterSimDebugCubeVS;
+	static Shader sWaterSimDebugCubePS;
+	static Mesh sWaterSimDebugMeshLine;
+	static Mesh sWaterSimDebugMeshCube;
+	static const int sCellCountX;
+	static const int sCellCountY;
+	static const int sCellCountZ;
+	static const int sCellFaceCountX;
+	static const int sCellFaceCountY;
+	static const int sCellFaceCountZ;
+	static const int sCellFaceThreadGroupCount;
+	static const int sParticleCount;
+	static const int sParticleThreadGroupCount;
+	static const int sBackbufferWidth;
+	static const int sBackbufferHeight;
+	static const float sCellSize;
+	static XMFLOAT3 sParticleSpawnSourcePos;
+	static XMFLOAT3 sParticleSpawnSourceSpan;
+	static XMFLOAT3 sExplosionPos;
+	static XMFLOAT3 sExplosionForceScale;
+	static bool sApplyExplosion;
+	static int sAliveParticleCount;
+	static float sTimeStepScale;
+	static int sSubStepCount;
+	static float sApplyForce;
+	static float sGravitationalAccel;
+	static float sWaterDensity;
+	static float sFlipScale;
+	static bool sWarmStart;
+	static bool sEnableDebugCell;
+	static bool sEnableDebugCellVelocity;
+	static int sJacobiIterationCount;
+	static WriteBuffer sCellBuffer;
+	static WriteBuffer sCellBufferTemp;
+	static WriteBuffer sCellFaceBuffer;
+	static WriteBuffer sCellFaceBufferTemp;
+	static WriteBuffer sCellAuxBuffer;
+	static WriteBuffer sParticleBuffer;
+	static RenderTexture sDebugBackbuffer;
+	static RenderTexture sDepthBufferMax;
+	static RenderTexture sDepthBufferMin;
+	static std::vector<WaterSimParticle> sParticles;
+	static std::vector<WaterSimCellFace> sCellFaces;
+	static std::vector<WaterSimCell> sCells;
+	static void InitWaterSim(Store& store, Scene& scene);
+	static void PrepareWaterSim(CommandList commandList);
+	static void WaterSimResetGrid(CommandList commandList);
+	static void WaterSimResetParticles(CommandList commandList);
+	static void WaterSimStepOnce(CommandList commandList);
+	static void WaterSimRasterize(CommandList commandList);
+	static void SetTimeStepScale(float timeStep);
+	static void SetApplyForce(bool applyForce);
+	static void SetG(float G);
+	static void SetWaterDensity(float density);
+	static void SetFlipScale(float flipScale);
+	static void SetAliveParticleCount(int particleCount);
+	static void SetWarmStart(bool warmStart);
+	static void SetJacobiIterationCount(int jacobiIterationCount);
+	static void SetExplosionPos(XMFLOAT3 explosionCellIndexXYZ);
+	static void SetExplosionForceScale(XMFLOAT3 explosionForceScale);
+	static void SetApplyExplosion(bool applyExplosion);
+};

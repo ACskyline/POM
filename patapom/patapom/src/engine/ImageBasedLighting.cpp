@@ -88,13 +88,13 @@ void ImageBasedLighting::PrepareIBL(CommandList commandList)
 	{
 		for (int j = 0; j < sPrefilterEnvMapPasses[i].size(); j++)
 		{
-			gRenderer.RecordGraphicsPass(sPrefilterEnvMapPasses[i][j], commandList, true, false, false);
+			gRenderer.RecordGraphicsPass(sPrefilterEnvMapPasses[i][j], commandList, true);
 		}
 	}
 	sPrefilteredEnvMap.MakeReadyToRead(commandList);
 
 	sLUT.MakeReadyToRender(commandList);
-	gRenderer.RecordGraphicsPass(sPrepareLutPass, commandList, true, false, false);
+	gRenderer.RecordGraphicsPass(sPrepareLutPass, commandList, true);
 	sLUT.MakeReadyToRead(commandList);
 }
 

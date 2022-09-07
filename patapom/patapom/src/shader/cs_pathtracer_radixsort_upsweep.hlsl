@@ -1,7 +1,7 @@
 #define CUSTOM_PASS_UNIFORM
 
 #include "ShaderInclude.hlsli"
-#include "cs_pathtracer_util.hlsli"
+#include "PathTracerUtil.hlsli"
 
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
 {

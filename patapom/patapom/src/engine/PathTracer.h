@@ -58,7 +58,7 @@ public:
 	static Shader sPathTracerDebugFullscreenPS;
 	static Shader sPathTracerCopyDepthVS;
 	static Shader sPathTracerCopyDepthPS;
-	static Shader sPathTracerBlitPS;
+	static Shader sPathTracerBlitBackbufferPS;
 	static Buffer sLightDataBuffer;
 	static Buffer sTriangleBuffer;
 	static WriteBuffer sMeshBuffer;

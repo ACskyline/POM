@@ -8,6 +8,8 @@
 #define FLOAT3X3 float3x3
 #define UINT uint
 #define UINT2 uint2
+#define UINT3 uint3
+#define UINT4 uint4
 
 #define SHARED_HEADER_HLSL
 #include "../engine/SharedHeader.h"
@@ -17,11 +19,6 @@
 #define PASS    2
 #define OBJECT  3
 #define SPACE(x)    PASTE(space, x)
-
-#define PI          3.1415926535
-#define ONE_OVER_PI 0.3183098861
-#define HALF_PI     1.5707963267
-#define TWO_PI      6.2831853071
 
 /////////////// UNIFORM ///////////////
 //vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv//
@@ -463,6 +460,16 @@ float2 frandom2(inout uint state)
 	return float2(frandom(state), frandom(state));
 }
 
+float3 frandom3(inout uint state)
+{
+	return float3(frandom(state), frandom(state), frandom(state));
+}
+
+float3 frandom3once(uint state)
+{
+	return frandom3(state);
+}
+
 bool IsNotBlack(float3 col)
 {
 	return (col.r > 0.0f || col.g > 0.0f || col.b > 0.0f);
@@ -472,6 +479,16 @@ bool HitAnything(Ray ray)
 {
 	return ray.mHitLightIndex != INVALID_UINT32 ||
 		ray.mHitTriangleIndex != INVALID_UINT32;
+}
+
+uint PackWaterSimParticleDepth(float depth)
+{
+	return uint(depth * 255.0f);
+}
+
+float UnpackWaterSimParticleDepth(uint depth)
+{
+	return depth / 255.0f;
 }
 
 #endif

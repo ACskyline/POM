@@ -1,4 +1,5 @@
 #-printBvh
-#-debugMode=2
--buildBvhGpu
+#-debugMode=1
+#-buildBvhGpu
 #-loadRawShaders
+#-sanitizeWaterSim

@@ -70,7 +70,7 @@ vector<string> CommandLineArg::ParseArgs(const char* cstr)
 				vector<string> argFile = ParseArgs(buf);
 				argv.insert(argv.end(), argFile.begin(), argFile.end());
 			};
-			ReadFile(filePathName, lambda, false);
+			ReadFile(filePathName, lambda);
 		}
 		else
 		{
@@ -84,45 +84,48 @@ void CommandLineArg::ReadArgs(const vector<string>& argv)
 {
 	for (int i = 0; i < argv.size(); i++)
 	{
-		MultiTypeValue mtv;
-		mtv.mParsed = true;
 		const string& line = argv[i];
 		size_t valuePos = line.find('=');
 		string name = line.substr(0, valuePos);
-		if (valuePos != string::npos) // has equal sign
+		if (name[0] == '-')
 		{
-			mtv.mAsString = line.substr(valuePos + 1);
-			stringstream ss;
-			ss << mtv.mAsString;
-			char peek;
-			float fValue;
-			do
+			MultiTypeValue mtv;
+			mtv.mParsed = true;
+			if (valuePos != string::npos && line.substr(valuePos + 1).size()) // has equal sign
 			{
-				ss >> peek;
-				if (!ss.eof() && (peek == '+' || peek == '-' || (peek >= '0' && peek <= '9')))
+				mtv.mAsString = line.substr(valuePos + 1);
+				stringstream ss;
+				ss << mtv.mAsString;
+				char peek;
+				float fValue;
+				do
 				{
-					if (peek == '+' || peek == '-')
+					ss >> peek;
+					if (!ss.eof() && (peek == '+' || peek == '-' || (peek >= '0' && peek <= '9')))
 					{
-						char peek2;
-						ss >> peek2;
-						if (peek2 >= '0' && peek2 <= '9')
-							ss.putback(peek2);
-						else
-							break;
+						if (peek == '+' || peek == '-')
+						{
+							char peek2;
+							ss >> peek2;
+							if (peek2 >= '0' && peek2 <= '9')
+								ss.putback(peek2);
+							else
+								break;
+						}
+						ss.putback(peek);
+						ss >> fValue;
+						mtv.mAsFloatVec.push_back(fValue);
 					}
-					ss.putback(peek);
-					ss >> fValue;
-					mtv.mAsFloatVec.push_back(fValue);
-				}
-				else if (peek == ',')
-				{
-					if (mtv.mAsFloatVec.size() == 0)
-						break; // if comma is the first char, we break
-				}
-			} while (!ss.eof());
+					else if (peek == ',')
+					{
+						if (mtv.mAsFloatVec.size() == 0)
+							break; // if comma is the first char, we break
+					}
+				} while (!ss.eof());
+			}
+			if (verifyf(s_NameValueMap.find(name) != s_NameValueMap.end(), "CommandLineArg [%s] is not used", name.c_str()))
+				s_NameValueMap[name] = mtv;
 		}
-		if (verifyf(s_NameValueMap.find(name) != s_NameValueMap.end(), "CommandLineArg [%s] is not used", name.c_str()))
-			s_NameValueMap[name] = mtv;
 	}
 
 	for (auto nameValue : s_NameValueMap)

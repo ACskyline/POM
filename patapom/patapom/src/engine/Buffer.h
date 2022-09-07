@@ -38,8 +38,8 @@ public:
 	virtual ~WriteBuffer();
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC GetUavDesc() const;
-	void RecordSetBufferData(CommandList commandList, void* data, int sizeInByte);
-	void RecordPrepareToGetBufferData(CommandList commandList, int sizeInByte);
+	void RecordSetBufferData(CommandList commandList, void* data = nullptr, int sizeInByte = -1);
+	void RecordPrepareToGetBufferData(CommandList commandList, int sizeInByte = -1);
 	virtual void SetBufferData(void* data, int sizeInByte);
 	virtual void Release(bool checkOnly = false);
 	void GetReadbackBufferData(void* data, int sizeInByte);
@@ -47,6 +47,8 @@ public:
 	void MakeReadyToRead(CommandList commandList);
 	void MakeReadyToWrite(CommandList commandList);
 	void MakeReadyToWriteAgain(CommandList commandList);
+	void MakeReadyToWriteAuto(CommandList commandList);
+	void MakeReadyToWriteOrAgain(CommandList commandList);
 	
 protected:
 	virtual void CreateBuffer();
@@ -55,7 +57,6 @@ protected:
 
 private:
 	void SetBufferDataInternal(CommandList commandList, void* data, int sizeInByte);
-	void GetBufferDataInternal(CommandList commandList, void* data, int sizeInByte);
 	void CreateSrv();
 	void CreateUav();
 

@@ -59,8 +59,8 @@ Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
 Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, "vs_deferred");
 Mesh gCube("cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(1, 1, 1));
 Mesh gFullscreenTriangle("fullscreen_triangle", Mesh::MeshType::FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
-Camera gCameraDummy(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWindowWidth, gWindowHeight, 45.0f, 100.0f, 0.1f);
-OrbitCamera gCameraMain(4.f, 90.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 100.0f, 0.1f);
+Camera gCameraDummy(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWindowWidth, gWindowHeight, 45.0f, 1000.0f, 0.1f);
+OrbitCamera gCameraMain(160.f, 90.f, 0.f, XMFLOAT3(80.0f, 80.0f, 80.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 1000.0f, 0.1f);
 
 DescriptorHeap::Handle DescriptorHeap::sHead[DescriptorHeap::Type::COUNT];
 DescriptorHeap::Handle DescriptorHeap::sFree[DescriptorHeap::Type::COUNT];
@@ -548,6 +548,8 @@ DXGI_FORMAT Renderer::TranslateFormat(Format format)
 		return DXGI_FORMAT_R16_FLOAT;
 	case Format::R32_FLOAT:
 		return DXGI_FORMAT_R32_FLOAT;
+	case Format::R32_UINT:
+		return DXGI_FORMAT_R32_UINT;
 	case Format::D16_UNORM:
 		return DXGI_FORMAT_D16_UNORM;
 	case Format::D32_FLOAT:
@@ -988,6 +990,7 @@ bool Renderer::InitRenderer(
 	mInitialized = false;
 	mFrameCount = frameCount;
 	mFrameCountSinceGameStart = 1;
+	mLastFrameTimeInSecond = 1.0f;
 	mMultiSampleCount = multiSampleCount;
 	mWidth = width;
 	mHeight = height;
@@ -1313,15 +1316,15 @@ void Renderer::Release(bool checkOnly)
 		bool hasDebugDev = false;
 		if (SUCCEEDED(mDevice->QueryInterface(IID_PPV_ARGS(&debugDev))))
 			hasDebugDev = true;
+		SAFE_RELEASE(mDebugController, checkOnly);
 		SAFE_RELEASE(mDevice, checkOnly);
 		if (hasDebugDev)
 		{
 			OutputDebugStringW(L">>>>>>>>>>>>>>>>>>>>>>>>>> Debug Report Live Device Objects >>>>>>>>>>>>>>>>>>>>>>>>>>\n");
-			debugDev->ReportLiveDeviceObjects(D3D12_RLDO_DETAIL);
+			debugDev->ReportLiveDeviceObjects(D3D12_RLDO_SUMMARY | D3D12_RLDO_IGNORE_INTERNAL);
 			OutputDebugStringW(L"<<<<<<<<<<<<<<<<<<<<<<<<<< Debug Report Live Device Objects <<<<<<<<<<<<<<<<<<<<<<<<<<\n");
 		}
 		SAFE_RELEASE(debugDev, checkOnly);
-		SAFE_RELEASE(mDebugController, checkOnly);
 	}
 }
 
@@ -1933,7 +1936,7 @@ void Renderer::CreateComputePSOInternal(
 void Renderer::RecordGraphicsPassInstanced(
 	Pass& pass,
 	CommandList commandList,
-	u8 instanceCount,
+	u32 instanceCount,
 	bool clearColor,
 	bool clearDepth,
 	bool clearStencil,
@@ -2124,6 +2127,9 @@ void Renderer::RecordComputePass(
 	int threadGroupCountY,
 	int threadGroupCountZ)
 {
+	// D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION
+	fatalAssert(threadGroupCountX < 65535 && threadGroupCountY < 65535 && threadGroupCountZ < 65535);
+
 	// flush dirty uniforms
 	if (pass.GetScene()->IsUniformDirty(mCurrentFramebufferIndex))
 		pass.GetScene()->UpdateUniformBuffer(mCurrentFramebufferIndex);

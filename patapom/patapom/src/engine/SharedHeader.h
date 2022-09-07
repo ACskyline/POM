@@ -20,7 +20,11 @@
 #define SHARED_HEADER_CPP_STATIC_INLINE		SHARED_HEADER_CPP_ONLY(static inline)
 #define SHARED_HEADER_CPP_TEMPLATE_T		SHARED_HEADER_CPP_ONLY(template <class T>)
 #define TEMPLATE_UINT						SHARED_HEADER_SWITCH_CPP_HLSL(T, UINT)
-
+	
+#define PI									3.1415926535f
+#define ONE_OVER_PI							0.3183098861f
+#define HALF_PI								1.5707963267f
+#define TWO_PI								6.2831853071f
 #define EPSILON								0.0001f
 #define FLOAT_MAX							3.402823466e+38F
 #define FLOAT_MIN							1.175494351e-38F
@@ -51,6 +55,7 @@
 #define MATERIAL_TYPE_SPECULAR_TRANSMISSIVE		0x00000003
 #define MATERIAL_TYPE_EMISSIVE					0x00000004
 
+// path tracer
 #define PT_TRIANGLE_BVH_STACK_SIZE						256 // 256 uint array so it's actually 256 * 4 bytes per thread
 #define PT_TRIANGLE_BVH_TREE_HEIGHT_MAX					PT_TRIANGLE_BVH_STACK_SIZE
 #define PT_TRIANGLE_PER_SCENE_MAX						300000
@@ -97,6 +102,24 @@
 #define PT_MODE_DEBUG_MESH_INTERSECTION					5
 #define PT_MODE_DEBUG_ALBEDO							6
 #define PT_MODE_DEBUG_NORMAL							7
+
+// water sim
+#define WATERSIM_CELL_COUNT_X							32
+#define WATERSIM_CELL_COUNT_Y							32
+#define WATERSIM_CELL_COUNT_Z							32
+#define WATERSIM_CELLFACE_COUNT_X						(WATERSIM_CELL_COUNT_X + 1)
+#define WATERSIM_CELLFACE_COUNT_Y						(WATERSIM_CELL_COUNT_Y + 1)
+#define WATERSIM_CELLFACE_COUNT_Z						(WATERSIM_CELL_COUNT_Z + 1)
+#define WATERSIM_THREAD_PER_THREADGROUP_X				8
+#define WATERSIM_THREAD_PER_THREADGROUP_Y				8
+#define WATERSIM_THREAD_PER_THREADGROUP_Z				8
+#define WATERSIM_PARTICLE_COUNT_PER_CELL				64
+#define WATERSIM_PARTICLE_COUNT_MAX						WATERSIM_CELL_COUNT_X * WATERSIM_CELL_COUNT_Y * WATERSIM_CELL_COUNT_Z * WATERSIM_PARTICLE_COUNT_PER_CELL
+#define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X		8
+#define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y		8
+#define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z		8
+#define WATERSIM_BACKBUFFER_WIDTH						960
+#define WATERSIM_BACKBUFFER_HEIGHT						960
 
 SHARED_HEADER_CPP_TEMPLATE_T
 SHARED_HEADER_CPP_STATIC_INLINE TEMPLATE_UINT RoundUpDivide(TEMPLATE_UINT dividend, TEMPLATE_UINT divisor)
@@ -219,6 +242,54 @@ struct Ray
 	UINT mRayAabbTestCount;
 };
 
+struct WaterSimParticle
+{
+	FLOAT3 mPos;
+	FLOAT3 mVelocity;
+	FLOAT3 mMinFaceWeights;
+	FLOAT3 mMaxFaceWeights;
+	UINT3 mCellIndexXYZ;
+	UINT3 mCellFaceMinIndexXYZ;
+	UINT3 mCellFaceMaxIndexXYZ;
+	float mAlive;
+};
+
+struct WaterSimCell
+{
+	int mParticleCount;
+	float mPressure; // TODO: turn this into groupshared
+	float mType; // 0 - fluid/air, 1 - solid
+	FLOAT4 mPosPressureAndNonSolidCount; // debug
+	FLOAT4 mNegPressureAndDivergence; // debug
+	FLOAT3 mSolidVelocity;
+	UINT mIteration; // not used
+	UINT mReadByNeighbor; // not used
+	UINT mNonSolidNeighborCount; // not used TODO: utilize this instead storing in aux buffer
+	UINT4 mIndicesXYZ_Total;
+	float mResidual; // not used
+};
+
+struct WaterSimCellFace
+{
+	UINT4 mIndices;
+	UINT4 mDebugGroupThreadIdGroupIndex; // compute indices
+	FLOAT4 mPosPressureAndP; // debug 
+	FLOAT4 mNegPressureAndDivergence; // debug
+	UINT mVelocityU32;
+	UINT mWeightU32;
+	float mVelocity;
+	float mOldVelocity;
+	float mWeight;
+};
+
+struct WaterSimCellAux
+{
+	FLOAT3 mIsNotSolidPos;
+	FLOAT3 mIsNotSolidNeg;
+	float mDivergence;
+	float mNonSolidNeighborCount;
+};
+
 struct LightData
 {
 	FLOAT4X4 mView;
@@ -318,8 +389,8 @@ struct FrameUniform
 {
 	UINT mFrameCountSinceGameStart;
 	UINT mResetRays;
-	UINT PADDING1;
-	UINT PADDING2;
+	float mLastFrameTimeInSecond;
+	UINT PADDING0;
 };
 
 SHARED_HEADER_CPP_ONLY(class Camera;)
@@ -370,6 +441,33 @@ struct PassUniformPathTracerBuildScene : PassUniformDefault
 	UINT mRadixSortSweepThreadCount;
 	UINT mRadixSortSweepDepthCount;
 	UINT PADDING_0;
+};
+
+struct PassUniformWaterSim : PassUniformDefault
+{
+	UINT3 mCellCount;
+	UINT mParticleCountPerCell;
+	FLOAT3 mGridOffset; // all pos in simulation are local, add this offset during rasterization if needed
+	UINT mParticleCount;
+	float mTimeStepScale;
+	float mCellSize;
+	UINT2 mWaterSimBackbufferSize;
+	UINT mJacobiIterationCount;
+	UINT mCurrentJacobiIteration;
+	float mApplyForce;
+	float mGravitationalAccel;
+	float mWaterDensity;
+	FLOAT3 mParticleSpawnSourcePos;
+	FLOAT3 mParticleSpawnSourceSpan;
+	int mAliveParticleCount;
+	FLOAT3 mExplosionPos;
+	float mWarmStart;
+	FLOAT3 mExplosionForceScale;
+	float mFlipScale;
+	float mApplyExplosion;
+	UINT PADDING_0;
+	UINT PADDING_1;
+	UINT PADDING_2;
 };
 
 struct ObjectUniform

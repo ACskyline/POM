@@ -26,7 +26,7 @@ PassPathTracerBuildScene			PathTracer::sPathTracerRadixSortDownSweepPass[BuildBv
 PassPathTracerBuildScene			PathTracer::sPathTracerRadixSortReorderPass[BuildBvhType::BuildBvhTypeCount];
 PassPathTracerBuildScene			PathTracer::sPathTracerBuildBvhPass[BuildBvhType::BuildBvhTypeCount];
 PassPathTracerBuildScene			PathTracer::sPathTracerBuildBvhUpdatePass[BuildBvhType::BuildBvhTypeCount];
-PassPathTracer						PathTracer::sPathTracerPass("path tracer pass");
+PassPathTracer						PathTracer::sPathTracerPass("path tracer pass", false, false);
 PassDefault							PathTracer::sPathTracerCopyDepthPass("path tracer copy depth pass", false, true, false);
 PassDefault							PathTracer::sPathTracerDebugLinePass("path tracer debug line pass", true, true, false, PrimitiveType::LINE);
 PassDefault							PathTracer::sPathTracerDebugCubePass("path tracer debug cube pass", true, false, false, PrimitiveType::TRIANGLE);
@@ -48,7 +48,7 @@ Shader								PathTracer::sPathTracerDebugCubePS(Shader::ShaderType::PIXEL_SHADE
 Shader								PathTracer::sPathTracerDebugFullscreenPS(Shader::ShaderType::PIXEL_SHADER, "ps_pathtracer_debug_fullscreen");
 Shader								PathTracer::sPathTracerCopyDepthVS(Shader::ShaderType::VERTEX_SHADER, "vs_pathtracer_copydepth");
 Shader								PathTracer::sPathTracerCopyDepthPS(Shader::ShaderType::PIXEL_SHADER, "ps_pathtracer_copydepth");
-Shader								PathTracer::sPathTracerBlitPS(Shader::ShaderType::PIXEL_SHADER, "ps_pathtracer_blit");
+Shader								PathTracer::sPathTracerBlitBackbufferPS(Shader::ShaderType::PIXEL_SHADER, "ps_pathtracer_blitbackbuffer");
 Buffer								PathTracer::sLightDataBuffer("pt light data buffer", sizeof(LightData), sLightDataCountMax);
 Buffer								PathTracer::sTriangleBuffer("pt triangle buffer", sizeof(TrianglePT), PT_TRIANGLE_PER_SCENE_MAX);
 WriteBuffer							PathTracer::sMeshBuffer("pt mesh buffer", sizeof(MeshPT), PT_MESH_PER_SCENE_MAX);
@@ -217,7 +217,7 @@ void PathTracer::InitPathTracer(Store& store, Scene& scene)
 	store.AddShader(&sPathTracerDebugFullscreenPS);
 	store.AddShader(&sPathTracerCopyDepthVS);
 	store.AddShader(&sPathTracerCopyDepthPS);
-	store.AddShader(&sPathTracerBlitPS);
+	store.AddShader(&sPathTracerBlitBackbufferPS);
 	store.AddBuffer(&sLightDataBuffer);
 	store.AddBuffer(&sTriangleBuffer);
 	store.AddBuffer(&sMeshBuffer);
@@ -755,7 +755,7 @@ void PathTracer::CopyDepthBuffer(CommandList commandList)
 {
 	sDepthbufferWritePT.MakeReadyToRead(commandList);
 	sDepthbufferRenderPT.MakeReadyToRender(commandList);
-	gRenderer.RecordGraphicsPass(sPathTracerCopyDepthPass, commandList, false, true);
+	gRenderer.RecordGraphicsPass(sPathTracerCopyDepthPass, commandList, false, true, true);
 }
 
 void PathTracer::DebugDraw(CommandList commandList)
@@ -764,9 +764,9 @@ void PathTracer::DebugDraw(CommandList commandList)
 	PathTracer::sDebugRayBuffer.MakeReadyToRead(commandList);
 	PathTracer::sDebugBackbufferPT.MakeReadyToRender(commandList);
 	PathTracer::sDepthbufferRenderPT.MakeReadyToRender(commandList);
-	gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugLinePass, commandList, PT_MAXDEPTH_MAX * PT_DEBUG_LINE_COUNT_PER_RAY, true, false, false);
-	gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugCubePass, commandList, 2, false, false, false);
-	gRenderer.RecordGraphicsPass(PathTracer::sPathTracerDebugFullscreenPass, commandList, false, false, false);
+	gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugLinePass, commandList, PT_MAXDEPTH_MAX * PT_DEBUG_LINE_COUNT_PER_RAY, true);
+	gRenderer.RecordGraphicsPassInstanced(PathTracer::sPathTracerDebugCubePass, commandList, 2);
+	gRenderer.RecordGraphicsPass(PathTracer::sPathTracerDebugFullscreenPass, commandList);
 }
 
 void PathTracer::Shutdown()

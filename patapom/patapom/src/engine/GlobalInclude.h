@@ -142,20 +142,22 @@ template<typename Functor>
 static size_t ReadFile(string filePathName, Functor functor, bool binary = true, bool freeMemory = true)
 {
 	fstream file;
-	file.open(filePathName, ios::in);
+	file.open(filePathName, binary ? ios::in | ios::binary : ios::in);
 	fatalAssertf(file.is_open(), "can't open file %s", filePathName.c_str());
 	file.seekg(0, ios::end);
 	size_t length = file.tellg();
 	file.seekg(0, ios::beg);
-	char* buf = nullptr;
-	buf = new char[length]; 
-	file.read(buf, length);
-	if (!binary) // text file
-		buf[length - 1] = '\0';
-	functor(buf);
-	file.close();
-	if (freeMemory)
-		delete[] buf;
+	if (length)
+	{
+		char* buf = new char[length];
+		file.read(buf, length);
+		if (!binary) // text file
+			buf[length - 1] = '\0';
+		functor(buf);
+		file.close();
+		if (freeMemory)
+			delete[] buf;
+	}
 	return length; // return size in byte
 }
 
@@ -218,6 +220,8 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) { return (ENUMTYPE &)(((_
 #define FLOAT3X3	XMFLOAT3X3
 #define UINT		u32
 #define UINT2		XMUINT2
+#define UINT3		XMUINT3
+#define UINT4		XMUINT4
 
 #define SHARED_HEADER_CPP
 #include "SharedHeader.h"

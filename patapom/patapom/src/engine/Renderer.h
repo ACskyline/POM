@@ -406,6 +406,7 @@ enum class Format {
 	R16G16B16A16_FLOAT,
 	R16_FLOAT,
 	R32_FLOAT,
+	R32_UINT,
 	D16_UNORM,
 	D32_FLOAT,
 	D24_UNORM_S8_UINT,
@@ -682,19 +683,19 @@ public:
 	void RecordGraphicsPassInstanced(
 		Pass& pass,
 		CommandList commandList,
-		u8 instanceCount,
-		bool clearColor = true,
-		bool clearDepth = true,
-		bool clearStencil = true,
+		u32 instanceCount,
+		bool clearColor = false,
+		bool clearDepth = false,
+		bool clearStencil = false,
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
 		float clearDepthValue = DEPTH_FAR_REVERSED_Z_SWITCH,
 		u8 clearStencilValue = 0);
 	void RecordGraphicsPass(
 		Pass& pass,
 		CommandList commandList,
-		bool clearColor = true,
-		bool clearDepth = true,
-		bool clearStencil = true,
+		bool clearColor = false,
+		bool clearDepth = false,
+		bool clearStencil = false,
 		XMFLOAT4 clearColorValue = XMFLOAT4(0, 0, 0, 0),
 		float clearDepthValue = DEPTH_FAR_REVERSED_Z_SWITCH,
 		u8 clearStencilValue = 0);
@@ -725,6 +726,7 @@ public:
 	int mCurrentFramebufferIndex;
 	int mFrameCount;
 	int mFrameCountSinceGameStart;
+	float mLastFrameTimeInSecond;
 	int mMultiSampleCount;
 	BlendState mBlendState;
 	DepthStencilState mDepthStencilState;

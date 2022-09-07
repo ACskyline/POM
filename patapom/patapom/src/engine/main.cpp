@@ -16,6 +16,7 @@
 #include "Renderer.h"
 #include "ImageBasedLighting.h"
 #include "PathTracer.h"
+#include "WaterSim.h"
 
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
@@ -43,6 +44,10 @@ bool gFullScreen = false; // is window full screen?
 bool gRunning = true; // we will exit the program when this becomes false
 int gPathTracerMode = 0;
 bool gPathTracerForceUpdate = false;
+bool gWaterSimEnabled = true;
+int gWaterSimMode = 0;
+bool gWaterSimStepOnce = false;
+bool gWaterSimReset = true;
 
 Renderer gRenderer;
 Store gStoreDefault("default store");
@@ -161,11 +166,11 @@ void LoadStores()
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
 	gPassPom.AddRenderTexture(&gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
 
-	// render to path tracer backbuffer
+	// blit path tracer backbuffer
 	gPassPathTracerBlit.SetCamera(&gCameraMain);
 	gPassPathTracerBlit.AddMesh(&gFullscreenTriangle);
 	gPassPathTracerBlit.AddShader(&gDeferredVS);
-	gPassPathTracerBlit.AddShader(&PathTracer::sPathTracerBlitPS);
+	gPassPathTracerBlit.AddShader(&PathTracer::sPathTracerBlitBackbufferPS);
 	gPassPathTracerBlit.AddTexture(&PathTracer::sBackbufferPT);
 	gPassPathTracerBlit.AddTexture(&PathTracer::sDebugBackbufferPT);
 	
@@ -371,8 +376,8 @@ void UpdateDetectInput()
 		// c + mid button + drag to pan
 		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
 		{
-			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.005f;
-			float dY = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.005f;
+			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.02f;
+			float dY = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.02f;
 			if (dX || dY)
 			{
 				XMVECTOR originalTarget = XMLoadFloat3(&gCameraMain.GetTarget());
@@ -477,6 +482,7 @@ void UpdateResourcesGPU()
 {
 	// update per frame resource (after waiting for the current frame to finish)
 	gRenderer.mFrames[gRenderer.mCurrentFramebufferIndex].mFrameUniform.mFrameCountSinceGameStart = gRenderer.mFrameCountSinceGameStart;
+	gRenderer.mFrames[gRenderer.mCurrentFramebufferIndex].mFrameUniform.mLastFrameTimeInSecond = gRenderer.mLastFrameTimeInSecond;
 	gRenderer.mFrames[gRenderer.mCurrentFramebufferIndex].UpdateUniformBuffer();
 }
 
@@ -538,11 +544,11 @@ void Record()
 		PathTracer::DebugDraw(commandList);
 		PathTracer::sBackbufferPT.MakeReadyToRead(commandList);
 		PathTracer::sDebugBackbufferPT.MakeReadyToRead(commandList);
-		gRenderer.RecordGraphicsPass(gPassPathTracerBlit, commandList, false, false, false);
+		gRenderer.RecordGraphicsPass(gPassPathTracerBlit, commandList);
 		if (runPathTracer)
 			gSceneDefault.SetUniformDirty(); // set dirty in the end for subsequent drawcalls (mainly for next frame)
 	}
-	else // rasterizer
+	else // rasterizer 
 	{
 		GPU_LABEL(commandList, "Rasterizer");
 
@@ -550,9 +556,9 @@ void Record()
 		gRenderTextureGreenLight.MakeReadyToRender(commandList);
 		gRenderTextureBlueLight.MakeReadyToRender(commandList);
 
-		gRenderer.RecordGraphicsPass(gPassRedLightShadow, commandList, false);
-		gRenderer.RecordGraphicsPass(gPassGreenLightShadow, commandList, false);
-		gRenderer.RecordGraphicsPass(gPassBlueLightShadow, commandList, false);
+		gRenderer.RecordGraphicsPass(gPassRedLightShadow, commandList, false, true, true);
+		gRenderer.RecordGraphicsPass(gPassGreenLightShadow, commandList, false, true, true);
+		gRenderer.RecordGraphicsPass(gPassBlueLightShadow, commandList, false, true, true);
 
 		gRenderTextureRedLight.MakeReadyToRead(commandList);
 		gRenderTextureGreenLight.MakeReadyToRead(commandList);
@@ -564,8 +570,8 @@ void Record()
 		gRenderTextureGbuffer3.MakeReadyToRender(commandList);
 		gRenderTextureDbuffer.MakeReadyToRender(commandList);
 
-		gRenderer.RecordGraphicsPass(gPassStandard, commandList);
-		gRenderer.RecordGraphicsPass(gPassPom, commandList, false, false, false);
+		gRenderer.RecordGraphicsPass(gPassStandard, commandList, true, true, true);
+		gRenderer.RecordGraphicsPass(gPassPom, commandList);
 
 		gRenderTextureGbuffer0.MakeReadyToRead(commandList);
 		gRenderTextureGbuffer1.MakeReadyToRead(commandList);
@@ -573,10 +579,44 @@ void Record()
 		gRenderTextureGbuffer3.MakeReadyToRead(commandList);
 		gRenderTextureDbuffer.MakeReadyToRead(commandList);
 
-		gRenderer.RecordGraphicsPass(gPassDeferred, commandList, true, false, false);
+		gRenderer.RecordGraphicsPass(gPassDeferred, commandList, true);
 
 		gRenderTextureDbuffer.MakeReadyToRender(commandList);
-		gRenderer.RecordGraphicsPass(gPassSky, commandList, false, false, false);
+		gRenderer.RecordGraphicsPass(gPassSky, commandList);
+
+		if (gWaterSimEnabled)
+		{
+			if (gWaterSimMode == 0)
+			{
+				WaterSim::WaterSimResetGrid(commandList);
+				if (gWaterSimReset)
+				{
+					WaterSim::WaterSimResetParticles(commandList);
+					gWaterSimReset = false;
+				}
+				WaterSim::WaterSimStepOnce(commandList);
+			}
+			else if (gWaterSimMode == 1)
+			{
+				if (gWaterSimReset || gWaterSimStepOnce)
+				{
+					WaterSim::WaterSimResetGrid(commandList);
+					if (gWaterSimReset)
+					{
+						WaterSim::WaterSimResetParticles(commandList);
+						gWaterSimReset = false;
+					}
+					if (gWaterSimStepOnce)
+					{
+						WaterSim::WaterSimStepOnce(commandList);
+						gWaterSimStepOnce = false;
+					}
+				}
+			}
+			if (WaterSim::sApplyExplosion)
+				WaterSim::SetApplyExplosion(false);
+			WaterSim::WaterSimRasterize(commandList);
+		}
 	}
 
 	gRenderer.ResolveFrame(gRenderer.mCurrentFramebufferIndex, commandList);
@@ -641,6 +681,7 @@ void FpsLimiter()
 		currentFrameIntervalInMicrosecond = ClockToMicrosecond(currentClock - lastClock);
 	}
 	lastClock = currentClock;
+	gRenderer.mLastFrameTimeInSecond = currentFrameIntervalInMicrosecond / 1000000.0f;
 }
 
 void EndRender()
@@ -689,6 +730,15 @@ void UpdateUI(bool initOnly = false)
 	static float pathTracerDebugDirLength = gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = 0.0f;
 	static int pathTracerDebugMeshBvhIndex = gSceneDefault.mSceneUniform.mPathTracerDebugMeshBvhIndex = 0;
 	static int pathTracerDebugTriangleBvhIndex = gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBvhIndex = 0;
+	static float waterSimTimeStepScale = WaterSim::sTimeStepScale;
+	static bool waterSimApplyForce = WaterSim::sApplyForce;
+	static bool waterSimWarmStart = WaterSim::sWarmStart;
+	static float waterSimG = WaterSim::sGravitationalAccel;
+	static float waterSimWaterDensity = WaterSim::sWaterDensity;
+	static int waterSimParticleCount = WaterSim::sAliveParticleCount;
+	static float waterSimExplodePositionX = WaterSim::sExplosionPos.x;
+	static float waterSimExplodePositionY = WaterSim::sExplosionPos.y;
+	static float waterSimExplodePositionZ = WaterSim::sExplosionPos.z;
 	bool needToUpdateSceneUniform = false;
 	bool needToRestartPathTracer = false;
 
@@ -701,7 +751,7 @@ void UpdateUI(bool initOnly = false)
 		ImGui::SetNextWindowPos(ImVec2(0, 0));
 
 		ImGui::Begin("Control Panel ");
-
+		
 		if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
 		{
 			gSceneDefault.mSceneUniform.mMode = mode;
@@ -850,6 +900,110 @@ void UpdateUI(bool initOnly = false)
 		{
 			gSceneDefault.mSceneUniform.mUseIBL = useIBL;
 			needToUpdateSceneUniform = true;
+		}
+
+		ImGui::Separator();
+
+		ImGui::Checkbox("enable water sim", &gWaterSimEnabled);
+		ImGui::Checkbox("enable debug", &WaterSim::sEnableDebugCell);
+		ImGui::Checkbox("enable debug velocity", &WaterSim::sEnableDebugCellVelocity);
+
+		if (ImGui::Checkbox("apply force", &waterSimApplyForce))
+		{
+			WaterSim::SetApplyForce(waterSimApplyForce);
+		}
+
+		if (ImGui::Checkbox("warm start", &waterSimWarmStart))
+		{
+			WaterSim::SetWarmStart(waterSimWarmStart);
+		}
+		
+		ImGui::LabelText("last frame time step", "last frame time step in second: %f", gRenderer.mLastFrameTimeInSecond);
+
+		if (ImGui::SliderFloat("water sim time flip scale", &WaterSim::sFlipScale, 0.0f, 1.0f, "%.4f"))
+		{
+			WaterSim::SetFlipScale(WaterSim::sFlipScale);
+		}
+
+		if (ImGui::SliderFloat("water sim time step scale", &waterSimTimeStepScale, 0.0f, 50.0f, "%.4f"))
+		{
+			WaterSim::SetTimeStepScale(waterSimTimeStepScale);
+		}
+
+		if (ImGui::SliderInt("water sim time sub step", &WaterSim::sSubStepCount, 1, 10))
+		{
+			WaterSim::SetTimeStepScale(waterSimTimeStepScale);
+		}
+
+		if (ImGui::SliderInt("water sim jacobi iteration count", &WaterSim::sJacobiIterationCount, 1, 10))
+		{
+			WaterSim::SetJacobiIterationCount(WaterSim::sJacobiIterationCount);
+		}
+
+		if (ImGui::SliderFloat("water sim G", &waterSimG, 0.0f, 20.0f, "%.6f"))
+		{
+			WaterSim::SetG(waterSimG);
+		}
+
+		if (ImGui::SliderFloat("water sim water density", &waterSimWaterDensity, 0.0f, 2000.0f, "%.6f"))
+		{
+			WaterSim::SetWaterDensity(waterSimWaterDensity);
+		}
+
+		ImGui::PushButtonRepeat(true);
+		if (ImGui::Button("water sim spawn particles"))
+		{
+			waterSimParticleCount+=100;
+			WaterSim::SetAliveParticleCount(waterSimParticleCount);
+			gWaterSimReset = true;
+		}
+		ImGui::PopButtonRepeat();
+
+		if (ImGui::Button("water sim reset particles"))
+		{
+			waterSimParticleCount = -1;
+			WaterSim::SetAliveParticleCount(waterSimParticleCount);
+			gWaterSimReset = true;
+		}
+
+		ImGui::Combo("water sim mode", &gWaterSimMode, "default\0step");
+
+		ImGui::PushButtonRepeat(true);
+		if (ImGui::Button("water sim step once"))
+		{
+			gWaterSimStepOnce = true;
+		}
+		ImGui::PopButtonRepeat();
+
+		ImGui::PushButtonRepeat(true);
+		if (ImGui::Button("water apply explode force"))
+		{
+			WaterSim::SetApplyExplosion(true);
+		}
+		ImGui::PopButtonRepeat();
+
+		bool waterExplodeForceCellIndexChanged = false;
+		if (ImGui::SliderFloat("water explosion pos x", &waterSimExplodePositionX, 0, WaterSim::sCellCountX * WaterSim::sCellSize))
+		{
+			waterExplodeForceCellIndexChanged = true;
+		}
+
+		if (ImGui::SliderFloat("water explosion pos y", &waterSimExplodePositionY, 0, WaterSim::sCellCountY * WaterSim::sCellSize))
+		{
+			waterExplodeForceCellIndexChanged = true;
+		}
+
+		if (ImGui::SliderFloat("water explosion pos z", &waterSimExplodePositionZ, 0, WaterSim::sCellCountZ * WaterSim::sCellSize))
+		{
+			waterExplodeForceCellIndexChanged = true;
+		}
+
+		if (waterExplodeForceCellIndexChanged)
+			WaterSim::SetExplosionPos(XMFLOAT3(waterSimExplodePositionX, waterSimExplodePositionY, waterSimExplodePositionZ));
+
+		if (ImGui::SliderFloat3("water explode force scale", (float*)&WaterSim::sExplosionForceScale, 0.0f, 100.0f))
+		{
+			WaterSim::SetExplosionForceScale(WaterSim::sExplosionForceScale);
 		}
 
 		ImGui::Separator();
@@ -1131,6 +1285,7 @@ void InitSystems()
 {
 	ImageBasedLighting::InitIBL(gStoreDefault, gSceneDefault);
 	PathTracer::InitPathTracer(gStoreDefault, gSceneDefault);
+	WaterSim::InitWaterSim(gStoreDefault, gSceneDefault);
 }
 
 void PrepareSystems()
@@ -1143,6 +1298,7 @@ void PrepareSystems()
 
 	ImageBasedLighting::PrepareIBL(commandList);
 	PathTracer::PreparePathTracer(commandList, gSceneDefault);
+	WaterSim::PrepareWaterSim(commandList);
 
 	gRenderer.EndSingleTimeCommands();
 }

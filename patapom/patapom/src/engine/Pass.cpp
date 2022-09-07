@@ -548,11 +548,11 @@ void Pass::InitPass(
 	DescriptorHeap& rtvDescriptorHeap,
 	DescriptorHeap& dsvDescriptorHeap)
 {
-	// fatalAssertf(mCamera, "pass must have a camera");
-	fatalAssertf(mMeshes.size() || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no mesh in this pass!");
+	fatalAssertf(mScene, "pass '%s' not assigned to any scene", mDebugName.c_str());
+	fatalAssertf(mCamera || mShaders[Shader::ShaderType::COMPUTE_SHADER], "non-compute pass must have a camera");
+	fatalAssertf(mMeshes.size() || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no mesh in this non-compute pass!");
 	// revisit the two asserts below after adding support for compute shaders
-	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr, "no vertex shader in this pass!");
-	assertf(mShaders[Shader::PIXEL_SHADER] != nullptr, "no pixel shader in this pass!");
+	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr || mShaders[Shader::PIXEL_SHADER] != nullptr || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no vertex/pixel shader in this non-compute pass!");
 
 	mRenderer = renderer;
 
