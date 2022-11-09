@@ -3,6 +3,7 @@
 #define VS_INPUT_VERTEX_ID
 
 #include "ShaderInclude.hlsli"
+#include "PathTracerUtil.hlsli"
 
 StructuredBuffer<Ray> gDebugRayBuffer : register(t0, SPACE(PASS));
 

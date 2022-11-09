@@ -16,12 +16,14 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 		WaterSimParticle particle = gWaterSimParticleBuffer[particleIndex];
 		if (uPass.mAliveParticleCount > 0)
 		{
-			if (particleIndex < uPass.mAliveParticleCount && particle.mAlive != 1.0f)
+			if (particle.mAlive != 1.0f && particleIndex < uPass.mAliveParticleCount)
 			{
+				particle = (WaterSimParticle)0;
 				particle.mPos = uPass.mParticleSpawnSourcePos + frandom3once(particleIndex) * uPass.mParticleSpawnSourceSpan;
-				particle.mCellIndexXYZ = uint3(particle.mPos / uPass.mCellSize); // for debugging purpose
+				particle.mCellIndexXYZ = uint4(particle.mPos / uPass.mCellSize, 0); // for debugging purpose
 				particle.mVelocity = float3(0.0f, 0.0f, 0.0f);
 				particle.mAlive = 1.0f;
+				particle.mF = IDENTITY_3X3;
 			}
 		}
 		else

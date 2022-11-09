@@ -10,8 +10,6 @@
 StructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(t0, SPACE(PASS));
 StructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(t1, SPACE(PASS));
 
-#include "WaterSimResourceUtil.hlsli"
-
 VS_OUTPUT main(VS_INPUT input)
 {
 	VS_OUTPUT output;

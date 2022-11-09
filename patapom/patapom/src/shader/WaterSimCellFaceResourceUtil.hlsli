@@ -1,5 +1,5 @@
-#ifndef WATERSIM_COMMON_RESOURCES_H
-#define WATERSIM_COMMON_RESOURCES_H
+#ifndef WATERSIM_CELLFACE_RESOURCES_UTIL_H
+#define WATERSIM_CELLFACE_RESOURCES_UTIL_H
 
 #define DEF_INTERPOLATE_CELL_FACE(AXIS) \
 WaterSimCellFace InterpolateCellFaceInternal##AXIS##(\
@@ -106,13 +106,13 @@ WaterSimCell InterpolateCell(float3 pos)
 	uint3 closetFloorCellIndexXYZ_YZ = clamp(closetFloorCellIndexXYZ_O + uint3(0, 1, 1), 0, uint3(uPass.mCellCount));
 	uint3 closetFloorCellIndexXYZ_XYZ = clamp(closetFloorCellIndexXYZ_O + uint3(1, 1, 1), 0, uint3(uPass.mCellCount));
 	WaterSimCell source_O = gWaterSimCellBuffer[closetFloorCellIndex_O];
-	WaterSimCell source_X = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_X)];
-	WaterSimCell source_Y = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_Y)];
-	WaterSimCell source_Z = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_Z)];
-	WaterSimCell source_XY = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_XY)];
-	WaterSimCell source_XZ = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_XZ)];
-	WaterSimCell source_YZ = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_YZ)];
-	WaterSimCell source_XYZ = gWaterSimCellBuffer[FlattenCellIndex(closetFloorCellIndexXYZ_XYZ)];
+	WaterSimCell source_X = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_X)];
+	WaterSimCell source_Y = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_Y)];
+	WaterSimCell source_Z = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_Z)];
+	WaterSimCell source_XY = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_XY)];
+	WaterSimCell source_XZ = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_XZ)];
+	WaterSimCell source_YZ = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_YZ)];
+	WaterSimCell source_XYZ = gWaterSimCellBuffer[FlattenCellIndexClamp(closetFloorCellIndexXYZ_XYZ)];
 	// tri linear interpolation
 	// x axis
 	float3 closetFloorCellCenterPosXYZ_O = GetCellCenterPos(closetFloorCellIndexXYZ_O);
@@ -150,4 +150,30 @@ float3 GetCellVelocityPos(uint3 cellIndexXYZ)
 		gWaterSimCellFaceBuffer[cellFaceIndices_Pos.z].mVelocity);
 }
 
-#endif // WATERSIM_COMMON_RESOURCES_H
+
+void InterLockedAddCellFaceVelocity(uint faceCellIndex, float velocity)
+{
+	while (true)
+	{
+		uint oldVelocityU32 = gWaterSimCellFaceBuffer[faceCellIndex].mVelocityU32;
+		float oldVelocity = asfloat(oldVelocityU32);
+		uint originalVelocityU32;
+		InterlockedCompareExchange(gWaterSimCellFaceBuffer[faceCellIndex].mVelocityU32, oldVelocityU32, asuint(oldVelocity + velocity), originalVelocityU32);
+		if (originalVelocityU32 == oldVelocityU32) // chosen
+			break;
+	}
+}
+
+void InterLockedAddCellFaceWeight(uint faceCellIndex, float weight)
+{
+	while (true)
+	{
+		uint oldWeightU32 = gWaterSimCellFaceBuffer[faceCellIndex].mWeightU32;
+		float oldWeight = asfloat(oldWeightU32);
+		uint originalWeightU32;
+		InterlockedCompareExchange(gWaterSimCellFaceBuffer[faceCellIndex].mWeightU32, oldWeightU32, asuint(oldWeight + weight), originalWeightU32);
+		if (originalWeightU32 == oldWeightU32) // chosen
+			break;
+	}
+}
+#endif // WATERSIM_CELLFACE_RESOURCES_UTIL_H

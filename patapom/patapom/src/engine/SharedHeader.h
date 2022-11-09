@@ -104,16 +104,16 @@
 #define PT_MODE_DEBUG_NORMAL							7
 
 // water sim
-#define WATERSIM_CELL_COUNT_X							32
-#define WATERSIM_CELL_COUNT_Y							32
-#define WATERSIM_CELL_COUNT_Z							32
+#define WATERSIM_CELL_COUNT_X							32 // 8
+#define WATERSIM_CELL_COUNT_Y							32 // 8
+#define WATERSIM_CELL_COUNT_Z							32 // 8
 #define WATERSIM_CELLFACE_COUNT_X						(WATERSIM_CELL_COUNT_X + 1)
 #define WATERSIM_CELLFACE_COUNT_Y						(WATERSIM_CELL_COUNT_Y + 1)
 #define WATERSIM_CELLFACE_COUNT_Z						(WATERSIM_CELL_COUNT_Z + 1)
 #define WATERSIM_THREAD_PER_THREADGROUP_X				8
 #define WATERSIM_THREAD_PER_THREADGROUP_Y				8
 #define WATERSIM_THREAD_PER_THREADGROUP_Z				8
-#define WATERSIM_PARTICLE_COUNT_PER_CELL				64
+#define WATERSIM_PARTICLE_COUNT_PER_CELL				64 // 1
 #define WATERSIM_PARTICLE_COUNT_MAX						WATERSIM_CELL_COUNT_X * WATERSIM_CELL_COUNT_Y * WATERSIM_CELL_COUNT_Z * WATERSIM_PARTICLE_COUNT_PER_CELL
 #define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X		8
 #define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y		8
@@ -246,12 +246,16 @@ struct WaterSimParticle
 {
 	FLOAT3 mPos;
 	FLOAT3 mVelocity;
+	FLOAT3 mOldVelocity; // mpm debug
 	FLOAT3 mMinFaceWeights;
 	FLOAT3 mMaxFaceWeights;
-	UINT3 mCellIndexXYZ;
+	UINT4 mCellIndexXYZ;
 	UINT3 mCellFaceMinIndexXYZ;
 	UINT3 mCellFaceMaxIndexXYZ;
 	float mAlive;
+	float mVolume0; // mpm
+	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mC; // mpm 
+	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mF; // mpm 
 };
 
 struct WaterSimCell
@@ -267,6 +271,13 @@ struct WaterSimCell
 	UINT mNonSolidNeighborCount; // not used TODO: utilize this instead storing in aux buffer
 	UINT4 mIndicesXYZ_Total;
 	float mResidual; // not used
+	UINT mMassU32; // mpm
+	UINT mVelocityXU32; // mpm
+	UINT mVelocityYU32; // mpm
+	UINT mVelocityZU32; // mpm
+	float mMass; // mpm
+	FLOAT3 mVelocity; // mpm
+	FLOAT3 mOldVelocity; // mpm debug
 };
 
 struct WaterSimCellFace
@@ -465,9 +476,9 @@ struct PassUniformWaterSim : PassUniformDefault
 	FLOAT3 mExplosionForceScale;
 	float mFlipScale;
 	float mApplyExplosion;
+	UINT mWaterSimMode;
 	UINT PADDING_0;
 	UINT PADDING_1;
-	UINT PADDING_2;
 };
 
 struct ObjectUniform

@@ -17,7 +17,7 @@ RWStructuredBuffer<WaterSimCell> gWaterSimCellBufferTemp : register(u1, SPACE(PA
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(u2, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellAux> gWaterSimCellAuxBuffer : register(u3, SPACE(PASS));
 
-#include "WaterSimResourceUtil.hlsli"
+#include "WaterSimCellFaceResourceUtil.hlsli"
 
 float GetPressure(uint index, uint iteration)
 {
@@ -46,46 +46,22 @@ void SetCell(uint index, uint iteration, WaterSimCell cell)
 		gWaterSimCellBuffer[index] = cell;
 }
 
-//void SetPressure(uint index, uint iteration, float pressure)
-//{
-//	bool temp = (iteration & 0x1) == 0;
-//	if (temp)
-//		gWaterSimCellBufferTemp[index].mPressure = pressure;
-//	else
-//		gWaterSimCellBuffer[index].mPressure = pressure;
-//}
-//
-//void SetDebug(uint index, uint iteration, float4 posPressureAndNonSolidCount, float4 negPressureAndDivergence)
-//{
-//	bool temp = (iteration & 0x1) == 0;
-//	if (temp)
-//	{
-//		gWaterSimCellBufferTemp[index].mPosPressureAndNonSolidCount = posPressureAndNonSolidCount;
-//		gWaterSimCellBufferTemp[index].mNegPressureAndDivergence = negPressureAndDivergence;
-//	}
-//	else
-//	{
-//		gWaterSimCellBuffer[index].mPosPressureAndNonSolidCount = posPressureAndNonSolidCount;
-//		gWaterSimCellBuffer[index].mNegPressureAndDivergence = negPressureAndDivergence;
-//	}
-//}
-
 void Project(uint3 cellIndexXYZ)
 {
 	// Jacobi
-	uint index = FlattenCellIndex(cellIndexXYZ);
+	uint index = FlattenCellIndexClamp(cellIndexXYZ);
 	uint curIteration = uPass.mCurrentJacobiIteration;
 	WaterSimCell cell = GetCell(index, curIteration);
 	bool isWater = cell.mType == 0;
 	bool isSolid = cell.mType == 1;
 
 	float cellSize = uPass.mCellSize;
-	uint indexPosI = FlattenCellIndex(cellIndexXYZ + uint3(1, 0, 0));
-	uint indexNegI = FlattenCellIndex(cellIndexXYZ - uint3(1, 0, 0));
-	uint indexPosJ = FlattenCellIndex(cellIndexXYZ + uint3(0, 1, 0));
-	uint indexNegJ = FlattenCellIndex(cellIndexXYZ - uint3(0, 1, 0));
-	uint indexPosK = FlattenCellIndex(cellIndexXYZ + uint3(0, 0, 1));
-	uint indexNegK = FlattenCellIndex(cellIndexXYZ - uint3(0, 0, 1));
+	uint indexPosI = FlattenCellIndexClamp(cellIndexXYZ + uint3(1, 0, 0));
+	uint indexNegI = FlattenCellIndexClamp(cellIndexXYZ - uint3(1, 0, 0));
+	uint indexPosJ = FlattenCellIndexClamp(cellIndexXYZ + uint3(0, 1, 0));
+	uint indexNegJ = FlattenCellIndexClamp(cellIndexXYZ - uint3(0, 1, 0));
+	uint indexPosK = FlattenCellIndexClamp(cellIndexXYZ + uint3(0, 0, 1));
+	uint indexNegK = FlattenCellIndexClamp(cellIndexXYZ - uint3(0, 0, 1));
 	
 	float3 isNotSolidPos = 0.0f;
 	float3 isNotSolidNeg = 0.0f;
@@ -105,8 +81,6 @@ void Project(uint3 cellIndexXYZ)
 		WaterSimCell cellPosK = GetCell(indexPosK, curIteration);
 		WaterSimCell cellNegK = GetCell(indexNegK, curIteration);
 
-		//isNotSolidPos = float3(1.0f, 1.0f, 1.0f);
-		//isNotSolidNeg = float3(1.0f, 1.0f, 1.0f);
 		isNotSolidPos = float3(uint3(cellPosI.mType, cellPosJ.mType, cellPosK.mType) != 1);
 		isNotSolidNeg = float3(uint3(cellNegI.mType, cellNegJ.mType, cellNegK.mType) != 1);
 		nonSolidNeighborCount = max(1.0f, dot(isNotSolidPos, 1.0f) + dot(isNotSolidNeg, 1.0f));
@@ -210,12 +184,6 @@ void Project(uint3 cellIndexXYZ)
 		else // if both solid
 			newVelocity.z = 0.0f;
 
-		//if (isNotSolidNeg.x && !isSolid) // if both of the adjacent cells are NOT solid
-		//	newVelocity.x = GetCellFaceVelocity(cellFaceIndices.x) - (p - pNegI) * WaterSimTimeStep / (uPass.mWaterDensity * cellSize);
-		//if (isNotSolidNeg.y && !isSolid) // if both of the adjacent cells are NOT solid
-		//	newVelocity.y = GetCellFaceVelocity(cellFaceIndices.y) - (p - pNegJ) * WaterSimTimeStep / (uPass.mWaterDensity * cellSize);
-		//if (isNotSolidNeg.z && !isSolid) // if both of the adjacent cells are NOT solid
-		//	newVelocity.z = GetCellFaceVelocity(cellFaceIndices.z) - (p - pNegK) * WaterSimTimeStep / (uPass.mWaterDensity * cellSize);
 		UpdateCellFaceOldVelocity(cellFaceIndices.x);
 		UpdateCellFaceOldVelocity(cellFaceIndices.y);
 		UpdateCellFaceOldVelocity(cellFaceIndices.z);
@@ -237,8 +205,6 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 {
 	uint cellIndex = GetThreadIndex(gGroupID, gGroupIndex);
 
-	// 2. solving on the grid
-	// 2d. project
 	if (CellExist(cellIndex))
 	{
 		uint3 cellIndexXYZ = DeflattenCellIndexXYZ(cellIndex);

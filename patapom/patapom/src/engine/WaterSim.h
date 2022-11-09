@@ -7,27 +7,33 @@ typedef PassCommon<PassUniformWaterSim> PassWaterSim;
 class WaterSim
 {
 public:
+	enum WaterSimMode { FLIP, FLIP_STEP, MPM, MPM_STEP, COUNT };
+
 	static PassWaterSim sPassWaterSimP2G;
+	static PassWaterSim sPassWaterSimPreUpdateGrid;
 	static PassWaterSim sPassWaterSimUpdateGrid;
-	static PassWaterSim sPassWaterSimAdvectCellFace;
 	static PassWaterSim sPassWaterSimProject;
 	static PassWaterSim sPassWaterSimG2P;
 	static PassWaterSim sPassWaterSimClear;
 	static PassWaterSim sPassWaterSimRasterizer;
 	static PassWaterSim sPassWaterSimBlit;
 	static PassWaterSim sPassWaterSimResetParticles;
+	static PassWaterSim sPassWaterSimPreUpdateParticles;
+	static PassWaterSim sPassWaterSimUpdateParticles;
 	static PassWaterSim sPassWaterSimResetGrid;
 	static PassWaterSim sPassWaterSimDebugLine;
 	static PassWaterSim sPassWaterSimDebugCube;
 	static Shader sWaterSimP2GCS;
+	static Shader sWaterSimPreUpdateGridCS;
 	static Shader sWaterSimUpdateGridCS;
-	static Shader sWaterSimAdvectCellFaceCS;
 	static Shader sWaterSimProjectCS;
 	static Shader sWaterSimG2PCS;
 	static Shader sWaterSimClearMinMaxBufferCS;
 	static Shader sWaterSimRasterizerCS;
 	static Shader sWaterSimBlitBackbufferPS;
 	static Shader sWaterSimResetParticlesCS;
+	static Shader sWaterSimPreUpdateParticlesCS;
+	static Shader sWaterSimUpdateParticlesCS;
 	static Shader sWaterSimResetGridCS;
 	static Shader sWaterSimDebugLineVS;
 	static Shader sWaterSimDebugLinePS;
@@ -51,6 +57,7 @@ public:
 	static XMFLOAT3 sParticleSpawnSourceSpan;
 	static XMFLOAT3 sExplosionPos;
 	static XMFLOAT3 sExplosionForceScale;
+	static WaterSimMode sWaterSimMode;
 	static bool sApplyExplosion;
 	static int sAliveParticleCount;
 	static float sTimeStepScale;
@@ -79,7 +86,9 @@ public:
 	static void PrepareWaterSim(CommandList commandList);
 	static void WaterSimResetGrid(CommandList commandList);
 	static void WaterSimResetParticles(CommandList commandList);
+	static void WaterSimResetParticlesMPM(CommandList commandList);
 	static void WaterSimStepOnce(CommandList commandList);
+	static void WaterSimStepOnceMPM(CommandList commandList);
 	static void WaterSimRasterize(CommandList commandList);
 	static void SetTimeStepScale(float timeStep);
 	static void SetApplyForce(bool applyForce);
@@ -92,4 +101,5 @@ public:
 	static void SetExplosionPos(XMFLOAT3 explosionCellIndexXYZ);
 	static void SetExplosionForceScale(XMFLOAT3 explosionForceScale);
 	static void SetApplyExplosion(bool applyExplosion);
+	static void SetWaterSimMode(int mode);
 };

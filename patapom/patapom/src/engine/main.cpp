@@ -45,7 +45,6 @@ bool gRunning = true; // we will exit the program when this becomes false
 int gPathTracerMode = 0;
 bool gPathTracerForceUpdate = false;
 bool gWaterSimEnabled = true;
-int gWaterSimMode = 0;
 bool gWaterSimStepOnce = false;
 bool gWaterSimReset = true;
 
@@ -586,7 +585,7 @@ void Record()
 
 		if (gWaterSimEnabled)
 		{
-			if (gWaterSimMode == 0)
+			if (WaterSim::sWaterSimMode == WaterSim::FLIP)
 			{
 				WaterSim::WaterSimResetGrid(commandList);
 				if (gWaterSimReset)
@@ -596,7 +595,7 @@ void Record()
 				}
 				WaterSim::WaterSimStepOnce(commandList);
 			}
-			else if (gWaterSimMode == 1)
+			else if (WaterSim::sWaterSimMode == WaterSim::FLIP_STEP)
 			{
 				if (gWaterSimReset || gWaterSimStepOnce)
 				{
@@ -609,6 +608,33 @@ void Record()
 					if (gWaterSimStepOnce)
 					{
 						WaterSim::WaterSimStepOnce(commandList);
+						gWaterSimStepOnce = false;
+					}
+				}
+			}
+			else if (WaterSim::sWaterSimMode == WaterSim::MPM)
+			{
+				WaterSim::WaterSimResetGrid(commandList);
+				if (gWaterSimReset)
+				{
+					WaterSim::WaterSimResetParticlesMPM(commandList);
+					gWaterSimReset = false;
+				}
+				WaterSim::WaterSimStepOnceMPM(commandList);
+			}
+			else if (WaterSim::sWaterSimMode == WaterSim::MPM_STEP)
+			{
+				if (gWaterSimReset || gWaterSimStepOnce)
+				{
+					WaterSim::WaterSimResetGrid(commandList);
+					if (gWaterSimReset)
+					{
+						WaterSim::WaterSimResetParticlesMPM(commandList);
+						gWaterSimReset = false;
+					}
+					if (gWaterSimStepOnce)
+					{
+						WaterSim::WaterSimStepOnceMPM(commandList);
 						gWaterSimStepOnce = false;
 					}
 				}
@@ -739,6 +765,7 @@ void UpdateUI(bool initOnly = false)
 	static float waterSimExplodePositionX = WaterSim::sExplosionPos.x;
 	static float waterSimExplodePositionY = WaterSim::sExplosionPos.y;
 	static float waterSimExplodePositionZ = WaterSim::sExplosionPos.z;
+	static int waterSimMode = WaterSim::sWaterSimMode;
 	bool needToUpdateSceneUniform = false;
 	bool needToRestartPathTracer = false;
 
@@ -966,7 +993,10 @@ void UpdateUI(bool initOnly = false)
 			gWaterSimReset = true;
 		}
 
-		ImGui::Combo("water sim mode", &gWaterSimMode, "default\0step");
+		if (ImGui::Combo("water sim mode", &waterSimMode, "flip\0flip_step\0mpm\0mpm_step"))
+		{
+			WaterSim::SetWaterSimMode(waterSimMode);
+		}
 
 		ImGui::PushButtonRepeat(true);
 		if (ImGui::Button("water sim step once"))
@@ -1001,7 +1031,7 @@ void UpdateUI(bool initOnly = false)
 		if (waterExplodeForceCellIndexChanged)
 			WaterSim::SetExplosionPos(XMFLOAT3(waterSimExplodePositionX, waterSimExplodePositionY, waterSimExplodePositionZ));
 
-		if (ImGui::SliderFloat3("water explode force scale", (float*)&WaterSim::sExplosionForceScale, 0.0f, 100.0f))
+		if (ImGui::SliderFloat3("water explode force scale", (float*)&WaterSim::sExplosionForceScale, 0.0f, 1000.0f))
 		{
 			WaterSim::SetExplosionForceScale(WaterSim::sExplosionForceScale);
 		}

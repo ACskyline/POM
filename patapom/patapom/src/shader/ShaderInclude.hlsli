@@ -11,6 +11,8 @@
 #define UINT3 uint3
 #define UINT4 uint4
 
+#define IDENTITY_3X3 float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1)
+
 #define SHARED_HEADER_HLSL
 #include "../engine/SharedHeader.h"
 
@@ -475,20 +477,30 @@ bool IsNotBlack(float3 col)
 	return (col.r > 0.0f || col.g > 0.0f || col.b > 0.0f);
 }
 
-bool HitAnything(Ray ray)
+float3x3 Inverse(float3x3 m)
 {
-	return ray.mHitLightIndex != INVALID_UINT32 ||
-		ray.mHitTriangleIndex != INVALID_UINT32;
-}
+    float det = m._11 * m._22 * m._33 +
+        m._12 * m._23 * m._31 +
+        m._13 * m._21 * m._32 -
+        m._13 * m._22 * m._31 -
+        m._12 * m._21 * m._33 -
+        m._11 * m._23 * m._32;
 
-uint PackWaterSimParticleDepth(float depth)
-{
-	return uint(depth * 255.0f);
-}
+    float3x3 ret;
+    ret._11 = m._22 * m._33 - m._23 * m._32;
+    ret._12 = m._13 * m._32 - m._12 * m._33;
+    ret._13 = m._12 * m._23 - m._13 * m._22;
+    ret._21 = m._23 * m._31 - m._21 * m._33;
+    ret._22 = m._11 * m._33 - m._13 * m._31;
+    ret._23 = m._13 * m._21 - m._11 * m._23;
+    ret._31 = m._21 * m._32 - m._22 * m._31;
+    ret._32 = m._12 * m._31 - m._11 * m._32;
+    ret._33 = m._11 * m._22 - m._12 * m._21;
 
-float UnpackWaterSimParticleDepth(uint depth)
-{
-	return depth / 255.0f;
+    if (det == 0.0f)
+        return 0;
+    else
+        return ret / det;
 }
 
 #endif

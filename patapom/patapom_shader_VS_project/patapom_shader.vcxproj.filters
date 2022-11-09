@@ -84,7 +84,7 @@
     <FxCompile Include="..\patapom\src\shader\cs_watersim_rasterizer.hlsl">
       <Filter>src</Filter>
     </FxCompile>
-    <FxCompile Include="..\patapom\src\shader\cs_watersim_advectcellface.hlsl">
+    <FxCompile Include="..\patapom\src\shader\cs_watersim_updategrid.hlsl">
       <Filter>src</Filter>
     </FxCompile>
     <FxCompile Include="..\patapom\src\shader\cs_watersim_project.hlsl">
@@ -117,7 +117,13 @@
     <FxCompile Include="..\patapom\src\shader\vs_watersim_debug_line.hlsl">
       <Filter>src</Filter>
     </FxCompile>
-    <FxCompile Include="..\patapom\src\shader\cs_watersim_updategrid.hlsl">
+    <FxCompile Include="..\patapom\src\shader\cs_watersim_preupdategrid.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\cs_watersim_updateparticles.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\cs_watersim_preupdateparticles.hlsl">
       <Filter>src</Filter>
     </FxCompile>
   </ItemGroup>
@@ -134,10 +140,13 @@
     <None Include="..\patapom\src\shader\WaterSimUtil.hlsli">
       <Filter>src</Filter>
     </None>
-    <None Include="..\patapom\src\shader\WaterSimResourceUtil.hlsli">
+    <None Include="..\patapom\src\shader\WaterSimCellFaceResourceUtil.hlsli">
       <Filter>src</Filter>
     </None>
     <None Include="..\patapom\src\shader\PathTracerUtil.hlsli">
+      <Filter>src</Filter>
+    </None>
+    <None Include="..\patapom\src\shader\WaterSimCellResourceUtil.hlsli">
       <Filter>src</Filter>
     </None>
   </ItemGroup>

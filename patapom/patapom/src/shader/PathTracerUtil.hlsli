@@ -43,4 +43,10 @@ uint GetEntryIndexPerRootBVH(uint entryIndexPerThread, uint globalDispatchThread
     return entryIndexPerThread + globalDispatchThreadIndex * entryPerThread;
 }
 
+bool HitAnything(Ray ray)
+{
+    return ray.mHitLightIndex != INVALID_UINT32 ||
+        ray.mHitTriangleIndex != INVALID_UINT32;
+}
+
 #endif // PATHTRACER_UTIL_H

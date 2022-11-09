@@ -49,7 +49,7 @@ bool CellExistXYZ(uint3 cellIndexXYZ)
 	return all(cellIndexXYZ < uPass.mCellCount);
 }
 
-uint FlattenCellIndex(uint3 indexXYZ)
+uint FlattenCellIndexClamp(uint3 indexXYZ)
 {
 	indexXYZ = clamp(indexXYZ, 0, uPass.mCellCount - 1);
 	return indexXYZ.x * uPass.mCellCount.y * uPass.mCellCount.z +
@@ -79,7 +79,7 @@ uint3 GetFloorCellMinIndex(float3 pos, out uint cellIndex)
 {
 	uint3 indexXYZ = uint3(pos / uPass.mCellSize);
 	indexXYZ = clamp(indexXYZ, 0, uPass.mCellCount - 1);
-	cellIndex = FlattenCellIndex(indexXYZ);
+	cellIndex = FlattenCellIndexClamp(indexXYZ);
 	return indexXYZ;
 }
 
@@ -89,7 +89,7 @@ uint3 GetFloorCellCenterIndex(float3 pos, out uint closestFloorCellIndex)
 	// offset by half cell size to get closest floor cell
 	float halfCellSize = 0.5f * uPass.mCellSize;
 	uint3 closestFloorCellIndexXYZ = uint3(max(0.0f, pos - halfCellSize) / uPass.mCellSize);
-	closestFloorCellIndex = FlattenCellIndex(closestFloorCellIndexXYZ);
+	closestFloorCellIndex = FlattenCellIndexClamp(closestFloorCellIndexXYZ);
 	return closestFloorCellIndexXYZ;
 }
 
@@ -225,6 +225,16 @@ WaterSimCellFace LerpCellFace(WaterSimCellFace A, WaterSimCellFace B, float weig
 	WaterSimCellFace result = (WaterSimCellFace)0;
 	result.mVelocity = lerp(A.mVelocity, B.mVelocity, weight);
 	return result;
+}
+
+uint PackWaterSimParticleDepth(float depth)
+{
+	return uint(depth * 255.0f);
+}
+
+float UnpackWaterSimParticleDepth(uint depth)
+{
+	return depth / 255.0f;
 }
 
 #endif

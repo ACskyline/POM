@@ -13,14 +13,13 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 {
 	uint faceCellIndex = GetThreadIndex(gGroupID, gGroupIndex);
 
-	// 2. solving on the grid
 	if (FaceCellExist(faceCellIndex))
 	{
 		uint3 faceCellIndexXYZ = DeflattenFaceCellIndexXYZ(faceCellIndex);
 		uint3 cellIndexXYZ = faceCellIndexXYZ;
 		if (CellExistXYZ(cellIndexXYZ))
 		{
-			uint cellIndex = FlattenCellIndex(cellIndexXYZ);
+			uint cellIndex = FlattenCellIndexClamp(cellIndexXYZ);
 			WaterSimCell cell = (WaterSimCell)0;
 			cell.mIndicesXYZ_Total = uint4(cellIndexXYZ, cellIndex);
 			if (any(cellIndexXYZ == 0) || any(cellIndexXYZ == uPass.mCellCount - 1) // walls
