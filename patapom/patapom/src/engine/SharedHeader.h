@@ -120,6 +120,8 @@
 #define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z		8
 #define WATERSIM_BACKBUFFER_WIDTH						960
 #define WATERSIM_BACKBUFFER_HEIGHT						960
+#define WATERSIM_VIEWDEPTH_MAX							100.0f
+#define WATERSIM_DEPTHBUFFER_MAX						0xffffffff
 
 SHARED_HEADER_CPP_TEMPLATE_T
 SHARED_HEADER_CPP_STATIC_INLINE TEMPLATE_UINT RoundUpDivide(TEMPLATE_UINT dividend, TEMPLATE_UINT divisor)
@@ -364,8 +366,7 @@ struct SceneUniform
 	UINT mPathTracerCurrentDepth; // starting from 0
 	//
 	UINT mPathTracerEnableRussianRoulette;
-	UINT mPathTracerDebugPixelX;
-	UINT mPathTracerDebugPixelY;
+	UINT2 mMouse;
 	UINT mPathTracerEnableDebug;
 	//
 	UINT mPathTracerDebugSampleRay;
@@ -389,8 +390,8 @@ struct SceneUniform
 	UINT mPathTracerDebugTriangleBvhIndex;
 	//
 	UINT mPathTracerDebugMeshBvhIndex;
-	UINT PADDING_0;
-	UINT PADDING_1;
+	float mDebugFloat;
+	float mDebugFloat2;
 	UINT PADDING_2;
 	//
 	LightData mLightData[LIGHT_PER_SCENE_MAX];
@@ -417,8 +418,7 @@ struct PassUniformDefault
 	FLOAT3 mEyePos;
 	float mNearClipPlane;
 	float mFarClipPlane;
-	float mWidth;
-	float mHeight;
+	UINT2 mResolution;
 	float mFov;
 	UINT PADDING_0;
 	UINT PADDING_1;
@@ -458,7 +458,7 @@ struct PassUniformWaterSim : PassUniformDefault
 {
 	UINT3 mCellCount;
 	UINT mParticleCountPerCell;
-	FLOAT3 mGridOffset; // all pos in simulation are local, add this offset during rasterization if needed
+	FLOAT3 mGridRenderOffset;
 	UINT mParticleCount;
 	float mTimeStepScale;
 	float mCellSize;
@@ -475,10 +475,12 @@ struct PassUniformWaterSim : PassUniformDefault
 	float mWarmStart;
 	FLOAT3 mExplosionForceScale;
 	float mFlipScale;
+	FLOAT3 mGridRenderScale;
 	float mApplyExplosion;
 	UINT mWaterSimMode;
 	UINT PADDING_0;
 	UINT PADDING_1;
+	UINT PADDING_2;
 };
 
 struct ObjectUniform

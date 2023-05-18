@@ -193,7 +193,7 @@ PS_OUTPUT main(VS_OUTPUT input)
         
     PS_OUTPUT output;
     
-    float2 posNDC = ScreenToNDC(input.pos.xy, float2(uPass.mWidth, uPass.mHeight)); // flip y
+    float2 posNDC = ScreenToNDC(input.pos.xy, float2(uPass.mResolution)); // flip y
     float4 posWorldNear = mul(uPass.mViewProjInv, float4(posNDC, 0.0f, 1.0f) * uPass.mNearClipPlane);
     float3 dirWorldNear = normalize(posWorldNear.xyz - uPass.mEyePos);
     

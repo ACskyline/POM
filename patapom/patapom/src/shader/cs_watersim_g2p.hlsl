@@ -9,15 +9,15 @@ RWStructuredBuffer<WaterSimParticle> gWaterSimParticleBuffer : register(u1, SPAC
 
 #include "WaterSimCellFaceResourceUtil.hlsli"
 
-void MovePosition(inout float3 pos, inout float3 velocity, float timeStep)
+void MovePosition(inout float3 pos, inout float3 velocity, float timeStep, float boundaryCellCount)
 {
 	float3 newPos = pos + velocity * timeStep;
 	// outside
-	float3 outside = float3((newPos <= 1.0f.xxx * uPass.mCellSize) || (newPos >= (uPass.mCellCount - 1.0f) * uPass.mCellSize));
+	float3 outside = float3((newPos < boundaryCellCount * uPass.mCellSize) || (newPos > (uPass.mCellCount - boundaryCellCount) * uPass.mCellSize));
 	if (any(outside))
 	{
 		velocity = saturate(1.0f - outside) * velocity;
-		newPos = clamp(newPos, (1.0f.xxx + EPSILON) * uPass.mCellSize, (uPass.mCellCount - (1.0f.xxx + EPSILON)) * uPass.mCellSize);
+		newPos = clamp(newPos, (2.0f.xxx + EPSILON) * uPass.mCellSize, (uPass.mCellCount - (2.0f.xxx + EPSILON)) * uPass.mCellSize);
 	}
 	pos = newPos;
 }
@@ -78,7 +78,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				particle.mCellIndexXYZ = uint4(cellIndexXYZ, cellIndex);
 
 				// move particles
-				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep);
+				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep, 1.0f);
 
 				// write back
 				gWaterSimParticleBuffer[particleIndex] = particle;
@@ -122,7 +122,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				particle.mOldVelocity = particle.mVelocity;
 				particle.mVelocity = velocity;
 				particle.mC = B * 4.0f / (uPass.mCellSize * uPass.mCellSize);
-				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep);
+				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep, 2.0f);
 				particle.mCellIndexXYZ = uint4(indexXYZ, index);
 				particle.mF = mul(IDENTITY_3X3 + particle.mC * WaterSimTimeStep, particle.mF);
 

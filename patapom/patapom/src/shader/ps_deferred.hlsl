@@ -40,8 +40,8 @@ PS_OUTPUT main(VS_OUTPUT input)
 	sdi.mMetallic = specularityMetallic.g;
     float zView = DequantizeDepth(albedoQuantizedZView.a, uPass.mNearClipPlane, uPass.mFarClipPlane);
 	float depth = dbuffer.SampleLevel(gSamplerPoint, TransformUV(uv), 0.0f).r;
-    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(uPass.mWidth, uPass.mHeight), zView, uPass.mFov, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewInv);
-    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(uPass.mWidth, uPass.mHeight), depth, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewProjInv);
+    float3 restoredPosWorld_gbuffer = RestorePosFromViewZ(screenPos, float2(uPass.mResolution), zView, uPass.mFov, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewInv);
+    float3 restoredPosWorld_dbuffer = RestorePosFromDepth(screenPos, float2(uPass.mResolution), depth, uPass.mNearClipPlane, uPass.mFarClipPlane, uPass.mViewProjInv);
     sdi.mPosWorld = restoredPosWorld_gbuffer;
     
     if (uScene.mMode == 0) // default

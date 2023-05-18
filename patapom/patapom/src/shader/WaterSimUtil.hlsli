@@ -2,6 +2,7 @@
 #define WATERSIM_UTIL_H
 
 #include "../engine/SharedHeader.h"
+#define WATERSIM_VELOCITY_MAX 1000000.0f
 
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
 {
@@ -227,14 +228,14 @@ WaterSimCellFace LerpCellFace(WaterSimCellFace A, WaterSimCellFace B, float weig
 	return result;
 }
 
-uint PackWaterSimParticleDepth(float depth)
+uint PackWaterSimParticleDepth(float viewDepth)
 {
-	return uint(depth * 255.0f);
+	return saturate(viewDepth / WATERSIM_VIEWDEPTH_MAX) * (float)WATERSIM_DEPTHBUFFER_MAX;
 }
 
-float UnpackWaterSimParticleDepth(uint depth)
+float UnpackWaterSimParticleDepth(uint packed)
 {
-	return depth / 255.0f;
+	return packed / (float)WATERSIM_DEPTHBUFFER_MAX * WATERSIM_VIEWDEPTH_MAX;
 }
 
 #endif

@@ -9,7 +9,7 @@ RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBufferDest : register(u1, 
 
 float ApplyGravity(float velocityY)
 {
-	return max(-10000.0f, min(10000.0f, velocityY - uPass.mGravitationalAccel * WaterSimTimeStep));
+	return max(-WATERSIM_VELOCITY_MAX, min(WATERSIM_VELOCITY_MAX, velocityY - uPass.mGravitationalAccel * WaterSimTimeStep));
 }
 
 [numthreads(WATERSIM_THREAD_PER_THREADGROUP_X, WATERSIM_THREAD_PER_THREADGROUP_Y, WATERSIM_THREAD_PER_THREADGROUP_Z)]
@@ -86,14 +86,16 @@ void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, 
 					if (faceCellIndexXYZ.z == 0 || faceCellIndexXYZ.z == uPass.mCellCount.z)
 						velocity.z = 0.0f;
 
-					cell.mMassU32 = 0;
-					cell.mVelocityXU32 = 0;
-					cell.mVelocityYU32 = 0;
-					cell.mVelocityZU32 = 0;
 					cell.mMass = mass;
 					cell.mVelocity = velocity;
-					gWaterSimCellBuffer[cellIndex] = cell;
 				}
+				// reset grid for next sub step
+				cell.mMassU32 = 0;
+				cell.mVelocityXU32 = 0;
+				cell.mVelocityYU32 = 0;
+				cell.mVelocityZU32 = 0;
+				gWaterSimCellBuffer[cellIndex] = cell;
+
 			}
 		}
 	}

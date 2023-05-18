@@ -4,6 +4,9 @@
     <Filter Include="src">
       <UniqueIdentifier>{8e6e782d-deb2-4ffe-a3fd-190c8dcb37ed}</UniqueIdentifier>
     </Filter>
+    <Filter Include="header">
+      <UniqueIdentifier>{b8f58fb9-cdf3-4aac-a4d4-a4c1106d05aa}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\patapom\src\shader\cs_pathtracer.hlsl">
@@ -126,28 +129,37 @@
     <FxCompile Include="..\patapom\src\shader\cs_watersim_preupdateparticles.hlsl">
       <Filter>src</Filter>
     </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\ps_shadertoydebug.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\vs_watersim_rasterizer.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\ps_watersim_rasterizer.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\patapom\src\shader\ShaderInclude.hlsli">
-      <Filter>src</Filter>
-    </None>
     <None Include="..\patapom\src\shader\Lighting.hlsli">
-      <Filter>src</Filter>
-    </None>
-    <None Include="..\patapom\src\shader\Pom.hlsli">
-      <Filter>src</Filter>
-    </None>
-    <None Include="..\patapom\src\shader\WaterSimUtil.hlsli">
-      <Filter>src</Filter>
-    </None>
-    <None Include="..\patapom\src\shader\WaterSimCellFaceResourceUtil.hlsli">
-      <Filter>src</Filter>
+      <Filter>header</Filter>
     </None>
     <None Include="..\patapom\src\shader\PathTracerUtil.hlsli">
-      <Filter>src</Filter>
+      <Filter>header</Filter>
+    </None>
+    <None Include="..\patapom\src\shader\Pom.hlsli">
+      <Filter>header</Filter>
+    </None>
+    <None Include="..\patapom\src\shader\WaterSimCellFaceResourceUtil.hlsli">
+      <Filter>header</Filter>
     </None>
     <None Include="..\patapom\src\shader\WaterSimCellResourceUtil.hlsli">
-      <Filter>src</Filter>
+      <Filter>header</Filter>
+    </None>
+    <None Include="..\patapom\src\shader\WaterSimUtil.hlsli">
+      <Filter>header</Filter>
+    </None>
+    <None Include="..\patapom\src\shader\ShaderInclude.hlsli">
+      <Filter>header</Filter>
     </None>
   </ItemGroup>
 </Project>

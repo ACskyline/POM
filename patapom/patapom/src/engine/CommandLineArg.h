@@ -10,6 +10,7 @@ public:
 
 	bool GetAsString(string& asString);
 	bool GetAsFloatVec(vector<float>& asFloatVec);
+	bool GetAsInt(int& asInt);
 	int GetAsInt();
 	bool Get();
 

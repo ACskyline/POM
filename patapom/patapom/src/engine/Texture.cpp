@@ -671,14 +671,14 @@ bool RenderTexture::IsRenderTargetUsed()
 ID3D12Resource* RenderTexture::GetRenderTargetBuffer()
 {
 	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
-	return  mRenderTargetBuffer;
+	return mRenderTargetBuffer;
 }
 
 ID3D12Resource* RenderTexture::GetDepthStencilBuffer()
 {
 	// make sure to create null descriptor for render textures which does not support depth
 	fatalAssertf(mInitialized, "texture %s is not initialized!", mFileName.c_str());
-	return  mDepthStencilBuffer;
+	return mDepthStencilBuffer;
 }
 
 D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRtvDesc(u32 depthSlice, u32 mipSlice)

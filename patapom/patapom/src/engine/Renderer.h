@@ -3,10 +3,17 @@
 #include "GlobalInclude.h"
 #include "../dependency/pix/pix3.h"
 
+#ifdef USE_PIX
 #define GPU_LABEL(cl, ...) PIXScopedEvent(cl.GetImpl(), PIX_COLOR(0xff, 0, 0), __VA_ARGS__)
 #define GPU_LABEL_BEGIN(cl, ...) PIXBeginEvent(cl.GetImpl(), PIX_COLOR(0xff, 0, 0), __VA_ARGS__)
 #define GPU_LABEL_END(cl) PIXEndEvent(cl.GetImpl())
 #define GPU_MARKER(cl, ...) PIXSetMarker(cl.GetImpl(), PIX_COLOR(0, 0xff, 0), __VA_ARGS__)
+#else // USE_PIX
+#define GPU_LABEL(cl, ...)
+#define GPU_LABEL_BEGIN(cl, ...)
+#define GPU_LABEL_END(cl)
+#define GPU_MARKER(cl, ...)
+#endif // USE_PIX
 
 class Store;
 class Frame;
@@ -726,6 +733,9 @@ public:
 	int mCurrentFramebufferIndex;
 	int mFrameCount;
 	int mFrameCountSinceGameStart;
+	int mPixCaptureStartFrame;
+	int mPixCaptureFrameCount;
+	int mPixCapturedFrameCount;
 	float mLastFrameTimeInSecond;
 	int mMultiSampleCount;
 	BlendState mBlendState;
@@ -807,7 +817,6 @@ extern Format gSwapchainColorBufferFormat;
 extern Format gSwapchainDepthStencilBufferFormat;
 extern Sampler gSamplerLinear;
 extern Sampler gSamplerPoint;
-extern Shader gDeferredVS;
 extern Mesh gCube;
 extern Mesh gFullscreenTriangle;
 extern Camera gCameraDummy;

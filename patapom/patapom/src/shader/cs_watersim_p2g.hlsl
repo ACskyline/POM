@@ -3,8 +3,10 @@
 #include "ShaderInclude.hlsli"
 #include "WaterSimUtil.hlsli"
 
-#define ELASTIC_LAMDA 10
-#define ELASTIC_MU 20
+#define YOUNGS_MODULUS	10000.0f
+#define POISSON_RATIO	0.2f
+#define ELASTIC_MU		(YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
+#define ELASTIC_LAMDA	YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO))
 
 RWStructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(u0, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(u1, SPACE(PASS));
@@ -17,7 +19,7 @@ float3 ApplyExplosion(float3 particlePos, float3 explosionPos, float3 explosionS
 {
 	float3 dir = normalize(particlePos - explosionPos);
 	float distanceScale = 1.0f / max(1.0f, length(particlePos - explosionPos));
-	return max(-10000.0f, min(10000.0f, dir * distanceScale * explosionScale * WaterSimTimeStep));
+	return max(-WATERSIM_VELOCITY_MAX, min(WATERSIM_VELOCITY_MAX, dir * distanceScale * explosionScale * WaterSimTimeStep));
 }
 
 [numthreads(WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z)]
@@ -144,7 +146,6 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 							}
 							break;
 						}
-
 						oldParticleCount = gWaterSimCellBuffer[cellIndex].mParticleCount;
 					}
 
@@ -158,9 +159,10 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 			else if (uPass.mWaterSimMode == 2 || uPass.mWaterSimMode == 3) // mpm
 			{
 				// mls-mpm
-				uint index;
-				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, index);
-				
+				uint cellIndex;
+				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, cellIndex);
+
+				// otherwise
 				float J = determinant(particle.mF);
 				float volume = J * particle.mVolume0;
 				// useful matrices for Neo-Hookean model
@@ -200,25 +202,27 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 							if (CellExistXYZ(dIndexXYZ))
 							{
 								float dWeight = weights[dx].x * weights[dy].y * weights[dz].z;
-								float3 dCellDiff = (dIndexXYZ + 0.5f)* uPass.mCellSize - particle.mPos;
+								float3 dCellDiff = (dIndexXYZ + 0.5f) * uPass.mCellSize - particle.mPos;
 								float3 Q = mul(particle.mC, dCellDiff);
 								float massContrib = dWeight; // assume mass is 1
 								float3 weightedMomentum = massContrib * (particle.mVelocity + Q); // TODO: adding Q makes particles go up for some reason
-								
+
 								// fused force/momentum update from MLS-MPM
 								// see MLS-MPM paper, equation listed after eqn. 28
 								weightedMomentum += mul(eq_16_term_0 * dWeight, dCellDiff);
-																
-								InterLockedAddCellMass(dIndex, massContrib);
-								// TODO: rearrange the sequence based on particle index to avoid potential wait when writing to the same component of the cell's velocity
-								InterLockedAddCellVelocityX(dIndex, weightedMomentum.x);
-								InterLockedAddCellVelocityY(dIndex, weightedMomentum.y);
-								InterLockedAddCellVelocityZ(dIndex, weightedMomentum.z);
-								InterlockedAdd(gWaterSimCellBuffer[dIndex].mParticleCount, 1);
+
+								if (!any(isnan(weightedMomentum)))
+								{
+									InterLockedAddCellMass(dIndex, massContrib);
+									// TODO: rearrange the sequence based on particle index to avoid potential wait when writing to the same component of the cell's velocity
+									InterLockedAddCellVelocityX(dIndex, weightedMomentum.x);
+									InterLockedAddCellVelocityY(dIndex, weightedMomentum.y);
+									InterLockedAddCellVelocityZ(dIndex, weightedMomentum.z);
+								}
 							}
-						}
-					}
-				}
+						} // for dz
+					} // for dy
+				} // for dx
 			}
 		} // (particle.mAlive)
 	} // (particleIndex < uPass.mParticleCount)

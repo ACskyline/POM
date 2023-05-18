@@ -963,7 +963,7 @@ void main(uint3 gDispatchThreadID : SV_DispatchThreadID)
 	uint2 screenSize = uint2(PT_BACKBUFFER_WIDTH, PT_BACKBUFFER_HEIGHT);
 	if (screenPos.x < screenSize.x && screenPos.y < screenSize.y)
 	{
-		bool debugPixel = (uScene.mPathTracerUpdateDebug && screenPos.x == uScene.mPathTracerDebugPixelX && screenPos.y == uScene.mPathTracerDebugPixelY);
+		bool debugPixel = (uScene.mPathTracerUpdateDebug && screenPos.x == uScene.mMouse.x && screenPos.y == uScene.mMouse.y);
 		// set up RNG, dir
 		uint rng_seed = hash(hash(hash(uFrame.mFrameCountSinceGameStart) + screenPos.x) + screenPos.y);
 		float2 screenPosJitter = frandom2(rng_seed);

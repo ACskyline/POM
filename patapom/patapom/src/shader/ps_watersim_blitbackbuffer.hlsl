@@ -16,10 +16,15 @@ PS_OUTPUT main(VS_OUTPUT input)
 {
 	PS_OUTPUT output;
 	int3 uvw = int3(TransformUV(input.uv) * uPass.mWaterSimBackbufferSize, 0);
-	float depthMax = UnpackWaterSimParticleDepth(gWaterSimDepthBufferMax.Load(uvw).r);
-	float depthMin = UnpackWaterSimParticleDepth(gWaterSimDepthBufferMin.Load(uvw).r);
+	uint packedMax = gWaterSimDepthBufferMax.Load(uvw).r;
+	uint packedMin = gWaterSimDepthBufferMin.Load(uvw).r;
+	bool hasWater = (packedMax != 0) && (packedMin != WATERSIM_DEPTHBUFFER_MAX);
+	float depthMax = UnpackWaterSimParticleDepth(packedMax);
+	float depthMin = UnpackWaterSimParticleDepth(packedMin);
 	float4 debugCol = gWaterSimDebugBackbuffer.Load(uvw);
-	output.col0.rgb = debugCol.a * debugCol.rgb + (1.0f - debugCol.a) * float3(0.0f, depthMax, depthMin);
-	output.col0.a = 1.0f;
+	float3 waterCol = float3(0.0f, 0.0f, saturate(depthMax - depthMin));
+	// blend in debug ui
+	output.col0.rgb = debugCol.a * debugCol.rgb + (1.0f - debugCol.a) * waterCol;
+	output.col0.a = hasWater ? 1.0f : 0.0f; // any(output.col0.rgb > 0.0f.xxx) ? 0.0f : 0.0f; // 
 	return output;
 }

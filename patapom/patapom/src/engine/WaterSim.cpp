@@ -5,30 +5,20 @@
 #include "Buffer.h"
 #include "Texture.h"
 #include "Mesh.h"
+#include "DeferredLighting.h"
 #include <cmath>
 
 CommandLineArg PARAM_sanitizeWaterSim("-sanitizeWaterSim");
 
-PassWaterSim WaterSim::sPassWaterSimP2G("p2g");
-PassWaterSim WaterSim::sPassWaterSimPreUpdateGrid("preupdate grid");
-PassWaterSim WaterSim::sPassWaterSimUpdateGrid("update grid");
-PassWaterSim WaterSim::sPassWaterSimProject("project");
-PassWaterSim WaterSim::sPassWaterSimG2P("g2p");
-PassWaterSim WaterSim::sPassWaterSimClear("water sim clear");
-PassWaterSim WaterSim::sPassWaterSimRasterizer("rasterizer");
-PassWaterSim WaterSim::sPassWaterSimBlit("water sim blit", true, false);
-PassWaterSim WaterSim::sPassWaterSimResetParticles("water sim reset particles");
-PassWaterSim WaterSim::sPassWaterSimPreUpdateParticles("water sim preupdate particles");
-PassWaterSim WaterSim::sPassWaterSimUpdateParticles("water sim update particles");
-PassWaterSim WaterSim::sPassWaterSimResetGrid("water sim reset grid");
-PassWaterSim WaterSim::sPassWaterSimDebugLine("water sim debug line", true, false, false, PrimitiveType::LINE);
-PassWaterSim WaterSim::sPassWaterSimDebugCube("water sim debug cube", true, false, false, PrimitiveType::TRIANGLE);
+PassWaterSim WaterSim::sPassWaterSim[WaterSim::WATERSIM_PASSTYPE_COUNT];
 Shader WaterSim::sWaterSimP2GCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_p2g");
 Shader WaterSim::sWaterSimPreUpdateGridCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_preupdategrid");
 Shader WaterSim::sWaterSimUpdateGridCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_updategrid");
 Shader WaterSim::sWaterSimProjectCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_project");
 Shader WaterSim::sWaterSimG2PCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_g2p");
 Shader WaterSim::sWaterSimClearMinMaxBufferCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_clearminmaxbuffer");
+Shader WaterSim::sWaterSimRasterizerVS(Shader::ShaderType::VERTEX_SHADER, "vs_watersim_rasterizer");
+Shader WaterSim::sWaterSimRasterizerPS(Shader::ShaderType::PIXEL_SHADER, "ps_watersim_rasterizer");
 Shader WaterSim::sWaterSimRasterizerCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_rasterizer");
 Shader WaterSim::sWaterSimBlitBackbufferPS(Shader::ShaderType::PIXEL_SHADER, "ps_watersim_blitbackbuffer");
 Shader WaterSim::sWaterSimResetParticlesCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_resetparticles");
@@ -41,6 +31,7 @@ Shader WaterSim::sWaterSimDebugCubeVS(Shader::ShaderType::VERTEX_SHADER, "vs_wat
 Shader WaterSim::sWaterSimDebugCubePS(Shader::ShaderType::PIXEL_SHADER, "ps_watersim_debug_cube");
 Mesh WaterSim::sWaterSimDebugMeshLine("water sim debug mesh line", Mesh::MeshType::LINE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Mesh WaterSim::sWaterSimDebugMeshCube("water sim debug mesh cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
+Mesh WaterSim::sWaterSimParticleMesh("particle mesh", Mesh::MeshType::MESH, XMFLOAT3(0, 1, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(1.0f, 1.0f, 1.0f), "ball.obj");
 const int WaterSim::sCellCountX = WATERSIM_CELL_COUNT_X;
 const int WaterSim::sCellCountY = WATERSIM_CELL_COUNT_Y;
 const int WaterSim::sCellCountZ = WATERSIM_CELL_COUNT_Z;
@@ -57,12 +48,13 @@ XMFLOAT3 WaterSim::sParticleSpawnSourcePos;
 XMFLOAT3 WaterSim::sParticleSpawnSourceSpan;
 XMFLOAT3 WaterSim::sExplosionPos;
 XMFLOAT3 WaterSim::sExplosionForceScale = {100.0f, 100.0f, 100.0f};
-WaterSim::WaterSimMode WaterSim::sWaterSimMode = WaterSim::WaterSimMode::MPM;
+WaterSim::WaterSimMode WaterSim::sWaterSimMode = WaterSim::MPM;
+bool WaterSim::sUseComputeRasterizer = false;
 bool WaterSim::sApplyExplosion = false;
 int WaterSim::sAliveParticleCount = 256;
 float WaterSim::sTimeStepScale = 1.0f;
-int WaterSim::sSubStepCount = 5;
-float WaterSim::sApplyForce = 1.0f;
+int WaterSim::sSubStepCount = 5; // 5 is for flip
+bool WaterSim::sApplyForce = true;
 float WaterSim::sGravitationalAccel = 9.86f;
 float WaterSim::sWaterDensity = 1.0f;
 float WaterSim::sFlipScale = 0.001f;
@@ -76,8 +68,9 @@ WriteBuffer WaterSim::sCellFaceBuffer("water sim cell face buffer", sizeof(Water
 WriteBuffer WaterSim::sCellFaceBufferTemp("water sim cell face buffer temp", sizeof(WaterSimCellFace), sCellFaceCountX * sCellFaceCountY * sCellFaceCountZ * 3);
 WriteBuffer WaterSim::sCellAuxBuffer("water sim cell aux buffer", sizeof(WaterSimCellAux), sCellCountX * sCellCountY * sCellCountZ);
 WriteBuffer WaterSim::sParticleBuffer("water particle buffer", sizeof(WaterSimParticle), sParticleCount);
+// use uint buffer for atmoic operations
 RenderTexture WaterSim::sDepthBufferMax(TextureType::TEX_2D, "water sim depth buffer max", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_UINT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture WaterSim::sDepthBufferMin(TextureType::TEX_2D, "water sim depth buffer min", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_UINT, XMFLOAT4(0xffffffff, 0.0f, 0.0f, 0.0f));
+RenderTexture WaterSim::sDepthBufferMin(TextureType::TEX_2D, "water sim depth buffer min", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_UINT, XMFLOAT4(WATERSIM_DEPTHBUFFER_MAX, 0.0f, 0.0f, 0.0f));
 RenderTexture WaterSim::sDebugBackbuffer(TextureType::TEX_2D, "water sim debug backbuffer", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 std::vector<WaterSimParticle> WaterSim::sParticles;
 std::vector<WaterSimCellFace> WaterSim::sCellFaces;
@@ -85,129 +78,132 @@ std::vector<WaterSimCell> WaterSim::sCells;
 
 void WaterSim::InitWaterSim(Store& store, Scene& scene)
 {
-	sPassWaterSimP2G.AddShader(&sWaterSimP2GCS);
-	sPassWaterSimP2G.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimP2G.AddWriteBuffer(&sCellFaceBuffer);
-	sPassWaterSimP2G.AddWriteBuffer(&sParticleBuffer);
+	sPassWaterSim[P2G].CreatePass("p2g");
+	sPassWaterSim[P2G].AddShader(&sWaterSimP2GCS);
+	sPassWaterSim[P2G].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[P2G].AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[P2G].AddWriteBuffer(&sParticleBuffer);
 
-	sPassWaterSimPreUpdateGrid.AddShader(&sWaterSimPreUpdateGridCS);
-	sPassWaterSimPreUpdateGrid.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimPreUpdateGrid.AddWriteBuffer(&sCellFaceBuffer);
-	sPassWaterSimPreUpdateGrid.AddWriteBuffer(&sCellFaceBufferTemp);
+	sPassWaterSim[PRE_UPDATE_GRID].CreatePass("preupdate grid");
+	sPassWaterSim[PRE_UPDATE_GRID].AddShader(&sWaterSimPreUpdateGridCS);
+	sPassWaterSim[PRE_UPDATE_GRID].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[PRE_UPDATE_GRID].AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[PRE_UPDATE_GRID].AddWriteBuffer(&sCellFaceBufferTemp);
 
-	sPassWaterSimUpdateGrid.AddShader(&sWaterSimUpdateGridCS);
-	sPassWaterSimUpdateGrid.AddBuffer(&sCellFaceBufferTemp);
-	sPassWaterSimUpdateGrid.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimUpdateGrid.AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[UPDATE_GRID].CreatePass("update grid");
+	sPassWaterSim[UPDATE_GRID].AddShader(&sWaterSimUpdateGridCS);
+	sPassWaterSim[UPDATE_GRID].AddBuffer(&sCellFaceBufferTemp);
+	sPassWaterSim[UPDATE_GRID].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[UPDATE_GRID].AddWriteBuffer(&sCellFaceBuffer);
 
-	sPassWaterSimProject.AddShader(&sWaterSimProjectCS);
-	sPassWaterSimProject.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimProject.AddWriteBuffer(&sCellBufferTemp);
-	sPassWaterSimProject.AddWriteBuffer(&sCellFaceBuffer);
-	sPassWaterSimProject.AddWriteBuffer(&sCellAuxBuffer);
+	sPassWaterSim[PROJECT].CreatePass("project");
+	sPassWaterSim[PROJECT].AddShader(&sWaterSimProjectCS);
+	sPassWaterSim[PROJECT].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[PROJECT].AddWriteBuffer(&sCellBufferTemp);
+	sPassWaterSim[PROJECT].AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[PROJECT].AddWriteBuffer(&sCellAuxBuffer);
 
-	sPassWaterSimG2P.AddShader(&sWaterSimG2PCS);
-	sPassWaterSimG2P.AddBuffer(&sCellFaceBuffer);
-	sPassWaterSimG2P.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimG2P.AddWriteBuffer(&sParticleBuffer);
+	sPassWaterSim[G2P].CreatePass("g2p");
+	sPassWaterSim[G2P].AddShader(&sWaterSimG2PCS);
+	sPassWaterSim[G2P].AddBuffer(&sCellFaceBuffer);
+	sPassWaterSim[G2P].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[G2P].AddWriteBuffer(&sParticleBuffer);
 
 	// clear min max buffer
-	sPassWaterSimClear.AddShader(&sWaterSimClearMinMaxBufferCS);
-	sPassWaterSimClear.AddWriteTexture(&sDepthBufferMax, 0);
-	sPassWaterSimClear.AddWriteTexture(&sDepthBufferMin, 0);
-	sPassWaterSimClear.AddWriteTexture(&sDebugBackbuffer, 0);
+	sPassWaterSim[CLEAR].CreatePass("water sim clear");
+	sPassWaterSim[CLEAR].AddShader(&sWaterSimClearMinMaxBufferCS);
+	sPassWaterSim[CLEAR].AddWriteTexture(&sDepthBufferMax, 0);
+	sPassWaterSim[CLEAR].AddWriteTexture(&sDepthBufferMin, 0);
+	sPassWaterSim[CLEAR].AddWriteTexture(&sDebugBackbuffer, 0);
 
 	// particle rasterizer
-	sPassWaterSimRasterizer.AddShader(&sWaterSimRasterizerCS);
-	sPassWaterSimRasterizer.AddBuffer(&sParticleBuffer);
-	sPassWaterSimRasterizer.AddWriteTexture(&sDepthBufferMax, 0);
-	sPassWaterSimRasterizer.AddWriteTexture(&sDepthBufferMin, 0);
-	sPassWaterSimRasterizer.SetCamera(&gCameraMain);
+	sPassWaterSim[RASTERIZER].CreatePass("rasterizer");
+	sPassWaterSim[RASTERIZER].SetCamera(&gCameraMain);
+	sPassWaterSim[RASTERIZER].AddMesh(&sWaterSimParticleMesh);
+	sPassWaterSim[RASTERIZER].AddShader(&sWaterSimRasterizerVS);
+	sPassWaterSim[RASTERIZER].AddShader(&sWaterSimRasterizerPS);
+	sPassWaterSim[RASTERIZER].AddBuffer(&sParticleBuffer);
+	sPassWaterSim[RASTERIZER].AddRenderTexture(&DeferredLighting::gRenderTextureDbuffer, 0, 0, DS_EQUAL_NO_WRITE_REVERSED_Z_SWITCH);
+
+	// particle rasterizer CS
+	sPassWaterSim[RASTERIZER_CS].CreatePass("rasterizerCS");
+	sPassWaterSim[RASTERIZER_CS].SetCamera(&gCameraMain);
+	sPassWaterSim[RASTERIZER_CS].AddShader(&sWaterSimRasterizerCS);
+	sPassWaterSim[RASTERIZER_CS].AddBuffer(&sParticleBuffer);
+	sPassWaterSim[RASTERIZER_CS].AddWriteTexture(&sDepthBufferMax, 0);
+	sPassWaterSim[RASTERIZER_CS].AddWriteTexture(&sDepthBufferMin, 0);
 
 	// blit water sim backbuffer
-	sPassWaterSimBlit.SetCamera(&gCameraMain);
-	sPassWaterSimBlit.AddMesh(&gFullscreenTriangle);
-	sPassWaterSimBlit.AddShader(&gDeferredVS);
-	sPassWaterSimBlit.AddShader(&sWaterSimBlitBackbufferPS);
-	sPassWaterSimBlit.AddTexture(&sDepthBufferMax);
-	sPassWaterSimBlit.AddTexture(&sDepthBufferMin);
-	sPassWaterSimBlit.AddTexture(&sDebugBackbuffer);
+	sPassWaterSim[BLIT].CreatePass("water sim blit", true, false);
+	sPassWaterSim[BLIT].SetCamera(&gCameraMain);
+	sPassWaterSim[BLIT].AddMesh(&gFullscreenTriangle);
+	sPassWaterSim[BLIT].AddShader(&DeferredLighting::gDeferredVS);
+	sPassWaterSim[BLIT].AddShader(&sWaterSimBlitBackbufferPS);
+	sPassWaterSim[BLIT].AddTexture(&sDepthBufferMax);
+	sPassWaterSim[BLIT].AddTexture(&sDepthBufferMin);
+	sPassWaterSim[BLIT].AddTexture(&sDebugBackbuffer);
+	sPassWaterSim[BLIT].AddRenderTexture(nullptr, 0, 0, BlendState::AlphaBlend());
 
 	// reset grid
-	sPassWaterSimResetGrid.AddShader(&sWaterSimResetGridCS);
-	sPassWaterSimResetGrid.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimResetGrid.AddWriteBuffer(&sCellBufferTemp);
-	sPassWaterSimResetGrid.AddWriteBuffer(&sCellFaceBuffer);
-	sPassWaterSimResetGrid.AddWriteBuffer(&sCellFaceBufferTemp);
+	sPassWaterSim[RESET_GRID].CreatePass("water sim reset grid");
+	sPassWaterSim[RESET_GRID].AddShader(&sWaterSimResetGridCS);
+	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellBufferTemp);
+	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellFaceBufferTemp);
 
 	// reset particles
-	sPassWaterSimResetParticles.AddShader(&sWaterSimResetParticlesCS);
-	sPassWaterSimResetParticles.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimResetParticles.AddWriteBuffer(&sParticleBuffer);
+	sPassWaterSim[RESET_PARTICLES].CreatePass("water sim reset particles");
+	sPassWaterSim[RESET_PARTICLES].AddShader(&sWaterSimResetParticlesCS);
+	sPassWaterSim[RESET_PARTICLES].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[RESET_PARTICLES].AddWriteBuffer(&sParticleBuffer);
 
 	// preupdate particles
-	sPassWaterSimPreUpdateParticles.AddShader(&sWaterSimPreUpdateParticlesCS);
-	sPassWaterSimPreUpdateParticles.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimPreUpdateParticles.AddWriteBuffer(&sParticleBuffer);
+	sPassWaterSim[PRE_UPDATE_PARTICLES].CreatePass("water sim preupdate particles");
+	sPassWaterSim[PRE_UPDATE_PARTICLES].AddShader(&sWaterSimPreUpdateParticlesCS);
+	sPassWaterSim[PRE_UPDATE_PARTICLES].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[PRE_UPDATE_PARTICLES].AddWriteBuffer(&sParticleBuffer);
 
 	// update particles
-	sPassWaterSimUpdateParticles.AddShader(&sWaterSimUpdateParticlesCS);
-	sPassWaterSimUpdateParticles.AddWriteBuffer(&sCellBuffer);
-	sPassWaterSimUpdateParticles.AddWriteBuffer(&sParticleBuffer);
-
+	sPassWaterSim[UPDATE_PARTICLES].CreatePass("water sim update particles");
+	sPassWaterSim[UPDATE_PARTICLES].AddShader(&sWaterSimUpdateParticlesCS);
+	sPassWaterSim[UPDATE_PARTICLES].AddWriteBuffer(&sCellBuffer);
+	sPassWaterSim[UPDATE_PARTICLES].AddWriteBuffer(&sParticleBuffer);
+	
 	// debug line
-	sPassWaterSimDebugLine.AddMesh(&sWaterSimDebugMeshLine);
-	sPassWaterSimDebugLine.AddShader(&sWaterSimDebugLineVS);
-	sPassWaterSimDebugLine.AddShader(&sWaterSimDebugLinePS);
-	sPassWaterSimDebugLine.AddBuffer(&sCellBuffer);
-	sPassWaterSimDebugLine.AddBuffer(&sCellFaceBuffer);
-	sPassWaterSimDebugLine.AddRenderTexture(&sDebugBackbuffer, 0, 0, BlendState::PremultipliedAlphaBlend());
-	sPassWaterSimDebugLine.SetCamera(&gCameraMain);
+	sPassWaterSim[DEBUG_LINE].CreatePass("water sim debug line", true, false, false, PrimitiveType::LINE);
+	sPassWaterSim[DEBUG_LINE].AddMesh(&sWaterSimDebugMeshLine);
+	sPassWaterSim[DEBUG_LINE].AddShader(&sWaterSimDebugLineVS);
+	sPassWaterSim[DEBUG_LINE].AddShader(&sWaterSimDebugLinePS);
+	sPassWaterSim[DEBUG_LINE].AddBuffer(&sCellBuffer);
+	sPassWaterSim[DEBUG_LINE].AddBuffer(&sCellFaceBuffer);
+	sPassWaterSim[DEBUG_LINE].AddRenderTexture(&sDebugBackbuffer, 0, 0, BlendState::PremultipliedAlphaBlend());
+	sPassWaterSim[DEBUG_LINE].SetCamera(&gCameraMain);
 
 	// debug cube
-	sPassWaterSimDebugCube.AddMesh(&sWaterSimDebugMeshCube);
-	sPassWaterSimDebugCube.AddShader(&sWaterSimDebugCubeVS);
-	sPassWaterSimDebugCube.AddShader(&sWaterSimDebugCubePS);
-	sPassWaterSimDebugCube.AddBuffer(&sCellBuffer);
-	sPassWaterSimDebugCube.AddBuffer(&sCellFaceBuffer);
-	sPassWaterSimDebugCube.AddRenderTexture(&sDebugBackbuffer, 0, 0, BlendState::PremultipliedAlphaBlend());
-	sPassWaterSimDebugCube.SetCamera(&gCameraMain);
+	sPassWaterSim[DEBUG_CUBE].CreatePass("water sim debug cube", true, false, false, PrimitiveType::TRIANGLE);
+	sPassWaterSim[DEBUG_CUBE].AddMesh(&sWaterSimDebugMeshCube);
+	sPassWaterSim[DEBUG_CUBE].AddShader(&sWaterSimDebugCubeVS);
+	sPassWaterSim[DEBUG_CUBE].AddShader(&sWaterSimDebugCubePS);
+	sPassWaterSim[DEBUG_CUBE].AddBuffer(&sCellBuffer);
+	sPassWaterSim[DEBUG_CUBE].AddBuffer(&sCellFaceBuffer);
+	sPassWaterSim[DEBUG_CUBE].AddRenderTexture(&sDebugBackbuffer, 0, 0, BlendState::PremultipliedAlphaBlend());
+	sPassWaterSim[DEBUG_CUBE].SetCamera(&gCameraMain);
 
-	scene.AddPass(&sPassWaterSimP2G);
-	scene.AddPass(&sPassWaterSimPreUpdateGrid);
-	scene.AddPass(&sPassWaterSimUpdateGrid);
-	scene.AddPass(&sPassWaterSimProject);
-	scene.AddPass(&sPassWaterSimG2P);
-	scene.AddPass(&sPassWaterSimClear);
-	scene.AddPass(&sPassWaterSimRasterizer);
-	scene.AddPass(&sPassWaterSimBlit);
-	scene.AddPass(&sPassWaterSimResetGrid);
-	scene.AddPass(&sPassWaterSimResetParticles);
-	scene.AddPass(&sPassWaterSimPreUpdateParticles);
-	scene.AddPass(&sPassWaterSimUpdateParticles);
-	scene.AddPass(&sPassWaterSimDebugLine);
-	scene.AddPass(&sPassWaterSimDebugCube);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		scene.AddPass(&sPassWaterSim[i]);
+		store.AddPass(&sPassWaterSim[i]);
+	}
 
-	store.AddPass(&sPassWaterSimP2G);
-	store.AddPass(&sPassWaterSimPreUpdateGrid);
-	store.AddPass(&sPassWaterSimUpdateGrid);
-	store.AddPass(&sPassWaterSimProject);
-	store.AddPass(&sPassWaterSimG2P);
-	store.AddPass(&sPassWaterSimClear);
-	store.AddPass(&sPassWaterSimRasterizer);
-	store.AddPass(&sPassWaterSimBlit);
-	store.AddPass(&sPassWaterSimResetGrid);
-	store.AddPass(&sPassWaterSimResetParticles);
-	store.AddPass(&sPassWaterSimPreUpdateParticles);
-	store.AddPass(&sPassWaterSimUpdateParticles);
-	store.AddPass(&sPassWaterSimDebugLine);
-	store.AddPass(&sPassWaterSimDebugCube);
 	store.AddShader(&sWaterSimP2GCS);
 	store.AddShader(&sWaterSimPreUpdateGridCS);
 	store.AddShader(&sWaterSimUpdateGridCS);
 	store.AddShader(&sWaterSimProjectCS);
 	store.AddShader(&sWaterSimG2PCS);
 	store.AddShader(&sWaterSimClearMinMaxBufferCS);
+	store.AddShader(&sWaterSimRasterizerVS);
+	store.AddShader(&sWaterSimRasterizerPS);
 	store.AddShader(&sWaterSimRasterizerCS);
 	store.AddShader(&sWaterSimBlitBackbufferPS);
 	store.AddShader(&sWaterSimResetGridCS);
@@ -229,155 +225,35 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	store.AddTexture(&sDepthBufferMin);
 	store.AddMesh(&sWaterSimDebugMeshLine);
 	store.AddMesh(&sWaterSimDebugMeshCube);
+	store.AddMesh(&sWaterSimParticleMesh);
 }
 
 void WaterSim::PrepareWaterSim(CommandList commandList)
 {
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mCellSize, sCellSize);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mCellSize, sCellSize);
+	XMStoreFloat3(&sParticleSpawnSourcePos, WaterSim::sCellSize * XMVectorSet(WaterSim::sCellCountX / 2, WaterSim::sCellCountY / 3, WaterSim::sCellCountZ / 2, 0));
+	XMStoreFloat3(&sParticleSpawnSourceSpan, WaterSim::sCellSize * XMVectorSet(1, 1, 1, 0));
 
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mParticleCount, sParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mParticleCount, sParticleCount);
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mGridOffset, XMFLOAT3(0.0f, 0.0f, 0.0f));
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mCurrentJacobiIteration, 0); 
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mCurrentJacobiIteration, 0);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mCurrentJacobiIteration, 0);
-
-	XMStoreFloat3(&sParticleSpawnSourcePos, WaterSim::sCellSize * XMLoadFloat3(&XMFLOAT3(WaterSim::sCellCountX / 2, WaterSim::sCellCountY / 2, WaterSim::sCellCountZ / 2)));
-	XMStoreFloat3(&sParticleSpawnSourceSpan, WaterSim::sCellSize * XMLoadFloat3(&XMFLOAT3(1, 1, 1)));
-	
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
-
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mCellSize, sCellSize);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleCount, sParticleCount);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mCellCount, XMUINT3(sCellCountX, sCellCountY, sCellCountZ));
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleCountPerCell, WATERSIM_PARTICLE_COUNT_PER_CELL);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mGridRenderOffset, XMFLOAT3(0.5f, 0.5f, 0.5f));
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mGridRenderScale, XMFLOAT3(1.0f / (sCellSize * sCellCountX), 1.0f / (sCellSize * sCellCountY), 1.0f / (sCellSize * sCellCountZ)));
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mWaterSimBackbufferSize, XMUINT2(sBackbufferWidth, sBackbufferHeight));
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mCurrentJacobiIteration, 0);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
+	}
 
 	SetTimeStepScale(sTimeStepScale);
-	SetApplyForce(sApplyForce > 0.0f);
+	SetApplyForce(sApplyForce);
 	SetG(sGravitationalAccel);
 	SetWaterDensity(sWaterDensity);
 	SetFlipScale(sFlipScale);
 	SetAliveParticleCount(sAliveParticleCount);
-	SetWarmStart(sWarmStart > 0.0f);
+	SetWarmStart(sWarmStart);
 	SetJacobiIterationCount(sJacobiIterationCount);
 	SetExplosionPos(sExplosionPos);
 	SetExplosionForceScale(sExplosionForceScale);
@@ -395,7 +271,7 @@ void WaterSim::WaterSimResetParticles(CommandList commandList)
 
 	sCellBuffer.MakeReadyToWriteAgain(commandList);
 	sParticleBuffer.MakeReadyToWrite(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimResetParticles, commandList, sParticleThreadGroupCount, 1, 1);
+	gRenderer.RecordComputePass(sPassWaterSim[RESET_PARTICLES], commandList, sParticleThreadGroupCount, 1, 1);
 }
 
 void WaterSim::WaterSimResetParticlesMPM(CommandList commandList)
@@ -404,15 +280,15 @@ void WaterSim::WaterSimResetParticlesMPM(CommandList commandList)
 
 	sCellBuffer.MakeReadyToWriteAgain(commandList);
 	sParticleBuffer.MakeReadyToWrite(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimResetParticles, commandList, sParticleThreadGroupCount, 1, 1);
+	gRenderer.RecordComputePass(sPassWaterSim[RESET_PARTICLES], commandList, sParticleThreadGroupCount, 1, 1);
 
 	sCellBuffer.MakeReadyToWriteAgain(commandList);
 	sParticleBuffer.MakeReadyToWriteAgain(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimPreUpdateParticles, commandList, sParticleThreadGroupCount, 1, 1);
+	gRenderer.RecordComputePass(sPassWaterSim[PRE_UPDATE_PARTICLES], commandList, sParticleThreadGroupCount, 1, 1);
 
 	sCellBuffer.MakeReadyToWriteAgain(commandList);
 	sParticleBuffer.MakeReadyToWriteAgain(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimPreUpdateParticles, commandList, sParticleThreadGroupCount, 1, 1);
+	gRenderer.RecordComputePass(sPassWaterSim[UPDATE_PARTICLES], commandList, sParticleThreadGroupCount, 1, 1);
 }
 
 void WaterSim::WaterSimResetGrid(CommandList commandList)
@@ -423,7 +299,7 @@ void WaterSim::WaterSimResetGrid(CommandList commandList)
 	sCellBufferTemp.MakeReadyToWriteAgain(commandList);
 	sCellFaceBuffer.MakeReadyToWrite(commandList);
 	sCellFaceBufferTemp.MakeReadyToWrite(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimResetGrid, commandList, sCellFaceThreadGroupCount, 1, 1);
+	gRenderer.RecordComputePass(sPassWaterSim[RESET_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 }
 
 void WaterSim::WaterSimStepOnce(CommandList commandList)
@@ -463,17 +339,17 @@ void WaterSim::WaterSimStepOnce(CommandList commandList)
 		sParticleBuffer.MakeReadyToWriteAuto(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sCellFaceBuffer.MakeReadyToWrite(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimP2G, commandList, sParticleThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[P2G], commandList, sParticleThreadGroupCount, 1, 1);
 
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sCellFaceBuffer.MakeReadyToWriteAgain(commandList);
 		sCellFaceBufferTemp.MakeReadyToWrite(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimPreUpdateGrid, commandList, sCellFaceThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[PRE_UPDATE_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 
 		sCellFaceBufferTemp.MakeReadyToRead(commandList);
 		sCellBuffer.MakeReadyToRead(commandList);
 		sCellFaceBuffer.MakeReadyToWriteAgain(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimUpdateGrid, commandList, sCellFaceThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[UPDATE_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 
 		// use last iteration to update velocity
 		sCellFaceBuffer.MakeReadyToWrite(commandList);
@@ -484,15 +360,15 @@ void WaterSim::WaterSimStepOnce(CommandList commandList)
 		{
 			// second last iteration update velocity
 			// last iteration stores remaining divergence
-			SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mCurrentJacobiIteration, i);
-			gRenderer.RecordComputePass(sPassWaterSimProject, commandList, sCellFaceThreadGroupCount, 1, 1);
+			SET_UNIFORM_VAR(sPassWaterSim[PROJECT], mPassUniform, mCurrentJacobiIteration, i);
+			gRenderer.RecordComputePass(sPassWaterSim[PROJECT], commandList, sCellFaceThreadGroupCount, 1, 1);
 			sCellBuffer.MakeReadyToWriteAgain(commandList);
 			sCellBufferTemp.MakeReadyToWriteAgain(commandList);
 		}
 
 		sCellFaceBuffer.MakeReadyToRead(commandList);
 		sParticleBuffer.MakeReadyToWrite(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimG2P, commandList, sParticleThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[G2P], commandList, sParticleThreadGroupCount, 1, 1);
 	}
 
 	if (PARAM_sanitizeWaterSim.Get())
@@ -513,12 +389,8 @@ void WaterSim::WaterSimStepOnceMPM(CommandList commandList)
 		sCellBuffer.GetReadbackBufferData(sCells.data(), sCells.size() * sizeof(sCells[0]));
 		for (int i = 0; i < sCells.size(); i++)
 		{
-			fatalAssertf(!isnan(sCells[i].mPressure), "cell nan pressure detected!");
-			fatalAssertf(!isinf(sCells[i].mPressure), "cell infinite pressure detected!");
-			fatalAssertf(!XMVector4IsNaN(XMLoadFloat4(&sCells[i].mPosPressureAndNonSolidCount)), "cell pos nan detected!");
-			fatalAssertf(!XMVector4IsInfinite(XMLoadFloat4(&sCells[i].mPosPressureAndNonSolidCount)), "cell pos infinite detected!");
-			fatalAssertf(!XMVector4IsNaN(XMLoadFloat4(&sCells[i].mNegPressureAndDivergence)), "cell neg nan detected!");
-			fatalAssertf(!XMVector4IsInfinite(XMLoadFloat4(&sCells[i].mNegPressureAndDivergence)), "cell neg infinite detected!");
+			fatalAssertf(!XMVector3IsNaN(XMLoadFloat3(&sCells[i].mVelocity)), "cell nan velocity detected!");
+			fatalAssertf(!XMVector3IsInfinite(XMLoadFloat3(&sCells[i].mVelocity)), "cell infinite velocity detected!");
 		}
 		sCellFaceBuffer.GetReadbackBufferData(sCellFaces.data(), sCellFaces.size() * sizeof(sCellFaces[0]));
 		for (int i = 0; i < sCellFaces.size(); i++)
@@ -541,17 +413,17 @@ void WaterSim::WaterSimStepOnceMPM(CommandList commandList)
 		sParticleBuffer.MakeReadyToWriteAuto(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sCellFaceBuffer.MakeReadyToWrite(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimP2G, commandList, sParticleThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[P2G], commandList, sParticleThreadGroupCount, 1, 1);
 
 		sCellFaceBufferTemp.MakeReadyToRead(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sCellFaceBuffer.MakeReadyToWriteAgain(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimUpdateGrid, commandList, sCellFaceThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[UPDATE_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 
 		sCellFaceBuffer.MakeReadyToRead(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sParticleBuffer.MakeReadyToWriteAgain(commandList);
-		gRenderer.RecordComputePass(sPassWaterSimG2P, commandList, sParticleThreadGroupCount, 1, 1);
+		gRenderer.RecordComputePass(sPassWaterSim[G2P], commandList, sParticleThreadGroupCount, 1, 1);
 	}
 
 	if (PARAM_sanitizeWaterSim.Get())
@@ -570,7 +442,7 @@ void WaterSim::WaterSimRasterize(CommandList commandList)
 	sDepthBufferMax.MakeReadyToWrite(commandList);
 	sDepthBufferMin.MakeReadyToWrite(commandList);
 	sDebugBackbuffer.MakeReadyToWrite(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimClear, commandList, ceil(sBackbufferWidth / WATERSIM_THREAD_PER_THREADGROUP_X), ceil(sBackbufferHeight / WATERSIM_THREAD_PER_THREADGROUP_Y), 1);
+	gRenderer.RecordComputePass(sPassWaterSim[CLEAR], commandList, ceil(sBackbufferWidth / WATERSIM_THREAD_PER_THREADGROUP_X), ceil(sBackbufferHeight / WATERSIM_THREAD_PER_THREADGROUP_Y), 1);
 
 	if (sEnableDebugCell || sEnableDebugCellVelocity)
 	{
@@ -578,249 +450,138 @@ void WaterSim::WaterSimRasterize(CommandList commandList)
 		sCellFaceBuffer.MakeReadyToRead(commandList);
 		sDebugBackbuffer.MakeReadyToRender(commandList);
 		if (sEnableDebugCell)
-			gRenderer.RecordGraphicsPassInstanced(sPassWaterSimDebugCube, commandList, sCellCountX * sCellCountY * sCellCountZ);
+			gRenderer.RecordGraphicsPassInstanced(sPassWaterSim[DEBUG_CUBE], commandList, sCellCountX * sCellCountY * sCellCountZ);
 		if (sEnableDebugCellVelocity)
-			gRenderer.RecordGraphicsPassInstanced(sPassWaterSimDebugLine, commandList, sCellCountX * sCellCountY * sCellCountZ);
+			gRenderer.RecordGraphicsPassInstanced(sPassWaterSim[DEBUG_LINE], commandList, sCellCountX * sCellCountY * sCellCountZ);
 		sCellBuffer.MakeReadyToWrite(commandList);
 	}
 
-	sParticleBuffer.MakeReadyToRead(commandList);
-	sDepthBufferMax.MakeReadyToWriteAgain(commandList);
-	sDepthBufferMin.MakeReadyToWriteAgain(commandList);
-	gRenderer.RecordComputePass(sPassWaterSimRasterizer, commandList, sParticleThreadGroupCount, 1, 1);
-	
+	if (sUseComputeRasterizer)
+	{
+		sParticleBuffer.MakeReadyToRead(commandList);
+		sDepthBufferMax.MakeReadyToWriteAgain(commandList);
+		sDepthBufferMin.MakeReadyToWriteAgain(commandList);
+		gRenderer.RecordComputePass(sPassWaterSim[RASTERIZER_CS], commandList, sParticleThreadGroupCount, 1, 1);
+	}
+	else
+	{
+		sParticleBuffer.MakeReadyToRead(commandList);
+		gRenderer.RecordGraphicsPassInstanced(sPassWaterSim[RASTERIZER], commandList, sAliveParticleCount);
+	}
+
 	sDepthBufferMax.MakeReadyToRead(commandList);
 	sDepthBufferMin.MakeReadyToRead(commandList);
 	sDebugBackbuffer.MakeReadyToRead(commandList);
-	gRenderer.RecordGraphicsPass(sPassWaterSimBlit, commandList, true);
+	gRenderer.RecordGraphicsPass(sPassWaterSim[BLIT], commandList);
 }
 
 void WaterSim::SetTimeStepScale(float timeStepScale)
 {
 	sTimeStepScale = timeStepScale / sSubStepCount;
 	sTimeStepScale = max(EPSILON, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mTimeStepScale, sTimeStepScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mTimeStepScale, sTimeStepScale);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mTimeStepScale, sTimeStepScale);
+	}
 }
 
 void WaterSim::SetApplyForce(bool applyForce)
 {
-	sApplyForce = applyForce ? 1.0f : 0.0f;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mApplyForce, sApplyForce);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mApplyForce, sApplyForce);
+	sApplyForce = applyForce;
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mApplyForce, sApplyForce ? 1.0f : 0.0f);
+	}
 }
 
 void WaterSim::SetG(float G)
 {
 	sGravitationalAccel = G;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mGravitationalAccel, sGravitationalAccel);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mGravitationalAccel, sGravitationalAccel);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mGravitationalAccel, sGravitationalAccel);
+	}
 }
 
 void WaterSim::SetWaterDensity(float density)
 {
 	sWaterDensity = max(EPSILON, density);
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mWaterDensity, sWaterDensity);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mWaterDensity, sWaterDensity);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mWaterDensity, sWaterDensity);
+	}
 }
 
 void WaterSim::SetFlipScale(float flipScale)
 {
 	sFlipScale = flipScale;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mFlipScale, sFlipScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mFlipScale, sFlipScale);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mFlipScale, sFlipScale);
+	}
 }
 
 void WaterSim::SetAliveParticleCount(int particleCount)
 {
-	sAliveParticleCount = particleCount;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mAliveParticleCount, sAliveParticleCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mAliveParticleCount, sAliveParticleCount);
+	sAliveParticleCount = particleCount < sParticleCount ? particleCount : sParticleCount;
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mAliveParticleCount, sAliveParticleCount);
+	}
 }
 
 void WaterSim::SetWarmStart(bool warmStart)
 {
-	sWarmStart = warmStart ? 1.0f : 0.0f;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mWarmStart, sWarmStart);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mWarmStart, sWarmStart);
+	sWarmStart = warmStart;
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mWarmStart, sWarmStart ? 1.0f : 0.0f);
+	}
 }
 
 void WaterSim::SetJacobiIterationCount(int jacobiIterationCount)
 {
 	sJacobiIterationCount = jacobiIterationCount;
 	fatalAssert(sJacobiIterationCount > 0);
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mJacobiIterationCount, sJacobiIterationCount);
+	}
 }
+
 void WaterSim::SetExplosionPos(XMFLOAT3 explosionPos)
 {
 	sExplosionPos = explosionPos;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mExplosionPos, sExplosionPos);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mExplosionPos, sExplosionPos);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mExplosionPos, sExplosionPos);
+	}
 }
 
 void WaterSim::SetExplosionForceScale(XMFLOAT3 explosionForceScale)
 {
 	sExplosionForceScale = explosionForceScale;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mExplosionForceScale, sExplosionForceScale);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mExplosionForceScale, sExplosionForceScale);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mExplosionForceScale, sExplosionForceScale);
+	}
 }
 
 void WaterSim::SetApplyExplosion(bool applyExplosion)
 {
 	sApplyExplosion = applyExplosion;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mApplyExplosion, sApplyExplosion);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mApplyExplosion, sApplyExplosion);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mApplyExplosion, sApplyExplosion);
+	}
 }
 
 void WaterSim::SetWaterSimMode(int mode)
 {
-	assertf(mode < WaterSimMode::COUNT, "invalid watersim mode");
+	assertf(mode < WATERSIM_MODE_COUNT, "invalid watersim mode");
 	sWaterSimMode = (WaterSimMode)mode;
-	SET_UNIFORM_VAR(sPassWaterSimP2G, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateGrid, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateGrid, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimProject, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimG2P, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimClear, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimRasterizer, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimBlit, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimResetGrid, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimResetParticles, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimPreUpdateParticles, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimUpdateParticles, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimDebugLine, mPassUniform, mWaterSimMode, sWaterSimMode);
-	SET_UNIFORM_VAR(sPassWaterSimDebugCube, mPassUniform, mWaterSimMode, sWaterSimMode);
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mWaterSimMode, sWaterSimMode);
+	}
 }

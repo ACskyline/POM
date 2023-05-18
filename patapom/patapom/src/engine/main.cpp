@@ -17,6 +17,7 @@
 #include "ImageBasedLighting.h"
 #include "PathTracer.h"
 #include "WaterSim.h"
+#include "DeferredLighting.h"
 
 HWND gHwnd = NULL; // Handle to the window
 const LPCTSTR WindowName = L"POM"; // name of the window (not the title)
@@ -47,18 +48,19 @@ bool gPathTracerForceUpdate = false;
 bool gWaterSimEnabled = true;
 bool gWaterSimStepOnce = false;
 bool gWaterSimReset = true;
+bool gShadertoyDebug = false;
 
 Renderer gRenderer;
 Store gStoreDefault("default store");
 Scene gSceneDefault("default scene");
 PassDefault gPassPom("pom pass", true, true, true);
 PassDefault gPassStandard("standard pass", true, true, true);
-PassDefault gPassDeferred("deferred pass", true, false);
 PassDefault gPassSky("sky pass");
 PassDefault gPassRedLightShadow("red light shadow", false);
 PassDefault gPassGreenLightShadow("green light shadow", false);
 PassDefault gPassBlueLightShadow("blue light shadow", false);
 PassDefault gPassPathTracerBlit("path tracer blit", true, false);
+PassDefault gPassShadertoyDebug("shadertoy debug", true, false);
 Camera gCameraRedLight(XMFLOAT3(8, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraGreenLight(XMFLOAT3(0, 8, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 0, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
 Camera gCameraBlueLight(XMFLOAT3(0, 0, 8), XMFLOAT3(0, 0, 0), XMFLOAT3(0, 1, 0), gWidthShadow, gHeightShadow, 90.f, 100.0f, 0.1f);
@@ -70,18 +72,13 @@ Mesh gSky("sky", Mesh::MeshType::SKY_FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMF
 Shader gStandardVS(Shader::ShaderType::VERTEX_SHADER, "vs");
 Shader gStandardPS(Shader::ShaderType::PIXEL_SHADER, "ps");
 Shader gPomPS(Shader::ShaderType::PIXEL_SHADER, "ps_pom");
-Shader gDeferredPS(Shader::ShaderType::PIXEL_SHADER, "ps_deferred"); // using multisampled srv
 Shader gSkyVS(Shader::ShaderType::VERTEX_SHADER, "vs_deferred");
 Shader gSkyPS(Shader::ShaderType::PIXEL_SHADER, "ps_sky");
+Shader gShadertoyDebugPS(Shader::ShaderType::PIXEL_SHADER, "ps_shadertoydebug");
 Texture gTextureAlbedo("brick_albedo.jpg", "albedo", true, Format::R8G8B8A8_UNORM);
 Texture gTextureNormal("brick_normal.jpg", "normal", true, Format::R8G8B8A8_UNORM);
 Texture gTextureHeight("brick_height.jpg", "height", true, Format::R8G8B8A8_UNORM);
 Texture gTextureProbe("probe.jpg", "probe", true, Format::R8G8B8A8_UNORM);
-RenderTexture gRenderTextureGbuffer0(TextureType::TEX_2D, "gbuffer0", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureGbuffer1(TextureType::TEX_2D, "gbuffer1", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureGbuffer2(TextureType::TEX_2D, "gbuffer2", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureGbuffer3(TextureType::TEX_2D, "gbuffer3", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
-RenderTexture gRenderTextureDbuffer(TextureType::TEX_2D, "dbuffer", gWidthDeferred, gHeightDeferred, 1, 1, ReadFrom::DEPTH, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
 RenderTexture gRenderTextureRedLight(TextureType::TEX_2D, "red light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
 RenderTexture gRenderTextureGreenLight(TextureType::TEX_2D, "green light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
 RenderTexture gRenderTextureBlueLight(TextureType::TEX_2D, "blue light rt", gWidthShadow, gHeightShadow, 1, 1, ReadFrom::DEPTH, Format::D16_UNORM, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
@@ -143,11 +140,11 @@ void LoadStores()
 	gPassStandard.AddShader(&gStandardPS);
 	gPassStandard.AddTexture(&gTextureAlbedo);
 	gPassStandard.AddTexture(&gTextureNormal);
-	gPassStandard.AddRenderTexture(&gRenderTextureDbuffer, 0, 0, DS_REVERSED_Z_SWITCH);
-	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
-	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
-	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
-	gPassStandard.AddRenderTexture(&gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&DeferredLighting::gRenderTextureDbuffer, 0, 0, DS_REVERSED_Z_SWITCH);
+	gPassStandard.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
+	gPassStandard.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
 
 	gPassPom.SetCamera(&gCameraMain);
 	gPassPom.AddMesh(&gCube);
@@ -159,40 +156,46 @@ void LoadStores()
 	gPassPom.AddTexture(&gTextureAlbedo);
 	gPassPom.AddTexture(&gTextureNormal);
 	gPassPom.AddTexture(&gTextureHeight);
-	gPassPom.AddRenderTexture(&gRenderTextureDbuffer, 0, 0, DS_REVERSED_Z_SWITCH);
-	gPassPom.AddRenderTexture(&gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
-	gPassPom.AddRenderTexture(&gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
-	gPassPom.AddRenderTexture(&gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
-	gPassPom.AddRenderTexture(&gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&DeferredLighting::gRenderTextureDbuffer, 0, 0, DS_REVERSED_Z_SWITCH);
+	gPassPom.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer0, 0, 0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer1, 0, 0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer2, 0, 0, BlendState::NoBlend());
+	gPassPom.AddRenderTexture(&DeferredLighting::gRenderTextureGbuffer3, 0, 0, BlendState::NoBlend());
 
 	// blit path tracer backbuffer
 	gPassPathTracerBlit.SetCamera(&gCameraMain);
 	gPassPathTracerBlit.AddMesh(&gFullscreenTriangle);
-	gPassPathTracerBlit.AddShader(&gDeferredVS);
+	gPassPathTracerBlit.AddShader(&DeferredLighting::gDeferredVS);
 	gPassPathTracerBlit.AddShader(&PathTracer::sPathTracerBlitBackbufferPS);
 	gPassPathTracerBlit.AddTexture(&PathTracer::sBackbufferPT);
 	gPassPathTracerBlit.AddTexture(&PathTracer::sDebugBackbufferPT);
 	
+	// shader toy debug
+	gPassShadertoyDebug.SetCamera(&gCameraDummy);
+	gPassShadertoyDebug.AddMesh(&gFullscreenTriangle);
+	gPassShadertoyDebug.AddShader(&DeferredLighting::gDeferredVS);
+	gPassShadertoyDebug.AddShader(&gShadertoyDebugPS);
+
 	// render to backbuffer
-	gPassDeferred.SetCamera(&gCameraMain);
-	gPassDeferred.AddMesh(&gFullscreenTriangle);
-	gPassDeferred.AddShader(&gDeferredVS);
-	gPassDeferred.AddShader(&gDeferredPS);
-	gPassDeferred.AddTexture(&gRenderTextureGbuffer0);
-	gPassDeferred.AddTexture(&gRenderTextureGbuffer1);
-	gPassDeferred.AddTexture(&gRenderTextureGbuffer2);
-	gPassDeferred.AddTexture(&gRenderTextureGbuffer3);
-	gPassDeferred.AddTexture(&gRenderTextureDbuffer);
-	gPassDeferred.AddTexture(&gTextureProbe);
-	gPassDeferred.AddTexture(&ImageBasedLighting::sPrefilteredEnvMap);
-	gPassDeferred.AddTexture(&ImageBasedLighting::sLUT);
+	DeferredLighting::gPassDeferred.SetCamera(&gCameraMain);
+	DeferredLighting::gPassDeferred.AddMesh(&gFullscreenTriangle);
+	DeferredLighting::gPassDeferred.AddShader(&DeferredLighting::gDeferredVS);
+	DeferredLighting::gPassDeferred.AddShader(&DeferredLighting::gDeferredPS);
+	DeferredLighting::gPassDeferred.AddTexture(&DeferredLighting::gRenderTextureGbuffer0);
+	DeferredLighting::gPassDeferred.AddTexture(&DeferredLighting::gRenderTextureGbuffer1);
+	DeferredLighting::gPassDeferred.AddTexture(&DeferredLighting::gRenderTextureGbuffer2);
+	DeferredLighting::gPassDeferred.AddTexture(&DeferredLighting::gRenderTextureGbuffer3);
+	DeferredLighting::gPassDeferred.AddTexture(&DeferredLighting::gRenderTextureDbuffer);
+	DeferredLighting::gPassDeferred.AddTexture(&gTextureProbe);
+	DeferredLighting::gPassDeferred.AddTexture(&ImageBasedLighting::sPrefilteredEnvMap);
+	DeferredLighting::gPassDeferred.AddTexture(&ImageBasedLighting::sLUT);
 
 	// render to back buffer
 	gPassSky.SetCamera(&gCameraMain);
 	gPassSky.AddMesh(&gSky);
 	gPassSky.AddShader(&gSkyVS);
 	gPassSky.AddShader(&gSkyPS);
-	gPassSky.AddRenderTexture(&gRenderTextureDbuffer, 0, 0, DS_EQUAL_NO_WRITE_REVERSED_Z_SWITCH);
+	gPassSky.AddRenderTexture(&DeferredLighting::gRenderTextureDbuffer, 0, 0, DS_EQUAL_NO_WRITE_REVERSED_Z_SWITCH);
 
 	// C. Frame
 	gRenderer.mFrames.resize(gFrameCount);
@@ -205,8 +208,9 @@ void LoadStores()
 	gSceneDefault.AddPass(&gPassStandard);
 	gSceneDefault.AddPass(&gPassPom);
 	gSceneDefault.AddPass(&gPassSky);
-	gSceneDefault.AddPass(&gPassDeferred);
+	gSceneDefault.AddPass(&DeferredLighting::gPassDeferred);
 	gSceneDefault.AddPass(&gPassPathTracerBlit);
+	gSceneDefault.AddPass(&gPassShadertoyDebug);
 	gSceneDefault.AddLight(&gLightRed);
 	gSceneDefault.AddLight(&gLightGreen);
 	gSceneDefault.AddLight(&gLightBlue);
@@ -225,11 +229,12 @@ void LoadStores()
 	gStoreDefault.AddPass(&gPassStandard); // pass
 	gStoreDefault.AddPass(&gPassPom);
 	gStoreDefault.AddPass(&gPassSky);
-	gStoreDefault.AddPass(&gPassDeferred);
+	gStoreDefault.AddPass(&DeferredLighting::gPassDeferred);
 	gStoreDefault.AddPass(&gPassRedLightShadow);
 	gStoreDefault.AddPass(&gPassGreenLightShadow);
 	gStoreDefault.AddPass(&gPassBlueLightShadow);
 	gStoreDefault.AddPass(&gPassPathTracerBlit);
+	gStoreDefault.AddPass(&gPassShadertoyDebug);
 	gStoreDefault.AddMesh(&gFullscreenTriangle); // mesh
 	gStoreDefault.AddMesh(&gCube);
 	gStoreDefault.AddMesh(&gSky);
@@ -238,12 +243,13 @@ void LoadStores()
 	gStoreDefault.AddMesh(&gPlaneY);
 	gStoreDefault.AddMesh(&gPlaneZ);
 	gStoreDefault.AddShader(&gStandardVS); // vertex shader
-	gStoreDefault.AddShader(&gDeferredVS);
+	gStoreDefault.AddShader(&DeferredLighting::gDeferredVS);
 	gStoreDefault.AddShader(&gSkyVS);
 	gStoreDefault.AddShader(&gStandardPS); // pixel shader
 	gStoreDefault.AddShader(&gPomPS); 
-	gStoreDefault.AddShader(&gDeferredPS);
+	gStoreDefault.AddShader(&DeferredLighting::gDeferredPS);
 	gStoreDefault.AddShader(&gSkyPS);
+	gStoreDefault.AddShader(&gShadertoyDebugPS);
 	gStoreDefault.AddTexture(&gTextureAlbedo); // texture
 	gStoreDefault.AddTexture(&gTextureNormal); // texture
 	gStoreDefault.AddTexture(&gTextureHeight); // texture
@@ -251,11 +257,11 @@ void LoadStores()
 	gStoreDefault.AddTexture(&gRenderTextureRedLight);
 	gStoreDefault.AddTexture(&gRenderTextureGreenLight);
 	gStoreDefault.AddTexture(&gRenderTextureBlueLight);
-	gStoreDefault.AddTexture(&gRenderTextureGbuffer0);
-	gStoreDefault.AddTexture(&gRenderTextureGbuffer1);
-	gStoreDefault.AddTexture(&gRenderTextureGbuffer2);
-	gStoreDefault.AddTexture(&gRenderTextureGbuffer3);
-	gStoreDefault.AddTexture(&gRenderTextureDbuffer);
+	gStoreDefault.AddTexture(&DeferredLighting::gRenderTextureGbuffer0);
+	gStoreDefault.AddTexture(&DeferredLighting::gRenderTextureGbuffer1);
+	gStoreDefault.AddTexture(&DeferredLighting::gRenderTextureGbuffer2);
+	gStoreDefault.AddTexture(&DeferredLighting::gRenderTextureGbuffer3);
+	gStoreDefault.AddTexture(&DeferredLighting::gRenderTextureDbuffer);
 
 	// F. Renderer
 	gRenderer.SetStore(&gStoreDefault);
@@ -396,8 +402,8 @@ void UpdateDetectInput()
 			bool yPosChanged = mouseCurrentCursorPos.y != gMouseLastCursorPos.y;
 			if (xPosChanged || yPosChanged)
 			{
-				gSceneDefault.mSceneUniform.mPathTracerDebugPixelX = mouseCurrentCursorPos.x;
-				gSceneDefault.mSceneUniform.mPathTracerDebugPixelY = mouseCurrentCursorPos.y;
+				gSceneDefault.mSceneUniform.mMouse.x = mouseCurrentCursorPos.x;
+				gSceneDefault.mSceneUniform.mMouse.y = mouseCurrentCursorPos.y;
 				needToRestartPathTracer = true;
 			}
 		}
@@ -551,37 +557,41 @@ void Record()
 	{
 		GPU_LABEL(commandList, "Rasterizer");
 
-		gRenderTextureRedLight.MakeReadyToRender(commandList);
-		gRenderTextureGreenLight.MakeReadyToRender(commandList);
-		gRenderTextureBlueLight.MakeReadyToRender(commandList);
+		{
+			GPU_LABEL(commandList, "Basic");
 
-		gRenderer.RecordGraphicsPass(gPassRedLightShadow, commandList, false, true, true);
-		gRenderer.RecordGraphicsPass(gPassGreenLightShadow, commandList, false, true, true);
-		gRenderer.RecordGraphicsPass(gPassBlueLightShadow, commandList, false, true, true);
+			gRenderTextureRedLight.MakeReadyToRender(commandList);
+			gRenderTextureGreenLight.MakeReadyToRender(commandList);
+			gRenderTextureBlueLight.MakeReadyToRender(commandList);
 
-		gRenderTextureRedLight.MakeReadyToRead(commandList);
-		gRenderTextureGreenLight.MakeReadyToRead(commandList);
-		gRenderTextureBlueLight.MakeReadyToRead(commandList);
+			gRenderer.RecordGraphicsPass(gPassRedLightShadow, commandList, false, true, true);
+			gRenderer.RecordGraphicsPass(gPassGreenLightShadow, commandList, false, true, true);
+			gRenderer.RecordGraphicsPass(gPassBlueLightShadow, commandList, false, true, true);
 
-		gRenderTextureGbuffer0.MakeReadyToRender(commandList);
-		gRenderTextureGbuffer1.MakeReadyToRender(commandList);
-		gRenderTextureGbuffer2.MakeReadyToRender(commandList);
-		gRenderTextureGbuffer3.MakeReadyToRender(commandList);
-		gRenderTextureDbuffer.MakeReadyToRender(commandList);
+			gRenderTextureRedLight.MakeReadyToRead(commandList);
+			gRenderTextureGreenLight.MakeReadyToRead(commandList);
+			gRenderTextureBlueLight.MakeReadyToRead(commandList);
 
-		gRenderer.RecordGraphicsPass(gPassStandard, commandList, true, true, true);
-		gRenderer.RecordGraphicsPass(gPassPom, commandList);
+			DeferredLighting::gRenderTextureGbuffer0.MakeReadyToRender(commandList);
+			DeferredLighting::gRenderTextureGbuffer1.MakeReadyToRender(commandList);
+			DeferredLighting::gRenderTextureGbuffer2.MakeReadyToRender(commandList);
+			DeferredLighting::gRenderTextureGbuffer3.MakeReadyToRender(commandList);
+			DeferredLighting::gRenderTextureDbuffer.MakeReadyToRender(commandList);
 
-		gRenderTextureGbuffer0.MakeReadyToRead(commandList);
-		gRenderTextureGbuffer1.MakeReadyToRead(commandList);
-		gRenderTextureGbuffer2.MakeReadyToRead(commandList);
-		gRenderTextureGbuffer3.MakeReadyToRead(commandList);
-		gRenderTextureDbuffer.MakeReadyToRead(commandList);
+			gRenderer.RecordGraphicsPass(gPassStandard, commandList, true, true, true);
+			gRenderer.RecordGraphicsPass(gPassPom, commandList);
 
-		gRenderer.RecordGraphicsPass(gPassDeferred, commandList, true);
+			DeferredLighting::gRenderTextureGbuffer0.MakeReadyToRead(commandList);
+			DeferredLighting::gRenderTextureGbuffer1.MakeReadyToRead(commandList);
+			DeferredLighting::gRenderTextureGbuffer2.MakeReadyToRead(commandList);
+			DeferredLighting::gRenderTextureGbuffer3.MakeReadyToRead(commandList);
+			DeferredLighting::gRenderTextureDbuffer.MakeReadyToRead(commandList);
 
-		gRenderTextureDbuffer.MakeReadyToRender(commandList);
-		gRenderer.RecordGraphicsPass(gPassSky, commandList);
+			gRenderer.RecordGraphicsPass(DeferredLighting::gPassDeferred, commandList, true);
+
+			DeferredLighting::gRenderTextureDbuffer.MakeReadyToRender(commandList);
+			gRenderer.RecordGraphicsPass(gPassSky, commandList);
+		}
 
 		if (gWaterSimEnabled)
 		{
@@ -642,6 +652,12 @@ void Record()
 			if (WaterSim::sApplyExplosion)
 				WaterSim::SetApplyExplosion(false);
 			WaterSim::WaterSimRasterize(commandList);
+		}
+	
+		if (gShadertoyDebug) 
+		{
+			GPU_LABEL(commandList, "ShaderToy Debug");
+			gRenderer.RecordGraphicsPass(gPassShadertoyDebug, commandList);
 		}
 	}
 
@@ -766,6 +782,8 @@ void UpdateUI(bool initOnly = false)
 	static float waterSimExplodePositionY = WaterSim::sExplosionPos.y;
 	static float waterSimExplodePositionZ = WaterSim::sExplosionPos.z;
 	static int waterSimMode = WaterSim::sWaterSimMode;
+	static float debugFloat = gSceneDefault.mSceneUniform.mDebugFloat = 0;
+	static float debugFloat2 = gSceneDefault.mSceneUniform.mDebugFloat2 = 1;
 	bool needToUpdateSceneUniform = false;
 	bool needToRestartPathTracer = false;
 
@@ -777,378 +795,411 @@ void UpdateUI(bool initOnly = false)
 
 		ImGui::SetNextWindowPos(ImVec2(0, 0));
 
+		// ImGui::ShowDemoWindow();
+
 		ImGui::Begin("Control Panel ");
-		
-		if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
+
+		ImGui::Checkbox("shadertoy debug", &gShadertoyDebug);
+
+		if (ImGui::TreeNode("Basic"))
 		{
-			gSceneDefault.mSceneUniform.mMode = mode;
-			needToUpdateSceneUniform = true;
+			if (ImGui::Combo("mode", &mode, "default\0albedo\0normal\0uv\0pos\0restored pos g\0restored pos d\0abs diff pos"))
+			{
+				gSceneDefault.mSceneUniform.mMode = mode;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("pomMarchStep", &pomMarchStep, 0, 50))
+			{
+				gSceneDefault.mSceneUniform.mPomMarchStep = pomMarchStep;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("pomScale", &pomScale, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mPomScale = pomScale;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("pomBias", &pomBias, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mPomBias = pomBias;
+				needToUpdateSceneUniform = true;
+			}
+			ImGui::TreePop();
 		}
 
-		if (ImGui::SliderInt("pomMarchStep", &pomMarchStep, 0, 50))
+		if (ImGui::TreeNode("Sky"))
 		{
-			gSceneDefault.mSceneUniform.mPomMarchStep = pomMarchStep;
-			needToUpdateSceneUniform = true;
+			if (ImGui::SliderFloat("skyScatterG", &skyScatterG, -2.0f, 2.0f))
+			{
+				gSceneDefault.mSceneUniform.mSkyScatterG = skyScatterG;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("skyMarchStep", &skyMarchStep, 0, 50))
+			{
+				gSceneDefault.mSceneUniform.mSkyMarchStep = skyMarchStep;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("skyMarchStepTr", &skyMarchStepTr, 0, 50))
+			{
+				gSceneDefault.mSceneUniform.mSkyMarchStepTr = skyMarchStepTr;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("sunRadianceR", &sunRadiance.x, 0.0f, 10.0f))
+			{
+				gSceneDefault.mSceneUniform.mSunRadiance.x = sunRadiance.x;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("sunRadianceG", &sunRadiance.y, 0.0f, 10.0f))
+			{
+				gSceneDefault.mSceneUniform.mSunRadiance.y = sunRadiance.y;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("sunRadianceB", &sunRadiance.z, 0.0f, 10.0f))
+			{
+				gSceneDefault.mSceneUniform.mSunRadiance.z = sunRadiance.z;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("sunAzimuth", &sunAzimuth, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mSunAzimuth = sunAzimuth;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mSunAltitude = sunAltitude;
+				needToUpdateSceneUniform = true;
+			}
+			ImGui::TreePop();
 		}
 
-		if (ImGui::SliderFloat("pomScale", &pomScale, 0.0f, 1.0f))
+		if (ImGui::TreeNode("Lighting"))
 		{
-			gSceneDefault.mSceneUniform.mPomScale = pomScale;
-			needToUpdateSceneUniform = true;
+			if (ImGui::SliderInt("lightDebugOffset", &lightDebugOffset, 0, gSceneDefault.GetLightCount() - 1))
+			{
+				gSceneDefault.mSceneUniform.mLightDebugOffset = lightDebugOffset;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("lightDebugCount", &lightDebugCount, 0, gSceneDefault.GetLightCount()))
+			{
+				gSceneDefault.mSceneUniform.mLightDebugCount = lightDebugCount;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("fresnel", &fresnel, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mFresnel = fresnel;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mRoughness = roughness;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::Checkbox("useStandardTextures", &usePerPassTextures))
+			{
+				gSceneDefault.mSceneUniform.mUsePerPassTextures = usePerPassTextures ? 1 : 0;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::ColorEdit4("standardColor", (float*)&standardColor))
+			{
+				gSceneDefault.mSceneUniform.mStandardColor = standardColor;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mMetallic = metallic;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("specularity", &specularity, 0.0f, 1.0f))
+			{
+				gSceneDefault.mSceneUniform.mSpecularity = specularity;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("sampleNumIBL", &sampleNumIBL, 0, 128))
+			{
+				gSceneDefault.mSceneUniform.mSampleNumIBL = sampleNumIBL;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("showReferenceIBL", &showReferenceIBL, 0, 1))
+			{
+				gSceneDefault.mSceneUniform.mShowReferenceIBL = showReferenceIBL;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("useSceneLight", &useSceneLight, 0, 1))
+			{
+				gSceneDefault.mSceneUniform.mUseSceneLight = useSceneLight;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("useSunLight", &useSunLight, 0, 1))
+			{
+				gSceneDefault.mSceneUniform.mUseSunLight = useSunLight;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("useIBL", &useIBL, 0, 1))
+			{
+				gSceneDefault.mSceneUniform.mUseIBL = useIBL;
+				needToUpdateSceneUniform = true;
+			}
+			ImGui::TreePop();
 		}
 
-		if (ImGui::SliderFloat("pomBias", &pomBias, 0.0f, 1.0f))
+		if (ImGui::TreeNode("Water Sim"))
 		{
-			gSceneDefault.mSceneUniform.mPomBias = pomBias;
-			needToUpdateSceneUniform = true;
+			ImGui::Checkbox("enable water sim", &gWaterSimEnabled);
+			ImGui::Checkbox("enable debug", &WaterSim::sEnableDebugCell);
+			ImGui::Checkbox("enable debug velocity", &WaterSim::sEnableDebugCellVelocity);
+			ImGui::Checkbox("water sim cs rasterizer", &WaterSim::sUseComputeRasterizer);
+
+			if (ImGui::Checkbox("apply force", &waterSimApplyForce))
+			{
+				WaterSim::SetApplyForce(waterSimApplyForce);
+			}
+
+			if (ImGui::Checkbox("warm start", &waterSimWarmStart))
+			{
+				WaterSim::SetWarmStart(waterSimWarmStart);
+			}
+
+			ImGui::LabelText("last frame time step", "last frame time step in second: %f", gRenderer.mLastFrameTimeInSecond);
+
+			if (ImGui::SliderFloat("water sim time flip scale", &WaterSim::sFlipScale, 0.0f, 1.0f, "%.4f"))
+			{
+				WaterSim::SetFlipScale(WaterSim::sFlipScale);
+			}
+
+			if (ImGui::SliderFloat("water sim time step scale", &waterSimTimeStepScale, 0.0f, 50.0f, "%.4f"))
+			{
+				WaterSim::SetTimeStepScale(waterSimTimeStepScale);
+			}
+
+			if (ImGui::SliderInt("water sim time sub step", &WaterSim::sSubStepCount, 1, 10))
+			{
+				WaterSim::SetTimeStepScale(waterSimTimeStepScale);
+			}
+
+			if (ImGui::SliderInt("water sim jacobi iteration count", &WaterSim::sJacobiIterationCount, 1, 10))
+			{
+				WaterSim::SetJacobiIterationCount(WaterSim::sJacobiIterationCount);
+			}
+
+			if (ImGui::SliderFloat("water sim G", &waterSimG, 0.0f, 20.0f, "%.6f"))
+			{
+				WaterSim::SetG(waterSimG);
+			}
+
+			if (ImGui::SliderFloat("water sim water density", &waterSimWaterDensity, 0.0f, 2000.0f, "%.6f"))
+			{
+				WaterSim::SetWaterDensity(waterSimWaterDensity);
+			}
+
+			{
+				char buttonText[128];
+				sprintf_s(buttonText, COUNT_OF(buttonText), "water sim increase alive particles (%d/%d)###water sim increase alive particles", WaterSim::sAliveParticleCount, WaterSim::sParticleCount);
+				ImGui::PushButtonRepeat(true);
+				if (ImGui::Button(buttonText))
+				{
+					waterSimParticleCount += 100;
+					WaterSim::SetAliveParticleCount(waterSimParticleCount);
+					gWaterSimReset = true;
+				}
+				ImGui::PopButtonRepeat();
+			}
+
+			ImGui::PushButtonRepeat(true);
+			if (ImGui::Button("water sim respawn dead particles"))
+			{
+				gWaterSimReset = true;
+			}
+			ImGui::PopButtonRepeat();
+
+			if (ImGui::Button("water sim reset all particles"))
+			{
+				waterSimParticleCount = 0;
+				WaterSim::SetAliveParticleCount(waterSimParticleCount);
+				gWaterSimReset = true;
+			}
+
+			if (ImGui::Combo("water sim mode", &waterSimMode, "flip\0flip_step\0mpm\0mpm_step"))
+			{
+				WaterSim::SetWaterSimMode(waterSimMode);
+			}
+
+			ImGui::PushButtonRepeat(true);
+			if (ImGui::Button("water sim step once"))
+			{
+				gWaterSimStepOnce = true;
+			}
+			ImGui::PopButtonRepeat();
+
+			ImGui::PushButtonRepeat(true);
+			if (ImGui::Button("water apply explode force"))
+			{
+				WaterSim::SetApplyExplosion(true);
+			}
+			ImGui::PopButtonRepeat();
+
+			bool waterExplodeForceCellIndexChanged = false;
+			if (ImGui::SliderFloat("water explosion pos x", &waterSimExplodePositionX, 0, WaterSim::sCellCountX * WaterSim::sCellSize))
+			{
+				waterExplodeForceCellIndexChanged = true;
+			}
+
+			if (ImGui::SliderFloat("water explosion pos y", &waterSimExplodePositionY, 0, WaterSim::sCellCountY * WaterSim::sCellSize))
+			{
+				waterExplodeForceCellIndexChanged = true;
+			}
+
+			if (ImGui::SliderFloat("water explosion pos z", &waterSimExplodePositionZ, 0, WaterSim::sCellCountZ * WaterSim::sCellSize))
+			{
+				waterExplodeForceCellIndexChanged = true;
+			}
+
+			if (waterExplodeForceCellIndexChanged)
+				WaterSim::SetExplosionPos(XMFLOAT3(waterSimExplodePositionX, waterSimExplodePositionY, waterSimExplodePositionZ));
+
+			if (ImGui::SliderFloat3("water explode force scale", (float*)&WaterSim::sExplosionForceScale, 0.0f, 1000.0f))
+			{
+				WaterSim::SetExplosionForceScale(WaterSim::sExplosionForceScale);
+			}
+			ImGui::TreePop();
 		}
 
-		if (ImGui::SliderFloat("skyScatterG", &skyScatterG, -2.0f, 2.0f))
+		if (ImGui::TreeNode("Pathtracer"))
 		{
-			gSceneDefault.mSceneUniform.mSkyScatterG = skyScatterG;
-			needToUpdateSceneUniform = true;
+			if (ImGui::Combo("pathTracerMode", &gPathTracerMode, "off\0default\0progressive\0triangle\0light\0mesh\0albedo\0normal"))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerMode = gPathTracerMode;
+				needToRestartPathTracer = true;
+			}
+
+			ImGui::Checkbox("pathTracerForceUpdate", &gPathTracerForceUpdate);
+
+			if (ImGui::SliderInt("pathTracerSPP", &pathTracerSPP, 1, 100))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel = pathTracerSPP;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerEnableRussianRoulette", &pathTracerEnableRussianRoulette))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerEnableRussianRoulette = pathTracerEnableRussianRoulette;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerUseBVH", &pathTracerUseBVH))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerUseBVH = pathTracerUseBVH;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerMinDepth", &pathTracerMinDepth, 0, PT_MINDEPTH_MAX))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerMinDepth = pathTracerMinDepth;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerMaxDepth", &pathTracerMaxDepth, PT_MINDEPTH_MAX + 1, PT_MAXDEPTH_MAX))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerMaxDepth = pathTracerMaxDepth;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerTileCountX", &pathTracerTileCountX, 1, PathTracer::sThreadGroupCountX))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerTileCountX = pathTracerTileCountX;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerTileCountY", &pathTracerTileCountY, 1, PathTracer::sThreadGroupCountY))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerTileCountY = pathTracerTileCountY;
+				needToRestartPathTracer = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerEnableDebug", &pathTracerEnableDebug))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerEnableDebug = pathTracerEnableDebug;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerUpdateDebug", &pathTracerUpdateDebug))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = pathTracerUpdateDebug;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerDebugSampleRay", &pathTracerDebugSampleRay))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugSampleRay = pathTracerDebugSampleRay;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerDebugMeshBVH", &pathTracerDebugMeshBVH))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugMeshBVH = pathTracerDebugMeshBVH;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerDebugMeshBvhIndex", &pathTracerDebugMeshBvhIndex, 0, gSceneDefault.mSceneUniform.mPathTracerMeshBvhCount - 1))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugMeshBvhIndex = pathTracerDebugMeshBvhIndex;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::Checkbox("pathTracerDebugTriangleBVH", &pathTracerDebugTriangleBVH))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBVH = pathTracerDebugTriangleBVH;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderInt("pathTracerDebugTriangleBvhIndex", &pathTracerDebugTriangleBvhIndex, 0, gSceneDefault.mSceneUniform.mPathTracerTriangleBvhCount - 1))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBvhIndex = pathTracerDebugTriangleBvhIndex;
+				needToUpdateSceneUniform = true;
+			}
+
+			if (ImGui::SliderFloat("pathTracerDebugDirLength", &pathTracerDebugDirLength, 0.0f, 10.0f))
+			{
+				gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = pathTracerDebugDirLength;
+				needToUpdateSceneUniform = true;
+			}
+
+			ImGui::Text("[Debug] Debug Pixel Pos (%d,%d)",
+				gSceneDefault.mSceneUniform.mMouse.x,
+				gSceneDefault.mSceneUniform.mMouse.y);
+			ImGui::Text("[Path Tracer] tile:%d/%d, depth:%d/%d, sample:%d/%d per pixel done",
+				gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex,
+				gSceneDefault.mSceneUniform.mPathTracerTileCount,
+				gSceneDefault.mSceneUniform.mPathTracerCurrentDepth,
+				gSceneDefault.mSceneUniform.mPathTracerMaxDepth,
+				gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex,
+				gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel);
+			ImGui::Text("Hold C + RMB to use mouse to select debug pixel.");
+			ImGui::TreePop();
 		}
 
-		if (ImGui::SliderInt("skyMarchStep", &skyMarchStep, 0, 50))
-		{
-			gSceneDefault.mSceneUniform.mSkyMarchStep = skyMarchStep;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("skyMarchStepTr", &skyMarchStepTr, 0, 50))
-		{
-			gSceneDefault.mSceneUniform.mSkyMarchStepTr = skyMarchStepTr;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("sunRadianceR", &sunRadiance.x, 0.0f, 10.0f))
-		{
-			gSceneDefault.mSceneUniform.mSunRadiance.x = sunRadiance.x;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("sunRadianceG", &sunRadiance.y, 0.0f, 10.0f))
-		{
-			gSceneDefault.mSceneUniform.mSunRadiance.y = sunRadiance.y;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("sunRadianceB", &sunRadiance.z, 0.0f, 10.0f))
-		{
-			gSceneDefault.mSceneUniform.mSunRadiance.z = sunRadiance.z;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("sunAzimuth", &sunAzimuth, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mSunAzimuth = sunAzimuth;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("sunAltitude", &sunAltitude, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mSunAltitude = sunAltitude;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("lightDebugOffset", &lightDebugOffset, 0, gSceneDefault.GetLightCount() - 1))
-		{
-			gSceneDefault.mSceneUniform.mLightDebugOffset = lightDebugOffset;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("lightDebugCount", &lightDebugCount, 0, gSceneDefault.GetLightCount()))
-		{
-			gSceneDefault.mSceneUniform.mLightDebugCount = lightDebugCount;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("fresnel", &fresnel, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mFresnel = fresnel;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mRoughness = roughness;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::Checkbox("useStandardTextures", &usePerPassTextures))
-		{
-			gSceneDefault.mSceneUniform.mUsePerPassTextures = usePerPassTextures ? 1 : 0;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::ColorEdit4("standardColor", (float*)&standardColor))
-		{
-			gSceneDefault.mSceneUniform.mStandardColor = standardColor;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mMetallic = metallic;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("specularity", &specularity, 0.0f, 1.0f))
-		{
-			gSceneDefault.mSceneUniform.mSpecularity = specularity;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("sampleNumIBL", &sampleNumIBL, 0, 128))
-		{
-			gSceneDefault.mSceneUniform.mSampleNumIBL = sampleNumIBL;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("showReferenceIBL", &showReferenceIBL, 0, 1))
-		{
-			gSceneDefault.mSceneUniform.mShowReferenceIBL = showReferenceIBL;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("useSceneLight", &useSceneLight, 0, 1))
-		{
-			gSceneDefault.mSceneUniform.mUseSceneLight = useSceneLight;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("useSunLight", &useSunLight, 0, 1))
-		{
-			gSceneDefault.mSceneUniform.mUseSunLight = useSunLight;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("useIBL", &useIBL, 0, 1))
-		{
-			gSceneDefault.mSceneUniform.mUseIBL = useIBL;
-			needToUpdateSceneUniform = true;
-		}
-
-		ImGui::Separator();
-
-		ImGui::Checkbox("enable water sim", &gWaterSimEnabled);
-		ImGui::Checkbox("enable debug", &WaterSim::sEnableDebugCell);
-		ImGui::Checkbox("enable debug velocity", &WaterSim::sEnableDebugCellVelocity);
-
-		if (ImGui::Checkbox("apply force", &waterSimApplyForce))
-		{
-			WaterSim::SetApplyForce(waterSimApplyForce);
-		}
-
-		if (ImGui::Checkbox("warm start", &waterSimWarmStart))
-		{
-			WaterSim::SetWarmStart(waterSimWarmStart);
-		}
-		
-		ImGui::LabelText("last frame time step", "last frame time step in second: %f", gRenderer.mLastFrameTimeInSecond);
-
-		if (ImGui::SliderFloat("water sim time flip scale", &WaterSim::sFlipScale, 0.0f, 1.0f, "%.4f"))
-		{
-			WaterSim::SetFlipScale(WaterSim::sFlipScale);
-		}
-
-		if (ImGui::SliderFloat("water sim time step scale", &waterSimTimeStepScale, 0.0f, 50.0f, "%.4f"))
-		{
-			WaterSim::SetTimeStepScale(waterSimTimeStepScale);
-		}
-
-		if (ImGui::SliderInt("water sim time sub step", &WaterSim::sSubStepCount, 1, 10))
-		{
-			WaterSim::SetTimeStepScale(waterSimTimeStepScale);
-		}
-
-		if (ImGui::SliderInt("water sim jacobi iteration count", &WaterSim::sJacobiIterationCount, 1, 10))
-		{
-			WaterSim::SetJacobiIterationCount(WaterSim::sJacobiIterationCount);
-		}
-
-		if (ImGui::SliderFloat("water sim G", &waterSimG, 0.0f, 20.0f, "%.6f"))
-		{
-			WaterSim::SetG(waterSimG);
-		}
-
-		if (ImGui::SliderFloat("water sim water density", &waterSimWaterDensity, 0.0f, 2000.0f, "%.6f"))
-		{
-			WaterSim::SetWaterDensity(waterSimWaterDensity);
-		}
-
-		ImGui::PushButtonRepeat(true);
-		if (ImGui::Button("water sim spawn particles"))
-		{
-			waterSimParticleCount+=100;
-			WaterSim::SetAliveParticleCount(waterSimParticleCount);
-			gWaterSimReset = true;
-		}
-		ImGui::PopButtonRepeat();
-
-		if (ImGui::Button("water sim reset particles"))
-		{
-			waterSimParticleCount = -1;
-			WaterSim::SetAliveParticleCount(waterSimParticleCount);
-			gWaterSimReset = true;
-		}
-
-		if (ImGui::Combo("water sim mode", &waterSimMode, "flip\0flip_step\0mpm\0mpm_step"))
-		{
-			WaterSim::SetWaterSimMode(waterSimMode);
-		}
-
-		ImGui::PushButtonRepeat(true);
-		if (ImGui::Button("water sim step once"))
-		{
-			gWaterSimStepOnce = true;
-		}
-		ImGui::PopButtonRepeat();
-
-		ImGui::PushButtonRepeat(true);
-		if (ImGui::Button("water apply explode force"))
-		{
-			WaterSim::SetApplyExplosion(true);
-		}
-		ImGui::PopButtonRepeat();
-
-		bool waterExplodeForceCellIndexChanged = false;
-		if (ImGui::SliderFloat("water explosion pos x", &waterSimExplodePositionX, 0, WaterSim::sCellCountX * WaterSim::sCellSize))
-		{
-			waterExplodeForceCellIndexChanged = true;
-		}
-
-		if (ImGui::SliderFloat("water explosion pos y", &waterSimExplodePositionY, 0, WaterSim::sCellCountY * WaterSim::sCellSize))
-		{
-			waterExplodeForceCellIndexChanged = true;
-		}
-
-		if (ImGui::SliderFloat("water explosion pos z", &waterSimExplodePositionZ, 0, WaterSim::sCellCountZ * WaterSim::sCellSize))
-		{
-			waterExplodeForceCellIndexChanged = true;
-		}
-
-		if (waterExplodeForceCellIndexChanged)
-			WaterSim::SetExplosionPos(XMFLOAT3(waterSimExplodePositionX, waterSimExplodePositionY, waterSimExplodePositionZ));
-
-		if (ImGui::SliderFloat3("water explode force scale", (float*)&WaterSim::sExplosionForceScale, 0.0f, 1000.0f))
-		{
-			WaterSim::SetExplosionForceScale(WaterSim::sExplosionForceScale);
-		}
-
-		ImGui::Separator();
-
-		if (ImGui::Combo("pathTracerMode", &gPathTracerMode, "off\0default\0progressive\0triangle\0light\0mesh\0albedo\0normal"))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerMode = gPathTracerMode;
-			needToRestartPathTracer = true;
-		}
-
-		ImGui::Checkbox("pathTracerForceUpdate", &gPathTracerForceUpdate);
-
-		if (ImGui::SliderInt("pathTracerSPP", &pathTracerSPP, 1, 100))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel = pathTracerSPP;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerEnableRussianRoulette", &pathTracerEnableRussianRoulette))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerEnableRussianRoulette = pathTracerEnableRussianRoulette;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerUseBVH", &pathTracerUseBVH))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerUseBVH = pathTracerUseBVH;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::SliderInt("pathTracerMinDepth", &pathTracerMinDepth, 0, PT_MINDEPTH_MAX))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerMinDepth = pathTracerMinDepth;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::SliderInt("pathTracerMaxDepth", &pathTracerMaxDepth, PT_MINDEPTH_MAX + 1, PT_MAXDEPTH_MAX))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerMaxDepth = pathTracerMaxDepth;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::SliderInt("pathTracerTileCountX", &pathTracerTileCountX, 1, PathTracer::sThreadGroupCountX))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerTileCountX = pathTracerTileCountX;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::SliderInt("pathTracerTileCountY", &pathTracerTileCountY, 1, PathTracer::sThreadGroupCountY))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerTileCountY = pathTracerTileCountY;
-			needToRestartPathTracer = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerEnableDebug", &pathTracerEnableDebug))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerEnableDebug = pathTracerEnableDebug;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerUpdateDebug", &pathTracerUpdateDebug))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerUpdateDebug = pathTracerUpdateDebug;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerDebugSampleRay", &pathTracerDebugSampleRay))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugSampleRay = pathTracerDebugSampleRay;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerDebugMeshBVH", &pathTracerDebugMeshBVH))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugMeshBVH = pathTracerDebugMeshBVH;
-			needToUpdateSceneUniform = true;
-		}
-		
-		if (ImGui::SliderInt("pathTracerDebugMeshBvhIndex", &pathTracerDebugMeshBvhIndex, 0, gSceneDefault.mSceneUniform.mPathTracerMeshBvhCount - 1))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugMeshBvhIndex = pathTracerDebugMeshBvhIndex;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::Checkbox("pathTracerDebugTriangleBVH", &pathTracerDebugTriangleBVH))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBVH = pathTracerDebugTriangleBVH;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderInt("pathTracerDebugTriangleBvhIndex", &pathTracerDebugTriangleBvhIndex, 0, gSceneDefault.mSceneUniform.mPathTracerTriangleBvhCount - 1))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugTriangleBvhIndex = pathTracerDebugTriangleBvhIndex;
-			needToUpdateSceneUniform = true;
-		}
-
-		if (ImGui::SliderFloat("pathTracerDebugDirLength", &pathTracerDebugDirLength, 0.0f, 10.0f))
-		{
-			gSceneDefault.mSceneUniform.mPathTracerDebugDirLength = pathTracerDebugDirLength;
-			needToUpdateSceneUniform = true;
-		}
-
-		ImGui::Text("[Path Tracer Debug] Debug Pixel Pos (%d,%d)",
-			gSceneDefault.mSceneUniform.mPathTracerDebugPixelX,
-			gSceneDefault.mSceneUniform.mPathTracerDebugPixelY);
-		ImGui::Text("[Path Tracer] tile:%d/%d, depth:%d/%d, sample:%d/%d per pixel done",
-			gSceneDefault.mSceneUniform.mPathTracerCurrentTileIndex,
-			gSceneDefault.mSceneUniform.mPathTracerTileCount,
-			gSceneDefault.mSceneUniform.mPathTracerCurrentDepth,
-			gSceneDefault.mSceneUniform.mPathTracerMaxDepth,
-			gSceneDefault.mSceneUniform.mPathTracerCurrentSampleIndex,
-			gSceneDefault.mSceneUniform.mPathTracerMaxSampleCountPerPixel);
 		ImGui::Text("%.3f ms/frame (%.1f FPS) ", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 		ImGui::Text("Hold C + LMB to use mouse to rotate camera.");
-		ImGui::Text("Hold C + RMB to use mouse to select debug pixel.");
 		ImGui::End();
 	}
 
@@ -1335,7 +1386,7 @@ void PrepareSystems()
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) // need either wWinMain or GetCommandLine to get the unicode command line
 {
-#if !_VSOUTPUT
+#if _CONSOLE
 	InitConsole();
 #endif
 	InitCommandLineArgs(lpCmdLine);

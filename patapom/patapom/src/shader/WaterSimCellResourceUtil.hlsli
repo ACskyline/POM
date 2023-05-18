@@ -3,10 +3,13 @@
 
 void InterLockedAddCellVelocityX(uint cellIndex, float velocity)
 {
+	[allow_uav_condition]
 	while (true)
 	{
 		uint oldVelocityU32 = gWaterSimCellBuffer[cellIndex].mVelocityXU32;
 		float oldVelocity = asfloat(oldVelocityU32);
+		if (abs(oldVelocity + velocity) > WATERSIM_VELOCITY_MAX)
+			break;
 		uint originalVelocityU32;
 		InterlockedCompareExchange(gWaterSimCellBuffer[cellIndex].mVelocityXU32, oldVelocityU32, asuint(oldVelocity + velocity), originalVelocityU32);
 		if (originalVelocityU32 == oldVelocityU32) // chosen
@@ -16,10 +19,13 @@ void InterLockedAddCellVelocityX(uint cellIndex, float velocity)
 
 void InterLockedAddCellVelocityY(uint cellIndex, float velocity)
 {
+	[allow_uav_condition]
 	while (true)
 	{
 		uint oldVelocityU32 = gWaterSimCellBuffer[cellIndex].mVelocityYU32;
 		float oldVelocity = asfloat(oldVelocityU32);
+		if (abs(oldVelocity + velocity) > WATERSIM_VELOCITY_MAX)
+			break;
 		uint originalVelocityU32;
 		InterlockedCompareExchange(gWaterSimCellBuffer[cellIndex].mVelocityYU32, oldVelocityU32, asuint(oldVelocity + velocity), originalVelocityU32);
 		if (originalVelocityU32 == oldVelocityU32) // chosen
@@ -29,10 +35,13 @@ void InterLockedAddCellVelocityY(uint cellIndex, float velocity)
 
 void InterLockedAddCellVelocityZ(uint cellIndex, float velocity)
 {
+	[allow_uav_condition]
 	while (true)
 	{
 		uint oldVelocityU32 = gWaterSimCellBuffer[cellIndex].mVelocityZU32;
 		float oldVelocity = asfloat(oldVelocityU32);
+		if (abs(oldVelocity + velocity) > WATERSIM_VELOCITY_MAX)
+			break;
 		uint originalVelocityU32;
 		InterlockedCompareExchange(gWaterSimCellBuffer[cellIndex].mVelocityZU32, oldVelocityU32, asuint(oldVelocity + velocity), originalVelocityU32);
 		if (originalVelocityU32 == oldVelocityU32) // chosen

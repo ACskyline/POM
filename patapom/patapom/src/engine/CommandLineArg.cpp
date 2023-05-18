@@ -31,14 +31,22 @@ bool CommandLineArg::GetAsFloatVec(vector<float>& asFloatVec)
 	return false;
 }
 
-int CommandLineArg::GetAsInt()
+bool CommandLineArg::GetAsInt(int& asInt)
 {
 	fatalAssertf(s_NameValueMap.find(mName) != s_NameValueMap.end(), "arg undefined");
 	if (s_NameValueMap[mName].mParsed && s_NameValueMap[mName].mAsFloatVec.size() > 0)
 	{
-		return s_NameValueMap[mName].mAsFloatVec[0];
+		asInt = s_NameValueMap[mName].mAsFloatVec[0];
+		return true;
 	}
-	return 0;
+	return false;
+}
+
+int CommandLineArg::GetAsInt()
+{
+	int asInt = 0;
+	GetAsInt(asInt);
+	return asInt;
 }
 
 bool CommandLineArg::Get()

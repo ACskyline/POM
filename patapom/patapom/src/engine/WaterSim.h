@@ -7,28 +7,34 @@ typedef PassCommon<PassUniformWaterSim> PassWaterSim;
 class WaterSim
 {
 public:
-	enum WaterSimMode { FLIP, FLIP_STEP, MPM, MPM_STEP, COUNT };
-
-	static PassWaterSim sPassWaterSimP2G;
-	static PassWaterSim sPassWaterSimPreUpdateGrid;
-	static PassWaterSim sPassWaterSimUpdateGrid;
-	static PassWaterSim sPassWaterSimProject;
-	static PassWaterSim sPassWaterSimG2P;
-	static PassWaterSim sPassWaterSimClear;
-	static PassWaterSim sPassWaterSimRasterizer;
-	static PassWaterSim sPassWaterSimBlit;
-	static PassWaterSim sPassWaterSimResetParticles;
-	static PassWaterSim sPassWaterSimPreUpdateParticles;
-	static PassWaterSim sPassWaterSimUpdateParticles;
-	static PassWaterSim sPassWaterSimResetGrid;
-	static PassWaterSim sPassWaterSimDebugLine;
-	static PassWaterSim sPassWaterSimDebugCube;
+	enum WaterSimMode { FLIP, FLIP_STEP, MPM, MPM_STEP, WATERSIM_MODE_COUNT };
+	enum WaterSimPassType { 
+		P2G, 
+		PRE_UPDATE_GRID, 
+		UPDATE_GRID,
+		PROJECT,
+		G2P,
+		CLEAR,
+		RASTERIZER,
+		RASTERIZER_CS,
+		BLIT,
+		RESET_PARTICLES,
+		PRE_UPDATE_PARTICLES,
+		UPDATE_PARTICLES,
+		RESET_GRID,
+		DEBUG_LINE,
+		DEBUG_CUBE,
+		WATERSIM_PASSTYPE_COUNT,
+	};
+	static PassWaterSim sPassWaterSim[WATERSIM_PASSTYPE_COUNT];
 	static Shader sWaterSimP2GCS;
 	static Shader sWaterSimPreUpdateGridCS;
 	static Shader sWaterSimUpdateGridCS;
 	static Shader sWaterSimProjectCS;
 	static Shader sWaterSimG2PCS;
 	static Shader sWaterSimClearMinMaxBufferCS;
+	static Shader sWaterSimRasterizerVS;
+	static Shader sWaterSimRasterizerPS;
 	static Shader sWaterSimRasterizerCS;
 	static Shader sWaterSimBlitBackbufferPS;
 	static Shader sWaterSimResetParticlesCS;
@@ -41,6 +47,7 @@ public:
 	static Shader sWaterSimDebugCubePS;
 	static Mesh sWaterSimDebugMeshLine;
 	static Mesh sWaterSimDebugMeshCube;
+	static Mesh sWaterSimParticleMesh;
 	static const int sCellCountX;
 	static const int sCellCountY;
 	static const int sCellCountZ;
@@ -58,11 +65,12 @@ public:
 	static XMFLOAT3 sExplosionPos;
 	static XMFLOAT3 sExplosionForceScale;
 	static WaterSimMode sWaterSimMode;
+	static bool sUseComputeRasterizer;
 	static bool sApplyExplosion;
 	static int sAliveParticleCount;
 	static float sTimeStepScale;
 	static int sSubStepCount;
-	static float sApplyForce;
+	static bool sApplyForce;
 	static float sGravitationalAccel;
 	static float sWaterDensity;
 	static float sFlipScale;

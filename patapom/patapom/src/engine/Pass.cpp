@@ -17,8 +17,8 @@ void PassUniformDefault::Update(Camera* camera)
 	mEyePos = camera->GetPosition();
 	mNearClipPlane = camera->GetNearClipPlane();
 	mFarClipPlane = camera->GetFarClipPlane();
-	mWidth = camera->GetWidth();
-	mHeight = camera->GetHeight();
+	mResolution.x = camera->GetWidth();
+	mResolution.y = camera->GetHeight();
 	mFov = camera->GetFov();
 }
 
@@ -102,18 +102,21 @@ void Pass::AddShaderResource(ShaderResource* sr)
 
 void Pass::AddRenderTexture(RenderTexture* renderTexture, u32 depthSlice, u32 mipSlice, const BlendState& blendState, const DepthStencilState& depthStencilState)
 {
-	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mBlendEnable), "render texture does not have render target buffer but trying to enable blend!");
-	fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mLogicOpEnable), "render texture does not have render target buffer but trying to enable logic op!");
-	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthWriteEnable), "render texture does not have depth stencil buffer but trying to enable depth write!");
-	fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthTestEnable), "render texture does not have depth stencil buffer but trying to enable depth test!");
-	fatalAssertf(depthSlice < renderTexture->GetDepth() && mipSlice < renderTexture->GetMipLevelCount(), "render texture depth/mip out of range");
-	fatalAssertf(!(renderTexture->IsRenderTargetUsed() && !mUseRenderTarget), "pass doesn't support render target buffer"); 
-	fatalAssertf(!(renderTexture->IsDepthStencilUsed() && !mUseDepthStencil), "pass doesn't support depth stencil buffer");
+	if (renderTexture)
+	{
+		fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mBlendEnable), "render texture does not have render target buffer but trying to enable blend!");
+		fatalAssertf(!(!renderTexture->IsRenderTargetUsed() && blendState.mLogicOpEnable), "render texture does not have render target buffer but trying to enable logic op!");
+		fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthWriteEnable), "render texture does not have depth stencil buffer but trying to enable depth write!");
+		fatalAssertf(!(!renderTexture->IsDepthStencilUsed() && depthStencilState.mDepthTestEnable), "render texture does not have depth stencil buffer but trying to enable depth test!");
+		fatalAssertf(depthSlice < renderTexture->GetDepth() && mipSlice < renderTexture->GetMipLevelCount(), "render texture depth/mip out of range");
+		fatalAssertf(!(renderTexture->IsRenderTargetUsed() && !mUseRenderTarget), "pass doesn't support render target buffer");
+		fatalAssertf(!(renderTexture->IsDepthStencilUsed() && !mUseDepthStencil), "pass doesn't support depth stencil buffer");
+	}
 	ShaderTarget st = { renderTexture, blendState, depthStencilState, depthSlice, mipSlice };
 	mShaderTargets.push_back(st);
-	if (renderTexture->IsRenderTargetUsed())
+	if (!renderTexture || renderTexture->IsRenderTargetUsed())
 		mRenderTargetCount++;
-	if (renderTexture->IsDepthStencilUsed())
+	if (!renderTexture || renderTexture->IsDepthStencilUsed())
 	{
 		if (mDepthStencilCount == 0)
 			mDepthStencilIndex = mShaderTargets.size() - 1;
@@ -283,10 +286,13 @@ void Pass::AllocateDescriptorsForShaderTargets(
 		// displayfln("allocated an rtv for pass %s, render texture %d: %s, frame %d", WstringToString(mDebugName).c_str(), i, WstringToString(mShaderTargets[i].mRenderTexture->GetDebugName()).c_str(), j);
 		fatalAssertf(!rtvHandles[i].IsValid() || rtvHandles[i].GetDescriptorHeap() == &rtvDescriptorHeap, 
 			"dynamic handle is either invalid or from this frame's heap");
-		rtvHandles[i] = rtvDescriptorHeap.AllocateRtv(mShaderTargets[i].mRenderTexture->GetRenderTargetBuffer(), mShaderTargets[i].mRenderTexture->GetRtvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice));
 		fatalAssertf(!dsvHandles[i].IsValid() || dsvHandles[i].GetDescriptorHeap() == &dsvDescriptorHeap,
 			"dynamic handle is either invalid or from this frame's heap");
-		dsvHandles[i] = dsvDescriptorHeap.AllocateDsv(mShaderTargets[i].mRenderTexture->GetDepthStencilBuffer(), mShaderTargets[i].mRenderTexture->GetDsvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice));
+		if (mShaderTargets[i].mRenderTexture)
+		{
+			rtvHandles[i] = rtvDescriptorHeap.AllocateRtv(mShaderTargets[i].mRenderTexture->GetRenderTargetBuffer(), mShaderTargets[i].mRenderTexture->GetRtvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice));
+			dsvHandles[i] = dsvDescriptorHeap.AllocateDsv(mShaderTargets[i].mRenderTexture->GetDepthStencilBuffer(), mShaderTargets[i].mRenderTexture->GetDsvDesc(mShaderTargets[i].mDepthSlice, mShaderTargets[i].mMipSlice));
+		}
 	}
 }
 
@@ -720,20 +726,22 @@ int Pass::GetMaxMeshTextureCount()
 
 bool ShaderTarget::IsRenderTargetUsed()
 {
-	return mRenderTexture->IsRenderTargetUsed();
+	// null means using swap chain
+	return !mRenderTexture || mRenderTexture->IsRenderTargetUsed();
 }
 
 bool ShaderTarget::IsDepthStencilUsed()
 {
-	return mRenderTexture->IsDepthStencilUsed();
+	// null means using swap chain
+	return !mRenderTexture || mRenderTexture->IsDepthStencilUsed();
 }
 
 u32 ShaderTarget::GetHeight()
 {
-	return mRenderTexture->GetHeight(mMipSlice);
+	return mRenderTexture ? mRenderTexture->GetHeight(mMipSlice) : gRenderer.mHeight;
 }
 
 u32 ShaderTarget::GetWidth()
 {
-	return mRenderTexture->GetWidth(mMipSlice);
+	return mRenderTexture ? mRenderTexture->GetWidth(mMipSlice) : gRenderer.mWidth;
 }

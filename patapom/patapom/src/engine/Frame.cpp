@@ -58,14 +58,14 @@ void Frame::InitFrame(
 
 void Frame::CreateUniformBuffer()
 {
-	fatalAssert(!CheckError(mRenderer->mDevice->CreateCommittedResource(
+	HRESULT hr = mRenderer->mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // this heap will be used to upload the constant buffer data
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(sizeof(FrameUniform)),
 		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // will be data that is read from so we keep it in the generic read state
 		nullptr, // we do not use an optimized clear value for constant buffers
-		IID_PPV_ARGS(&mUniformBuffer))));
-
+		IID_PPV_ARGS(&mUniformBuffer));
+	fatalAssert(!CheckError(hr));
 	mUniformBuffer->SetName(L"frame uniform buffer");
 }
 

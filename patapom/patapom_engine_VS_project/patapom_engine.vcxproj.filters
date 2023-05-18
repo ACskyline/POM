@@ -75,6 +75,9 @@
     <ClCompile Include="..\patapom\src\engine\WaterSim.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\patapom\src\engine\DeferredLighting.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\patapom\src\engine\Buffer.h">
@@ -150,6 +153,9 @@
       <Filter>imgui</Filter>
     </ClInclude>
     <ClInclude Include="..\patapom\src\engine\WaterSim.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\patapom\src\engine\DeferredLighting.h">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>

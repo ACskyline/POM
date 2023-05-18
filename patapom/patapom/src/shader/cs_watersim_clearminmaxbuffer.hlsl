@@ -14,7 +14,7 @@ void main(uint3 gDispatchThreadID : SV_DispatchThreadID)
 	if (any(screenPos < uPass.mWaterSimBackbufferSize))
 	{
 		gWaterSimDepthBufferMax[screenPos] = 0;
-		gWaterSimDepthBufferMin[screenPos] = 255;
+		gWaterSimDepthBufferMin[screenPos] = WATERSIM_DEPTHBUFFER_MAX;
 		gWaterSimDebugBuffer[screenPos] = 0.0f.xxxx;
 	}
 }

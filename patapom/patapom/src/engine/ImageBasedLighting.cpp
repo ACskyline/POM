@@ -1,6 +1,7 @@
 #include "ImageBasedLighting.h"
 #include "Store.h"
 #include "Scene.h"
+#include "DeferredLighting.h"
 
 Sampler ImageBasedLighting::sSamplerIBL = {
 	Sampler::Filter::LINEAR,
@@ -53,7 +54,7 @@ void ImageBasedLighting::InitIBL(Store& store, Scene& scene)
 			sPrefilterEnvMapPasses[i][j].mPassUniform.mFaceIndex = i;
 			sPrefilterEnvMapPasses[i][j].SetCamera(&sCamerasEnvMap[j]);
 			sPrefilterEnvMapPasses[i][j].AddMesh(&gFullscreenTriangle);
-			sPrefilterEnvMapPasses[i][j].AddShader(&gDeferredVS);
+			sPrefilterEnvMapPasses[i][j].AddShader(&DeferredLighting::gDeferredVS);
 			sPrefilterEnvMapPasses[i][j].AddShader(&sPrefilterEnvMapPS);
 			sPrefilterEnvMapPasses[i][j].AddTexture(&sEnvMap);
 			sPrefilterEnvMapPasses[i][j].AddRenderTexture(&sPrefilteredEnvMap, i, j, DepthStencilState::None());
@@ -65,7 +66,7 @@ void ImageBasedLighting::InitIBL(Store& store, Scene& scene)
 
 	sPrepareLutPass.SetCamera(&sCameraLUT);
 	sPrepareLutPass.AddMesh(&gFullscreenTriangle);
-	sPrepareLutPass.AddShader(&gDeferredVS);
+	sPrepareLutPass.AddShader(&DeferredLighting::gDeferredVS);
 	sPrepareLutPass.AddShader(&sPrepareLutPS);
 	sPrepareLutPass.AddRenderTexture(&sLUT, 0, 0, DepthStencilState::None());
 	

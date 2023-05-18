@@ -8,6 +8,9 @@
 #include "Shader.h"
 #include "Texture.h"
 
+CommandLineArg PARAM_pixCaptureStartFrame("-pixCaptureStartFrame");
+CommandLineArg PARAM_pixCaptureFrameCount("-pixCaptureFrameCount");
+
 int GetUniformSlot(RegisterSpace space, RegisterType type)
 {
 	// constant buffer is root parameter, SRV, sampler and UAV are stored in table
@@ -56,11 +59,10 @@ Sampler gSamplerPoint = {
 
 Format gSwapchainColorBufferFormat = Format::R8G8B8A8_UNORM;
 Format gSwapchainDepthStencilBufferFormat = Format::D24_UNORM_S8_UINT;
-Shader gDeferredVS(Shader::ShaderType::VERTEX_SHADER, "vs_deferred");
 Mesh gCube("cube", Mesh::MeshType::CUBE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 45, 0), XMFLOAT3(1, 1, 1));
 Mesh gFullscreenTriangle("fullscreen_triangle", Mesh::MeshType::FULLSCREEN_TRIANGLE, XMFLOAT3(0, 0, 0), XMFLOAT3(0, 0, 0), XMFLOAT3(1, 1, 1));
 Camera gCameraDummy(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWindowWidth, gWindowHeight, 45.0f, 1000.0f, 0.1f);
-OrbitCamera gCameraMain(160.f, 90.f, 0.f, XMFLOAT3(80.0f, 80.0f, 80.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 1000.0f, 0.1f);
+OrbitCamera gCameraMain(5.f, 90.f, 0.f, XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), gWidthDeferred, gHeightDeferred, 45.0f, 1000.0f, 0.1f);
 
 DescriptorHeap::Handle DescriptorHeap::sHead[DescriptorHeap::Type::COUNT];
 DescriptorHeap::Handle DescriptorHeap::sFree[DescriptorHeap::Type::COUNT];
@@ -872,7 +874,7 @@ D3D12_RESOURCE_DIMENSION Renderer::GetResourceDimensionFromTextureType(TextureTy
 
 D3D12_SAMPLER_DESC Renderer::TranslateSamplerDesc(Sampler sampler)
 {
-	D3D12_SAMPLER_DESC impl = { 0 };
+	D3D12_SAMPLER_DESC impl;
 	impl.Filter = ExtractFilter(sampler);
 	impl.AddressU = TranslateAddressMode(sampler.mAddressModeU);
 	impl.AddressV = TranslateAddressMode(sampler.mAddressModeV);
@@ -999,6 +1001,11 @@ bool Renderer::InitRenderer(
 	mColorBufferFormat = colorBufferFormat;
 	mDepthStencilBufferFormat = depthStencilBufferFormat;
 	mDebugMode = debugMode;
+	mPixCaptureStartFrame = 0;
+	mPixCaptureFrameCount = 0;
+	mPixCapturedFrameCount = 0;
+	PARAM_pixCaptureStartFrame.GetAsInt(mPixCaptureStartFrame);
+	PARAM_pixCaptureFrameCount.GetAsInt(mPixCaptureFrameCount);
 	HRESULT hr;
 
 	//debug mode
@@ -1263,7 +1270,8 @@ void Renderer::CreateColorBuffers()
 	mRtvHandles.resize(mFrameCount);
 	for (int i = 0; i < mFrameCount; i++)
 	{
-		fatalAssert(SUCCEEDED(mSwapChain->GetBuffer(i, IID_PPV_ARGS(&mColorBuffers[i]))));
+		HRESULT hr = mSwapChain->GetBuffer(i, IID_PPV_ARGS(&mColorBuffers[i]));
+		fatalAssert(SUCCEEDED(hr));
 		mRtvHandles[i] = mRtvDescriptorHeap.AllocateRtv(mColorBuffers[i]);
 	}
 }
@@ -1347,6 +1355,19 @@ bool Renderer::RecordBegin(int frameIndex, CommandList commandList)
 	if (!mCommandLists[frameIndex].Reset())
 		return false;
 
+	if (mPixCaptureFrameCount)
+	{
+		// if intend to capture
+		if (mFrameCountSinceGameStart == mPixCaptureStartFrame)
+		{
+			wchar_t fileName[32];
+			swprintf_s(fileName, COUNT_OF(fileName), L"pix_cap_%d_to_%d", mPixCaptureStartFrame, mPixCaptureStartFrame + mPixCaptureFrameCount);
+			PIXCaptureParameters capParam;
+			capParam.GpuCaptureParameters.FileName = (PCWSTR)fileName;
+			PIXBeginCapture2(PIX_CAPTURE_GPU, &capParam);
+		}
+	}
+
 	if (IsResolveNeeded())
 	{
 		RecordTransition(commandList, GetPreResolveBuffer(frameIndex), 0, ResourceLayout::RESOLVE_SRC, ResourceLayout::RENDER_TARGET);
@@ -1384,6 +1405,18 @@ bool Renderer::RecordEnd(int frameIndex, CommandList commandList)
 
 	if (CheckError(commandList.Close()))
 		return false;
+
+	if (mPixCaptureFrameCount && 
+		mFrameCountSinceGameStart >= mPixCaptureStartFrame &&
+		mPixCapturedFrameCount < mPixCaptureFrameCount)
+	{
+		// if intend to capture and started capturing but haven't finished
+		mPixCapturedFrameCount++;
+		if (mPixCapturedFrameCount == mPixCaptureFrameCount)
+		{
+			PIXEndCapture(false);
+		}
+	}
 
 	return true;
 }
@@ -1432,15 +1465,14 @@ void Renderer::WriteTextureDataToBufferSync(ID3D12Resource* dstBuffer, D3D12_RES
 
 	// creaete an upload buffer
 	ID3D12Resource* uploadBuffer;
-	fatalAssert(!CheckError(mDevice->CreateCommittedResource(
+	HRESULT hr = mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(totalBytes), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
 		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // we will copy the contents from this heap to the default heap above
 		nullptr,
-		IID_PPV_ARGS(&uploadBuffer)),
-		mDevice)
-	);
+		IID_PPV_ARGS(&uploadBuffer));
+	fatalAssert(!CheckError(hr, mDevice));
 
 	D3D12_SUBRESOURCE_DATA* data = new D3D12_SUBRESOURCE_DATA[numSubresources];
 	for (int i = 0; i < numSubresources; i++)
@@ -1480,15 +1512,14 @@ void Renderer::WriteDataToBufferSync(ID3D12Resource* dstBuffer, void* srcData, i
 	// creaete an upload buffer
 	ID3D12Resource* uploadBuffer;
 	UINT64 uploadBufferSize = GetRequiredIntermediateSize(dstBuffer, 0, 1);
-	fatalAssert(!CheckError(mDevice->CreateCommittedResource(
+	HRESULT hr = mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
 		Renderer::TranslateResourceLayout(ResourceLayout::UPLOAD), // we will copy the contents from this heap to the default heap above
 		nullptr,
-		IID_PPV_ARGS(&uploadBuffer)),
-		mDevice)
-	);
+		IID_PPV_ARGS(&uploadBuffer));
+	fatalAssert(!CheckError(hr, mDevice));
 	WriteDataToBufferAsync(commandList, dstBuffer, uploadBuffer, srcData, srcSizeInByte);
 	EndSingleTimeCommandsInternal(mGraphicsCommandQueue, commandList);
 	SAFE_RELEASE_NO_CHECK(uploadBuffer);
@@ -1517,15 +1548,14 @@ void Renderer::ReadDataFromBufferSync(ID3D12Resource* srcBuffer, void* dstData, 
 	// creaete an stage buffer
 	ID3D12Resource* readbackBuffer;
 	UINT64 readbackBufferSize = GetRequiredIntermediateSize(srcBuffer, 0, 1);
-	fatalAssert(!CheckError(mDevice->CreateCommittedResource(
+	HRESULT hr = mDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(readbackBufferSize), // resource description for a buffer (storing the image data in this heap just to copy to the default heap)
 		Renderer::TranslateResourceLayout(ResourceLayout::COPY_DST), // we will copy the contents from this heap to the default heap above
 		nullptr,
-		IID_PPV_ARGS(&readbackBuffer)),
-		mDevice)
-	);
+		IID_PPV_ARGS(&readbackBuffer));
+	fatalAssert(!CheckError(hr, mDevice));
 	PrepareToReadDataFromBuffer(commandList, srcBuffer, readbackBuffer, dstSizeInByte);
 	EndSingleTimeCommandsInternal(mGraphicsCommandQueue, commandList);
 	ReadDataFromReadbackBuffer(readbackBuffer, dstData, dstSizeInByte);
@@ -1611,7 +1641,8 @@ void Renderer::EndSingleTimeCommandsInternal(ID3D12CommandQueue* commandQueue, C
 	mSingleTimeCommandLists.pop();
 	ID3D12Fence* fence;
 	HANDLE fenceEvent;
-	fatalAssert(!CheckError(mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))); //initialize 0
+	HRESULT hr = mDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+	fatalAssert(!CheckError(hr)); //initialize 0
 	fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 	commandList.Close();
 	ID3D12CommandList* commandLists[] = { commandList.GetImpl() };
@@ -1696,7 +1727,6 @@ void Renderer::CreateDescriptorHeap(ID3D12DescriptorHeap** impl, DescriptorHeap:
 	assertf(size > 0, "can't create 0 size descriptor heap");
 	if (size <= 0)
 		size = 1;
-	HRESULT hr;
 	D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
 	heapDesc.NumDescriptors = size;
 	switch (type)
@@ -1720,7 +1750,8 @@ void Renderer::CreateDescriptorHeap(ID3D12DescriptorHeap** impl, DescriptorHeap:
 	default:
 		break;
 	}
-	fatalAssert(SUCCEEDED(mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(impl))));
+	HRESULT hr = mDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(impl));
+	fatalAssert(SUCCEEDED(hr));
 }
 
 void Renderer::CreateGraphicsPSO(
@@ -1749,34 +1780,53 @@ void Renderer::CreateGraphicsPSO(
 	if (shaderTargets.size() > 0) 
 	{ 
 		// if render textures are used
-		multiSampleCount = shaderTargets[0].mRenderTexture->GetMultiSampleCount();
 		if (shaderTargets.size() > 1)
 			blendDesc.IndependentBlendEnable = true; // independent blend is disabled by default, turn it on when we have more than 1 render targets, TODO: add it as a member variable to pass class
 
 		// assign to render textures parameter
-		for (int i = 0; i < shaderTargets.size(); i++) // only the first 8 targets will be used
+		for (int i = 0; i < shaderTargets.size() && i < 8; i++) // only the first 8 targets will be used
 		{
-			if (shaderTargets[i].mRenderTexture->IsRenderTargetUsed())
+			Format rtvf = Format::INVALID;
+			Format dsvf = Format::INVALID;
+			if (shaderTargets[i].mRenderTexture)
+			{
+				if (multiSampleCount < 0)
+					multiSampleCount = shaderTargets[i].mRenderTexture->GetMultiSampleCount();
+				else
+					assertf(multiSampleCount == shaderTargets[i].mRenderTexture->GetMultiSampleCount(), "sample count should be the same for all render targets!");
+
+				if (shaderTargets[i].mRenderTexture->IsRenderTargetUsed())
+					rtvf = shaderTargets[i].mRenderTexture->GetRenderTargetFormat();
+				
+				if (shaderTargets[i].mRenderTexture->IsDepthStencilUsed())
+					dsvf = shaderTargets[i].mRenderTexture->GetDepthStencilFormat();
+			}
+			else
+			{
+				if (multiSampleCount < 0)
+					multiSampleCount = mMultiSampleCount;
+				else
+					assertf(multiSampleCount == mMultiSampleCount, "sample count should be the same for all render targets!");
+				rtvf = mColorBufferFormat;
+				dsvf = mDepthStencilBufferFormat;
+			}
+			// render targets recording
+			if (rtvf != Format::INVALID)
 			{
 				if (renderTargetCount < 8)
 				{
-					// render targets recording
 					blendDesc.RenderTarget[renderTargetCount] = Renderer::TranslateBlendState(shaderTargets[i].mBlendState);
-					rtvFormatVec.push_back(Renderer::TranslateFormat(shaderTargets[i].mRenderTexture->GetRenderTargetFormat()));
+					rtvFormatVec.push_back(Renderer::TranslateFormat(rtvf));
 				}
 				renderTargetCount++;
 			}
-		}
-
-		for (int i = 0; i < shaderTargets.size(); i++) // only the first 8 targets will be used
-		{
-			if (shaderTargets[i].mRenderTexture->IsDepthStencilUsed())
+			if (dsvf != Format::INVALID)
 			{
-				//!!!* only the first usable depth stencil buffer will be used *!!!//
 				if (depthStencilCount == 0)
 				{
-					dsvFormat = Renderer::TranslateFormat(shaderTargets[i].mRenderTexture->GetDepthStencilFormat());
 					depthStencilIndex = i;
+					depthStencilDesc = Renderer::TranslateDepthStencilState(shaderTargets[depthStencilIndex].mDepthStencilState);
+					dsvFormat = Renderer::TranslateFormat(dsvf);
 				}
 				depthStencilCount++;
 			}
@@ -1785,9 +1835,6 @@ void Renderer::CreateGraphicsPSO(
 		fatalAssertf(renderTargetCount == pass.GetRenderTargetCount(), "render target count mismatch!");
 		fatalAssertf(depthStencilCount == pass.GetDepthStencilCount(), "depth stencil count mismatch!");
 		fatalAssertf(depthStencilCount <= 0 || depthStencilIndex == pass.GetDepthStencilIndex(), "depth stencil index mismatch!");
-
-		if (depthStencilCount > 0)
-			depthStencilDesc = Renderer::TranslateDepthStencilState(shaderTargets[depthStencilIndex].mDepthStencilState);
 	}
 	
 	if (renderTargetCount == 0 && pass.UseRenderTarget())
@@ -1969,8 +2016,13 @@ void Renderer::RecordGraphicsPassInstanced(
 			fatalAssertf(pass.GetShaderTarget(i).GetHeight() == pass.GetCamera()->GetHeight() &&
 				pass.GetShaderTarget(i).GetWidth() == pass.GetCamera()->GetWidth(),
 				"render texture's dimension doesn't match the viewport's dimension!");
-			if(renderTargetCount < 8)
-				frameRtvHandles.push_back(passRtvHandles[i].GetCpuHandle());
+			if (renderTargetCount < 8)
+			{
+				if (pass.GetShaderTarget(i).mRenderTexture)
+					frameRtvHandles.push_back(passRtvHandles[i].GetCpuHandle());
+				else
+					frameRtvHandles.push_back(IsResolveNeeded() ? mPreResolvedRtvHandles[mCurrentFramebufferIndex].GetCpuHandle() : mRtvHandles[mCurrentFramebufferIndex].GetCpuHandle());
+			}
 			renderTargetCount++;
 		}
 	}
@@ -1987,7 +2039,10 @@ void Renderer::RecordGraphicsPassInstanced(
 				"render texture's dimension doesn't match the viewport's dimension!");
 			if (depthStencilCount == 0)
 			{
-				frameDsvHandle = passDsvHandles[i].GetCpuHandle();
+				if (pass.GetShaderTarget(i).mRenderTexture)
+					frameDsvHandle = passDsvHandles[i].GetCpuHandle();
+				else
+					frameDsvHandle = mDsvHandles[mCurrentFramebufferIndex].GetCpuHandle();
 				depthStencilIndex = i;
 			}
 			depthStencilCount++;

@@ -25,11 +25,10 @@ using namespace std;
 
 #ifdef _DEBUG
 #define CONFIG_STR "Debug"
+#define USE_PIX
 #else // _DEBUG
 #define CONFIG_STR "Release"
 #endif // _DEBUG
-
-#define USE_PIX _DEBUG
 
 // common util macros
 #define KEYDOWN(name, key) ((name)[(key)] & 0x80)
@@ -39,8 +38,11 @@ using namespace std;
 #define CLAMP(x, minA, maxB) MAX(MIN(x, maxB), minA)
 #define ABS(x) (x > 0 ? x : -x)
 #define ROUNDUP_DIVISION(a, b) ((a + b - 1) / b)
+#define COUNT_OF(a) _countof(a)
 
-#define _VSOUTPUT 0
+#define _CONSOLE 1 // create console window
+#define _OUTPUT 1 // write to std output
+#define _VSOUTPUT 1 // write to VS output window
 #if _VSOUTPUT
 #include <windows.h>
 static void VsOutput(const char* szFormat, ...)
@@ -51,44 +53,51 @@ static void VsOutput(const char* szFormat, ...)
 	_vsnprintf_s(szBuff, sizeof(szBuff), _TRUNCATE, szFormat, arg);
 	va_end(arg);
 	OutputDebugStringA(szBuff);
+#if _OUTPUT
+	printf(szBuff);
+#endif
 }
 #define vsprintf(...) VsOutput(__VA_ARGS__)
-#else
+#elif _OUTPUT
 #define vsprintf(...) printf(__VA_ARGS__)
+#else
+#define vsprintf(x)
 #endif
 
 // ASSERT related macros
 #if _DEBUG
-#define ASSERT 1
-#ifdef ASSERT
-	#define assertOnly(x) x
-	#define println(...) (vsprintf("[%d:%d] ", gFrameCountSinceGameStart, gCurrentFramebufferIndex), (vsprintf(__VA_ARGS__), vsprintf("\n")))
-	#define fatalAssert(x) { if(!(x)) __debugbreak(); }
-	#define fatalAssertf(x, ...) { if(!(x)) { println(__VA_ARGS__); __debugbreak();} }
-	#define assertf(x, ...) { if(!(x)) { println("%s, %s, line %d:", __FILE__, __FUNCTION__, __LINE__); println(__VA_ARGS__); } }
-	#define fatalf(...) { println(__VA_ARGS__); __debugbreak(); }
-	#define displayfln(...) println(__VA_ARGS__)
-	#define displayf(...) vsprintf(__VA_ARGS__)
-	#define debugbreak(x) { x; __debugbreak(); }
-	#define verifyf(x, ...) (x ? true : (println(__VA_ARGS__), false))
-#else // ASSERT
-	#define assertOnly(x)
-	#define println(...)
-	#define fatalAssert(x)
-	#define fatalAssertf(x, ...)
-	#define assertf(x, ...)
-	#define fatalf(...)
-	#define displayfln(...)
-	#define displayf(...)
-	#define debugbreak(x)
-	#define verifyf(x, ...) x
-#endif // ASSERT
-#if ASSERT >= 2
-	#define assertf2(x, ...) { if(!(x)) { println("%s, %s, line %d:", __FILE__, __FUNCTION__, __LINE__); println(__VA_ARGS__); } }
-#else // ASSERT >= 2
-	#define assertf2(x, ...)
-#endif // ASSERT >= 2
+#define ASSERT 1 // only allow level 1 assert
 #endif // _DEBUG
+
+#if defined(ASSERT)
+#define assertOnly(x) x
+#define println(...) (vsprintf("[%d:%d] ", gFrameCountSinceGameStart, gCurrentFramebufferIndex), (vsprintf(__VA_ARGS__), vsprintf("\n")))
+#define fatalAssert(x) { if(!(x)) __debugbreak(); }
+#define fatalAssertf(x, ...) { if(!(x)) { println(__VA_ARGS__); __debugbreak();} }
+#define assertf(x, ...) { if(!(x)) { println("%s, %s, line %d:", __FILE__, __FUNCTION__, __LINE__); println(__VA_ARGS__); } }
+#define fatalf(...) { println(__VA_ARGS__); __debugbreak(); }
+#define displayfln(...) println(__VA_ARGS__)
+#define displayf(...) vsprintf(__VA_ARGS__)
+#define debugbreak(x) { x; __debugbreak(); }
+#define verifyf(x, ...) (x ? true : (println(__VA_ARGS__), false))
+#else // defined(ASSERT)
+#define assertOnly(x)
+#define println(...)
+#define fatalAssert(x)
+#define fatalAssertf(x, ...)
+#define assertf(x, ...)
+#define fatalf(...)
+#define displayfln(...)
+#define displayf(...)
+#define debugbreak(x)
+#define verifyf(x, ...) x
+#endif // ASSERT
+
+#if defined(ASSERT) && ASSERT >= 2
+#define assertf2(...) assertf(__VA_ARGS__)
+#else // ASSERT >= 2
+#define assertf2(x)
+#endif // ASSERT >= 2
 
 // d3d12 macros
 #define SAFE_RELEASE(p, checkOnly) { if (checkOnly) { fatalAssertf(p==nullptr, "pointer %p is not null", p); } else if (p!=nullptr) { p->Release(); p = nullptr; } }
@@ -222,6 +231,10 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) { return (ENUMTYPE &)(((_
 #define UINT2		XMUINT2
 #define UINT3		XMUINT3
 #define UINT4		XMUINT4
+#define INT			int
+#define INT2		XMINT2
+#define INT3		XMINT3
+#define INT4		XMINT4
 
 #define SHARED_HEADER_CPP
 #include "SharedHeader.h"

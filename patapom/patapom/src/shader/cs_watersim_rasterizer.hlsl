@@ -16,12 +16,12 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 		WaterSimParticle particle = gWaterSimParticleBuffer[particleIndex];
 		if (particle.mAlive)
 		{
-			float4 posWorld = float4(particle.mPos + uPass.mGridOffset, 1.0f);
+			float4 posWorld = float4(particle.mPos * uPass.mGridRenderScale + uPass.mGridRenderOffset, 1.0f);
 			float4 posView = mul(uPass.mView, posWorld);
 			float4 pos = mul(uPass.mProj, posView);
 			pos /= pos.w;
 			pos.xy = ((pos.xy + 1.0f.xx) * float2(0.5f, -0.5f) + float2(0.0f, 1.0f)) * uPass.mWaterSimBackbufferSize;
-			uint depth = 127; // PackWaterSimParticleDepth(pos.z);
+			uint depth = PackWaterSimParticleDepth(posView.z);
 			for (uint i = 0; i < 5; i++)
 			{
 				for (uint j = 0; j < 5; j++)
@@ -30,8 +30,10 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 					if (screenPos.x > 0 && screenPos.x < uPass.mWaterSimBackbufferSize.x &&
 						screenPos.y > 0 && screenPos.y < uPass.mWaterSimBackbufferSize.y)
 					{
-						InterlockedMax(gWaterSimDepthBufferMax[screenPos], depth);
-						InterlockedMin(gWaterSimDepthBufferMin[screenPos], depth);
+						if (depth > gWaterSimDepthBufferMax[screenPos])
+							InterlockedMax(gWaterSimDepthBufferMax[screenPos], depth);
+						if (depth < gWaterSimDepthBufferMin[screenPos])
+							InterlockedMin(gWaterSimDepthBufferMin[screenPos], depth);
 					}
 				}
 			}

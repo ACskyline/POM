@@ -1,15 +1,19 @@
 #ifndef SHADERINCLUDE_H
 #define SHADERINCLUDE_H
 
-#define FLOAT4 float4
-#define FLOAT3 float3
-#define FLOAT2 float2
-#define FLOAT4X4 float4x4
-#define FLOAT3X3 float3x3
-#define UINT uint
-#define UINT2 uint2
-#define UINT3 uint3
-#define UINT4 uint4
+#define FLOAT4      float4
+#define FLOAT3      float3
+#define FLOAT2      float2
+#define FLOAT4X4    float4x4
+#define FLOAT3X3    float3x3
+#define UINT        uint
+#define UINT2       uint2
+#define UINT3       uint3
+#define UINT4       uint4
+#define INT         int
+#define INT2        int2
+#define INT3        int3
+#define INT4        int4
 
 #define IDENTITY_3X3 float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1)
 
@@ -123,6 +127,11 @@ struct VS_OUTPUT
 };
 #endif
 
+void DiscardVertex(inout VS_OUTPUT vert)
+{
+    vert.pos = float4(-1, -1, -1, 1);
+}
+
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 ///////////////// VS /////////////////
 
@@ -156,10 +165,7 @@ struct PS_OUTPUT
 //    |       |
 //    |       |
 //   0,0-----1,0
-//float2 TransformUV(float2 uv)
-//{
-//    return float2(uv.x, 1.0f - uv.y);
-//}
+
 #define TransformUV(uv) float2(uv.x, 1.0f - uv.y)
 
 float3 GetSunPos(float azimuth, float altitude, float distance, float3 offset)
@@ -502,5 +508,4 @@ float3x3 Inverse(float3x3 m)
     else
         return ret / det;
 }
-
 #endif

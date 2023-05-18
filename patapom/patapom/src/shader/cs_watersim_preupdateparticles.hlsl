@@ -46,7 +46,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 							InterLockedAddCellVelocityX(dIndex, weightedVelocity.x);
 							InterLockedAddCellVelocityY(dIndex, weightedVelocity.y);
 							InterLockedAddCellVelocityZ(dIndex, weightedVelocity.z);
-							InterlockedAdd(gWaterSimCellBuffer[dIndex].mParticleCount, 1);
+							// InterlockedAdd(gWaterSimCellBuffer[dIndex].mParticleCount, 1);
 						}
 					}
 				}

@@ -11,7 +11,7 @@
 PS_OUTPUT main(VS_OUTPUT input)
 {
 	PS_OUTPUT output;
-	float2 mouseScreenPos = float2(uScene.mPathTracerDebugPixelX, uScene.mPathTracerDebugPixelY);
+	float2 mouseScreenPos = float2(uScene.mMouse.x, uScene.mMouse.y);
 	float2 screenPos = input.pos.xy;
 	float dist = length(mouseScreenPos - screenPos);
 	if (dist < CURSOR_RADIUS) // 10 pixel radius

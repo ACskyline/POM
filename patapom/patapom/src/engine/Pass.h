@@ -127,7 +127,7 @@ protected:
 
 	// default constructor for using in a container
 	Pass();
-	// common class can't be instantiated
+	// base class can't be instantiated
 	Pass(const string& debugName, bool useRenderTarget, bool useDepthStencil, bool shareMeshesWithPathTracer, PrimitiveType primitiveType, int uniformSizeInByte);
 	void CreatePass(const string& debugName, bool useRenderTarget, bool useDepthStencil, bool shareMeshesWithPathTracer, PrimitiveType primitiveType, int uniformSizeInByte);
 	void ReallocateDescriptorsForShaderResources(DescriptorHeap::Handle srvDescriptorHeapHandle);
@@ -197,18 +197,17 @@ public:
 	}
 
 	PassCommon(const string& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false, PrimitiveType primitiveType = PrimitiveType::TRIANGLE) :
-		Pass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer, primitiveType, sizeof(UniformType))
+		mPassUniform(), Pass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer, primitiveType, sizeof(UniformType))
+	{
+	}
+
+	virtual ~PassCommon() override
 	{
 	}
 
 	void CreatePass(const string& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false, PrimitiveType primitiveType = PrimitiveType::TRIANGLE)
 	{
 		Pass::CreatePass(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer, primitiveType, sizeof(UniformType));
-	}
-
-	virtual ~PassCommon() override
-	{
-
 	}
 
 	virtual void UpdateDynamicUniformBuffer() override
@@ -266,4 +265,19 @@ public:
 	UniformType mPassUniform;
 };
 
-typedef PassCommon<PassUniformDefault> PassDefault;
+typedef PassCommon<PassUniformDefault> PassCommonDefault;
+
+// typedef can't be forward declared, so we create a class for it
+class PassDefault : public PassCommonDefault
+{
+	
+public:
+	PassDefault(const string& debugName, bool useRenderTarget = true, bool useDepthStencil = true, bool shareMeshesWithPathTracer = false, PrimitiveType primitiveType = PrimitiveType::TRIANGLE) :
+		PassCommonDefault(debugName, useRenderTarget, useDepthStencil, shareMeshesWithPathTracer, primitiveType)
+	{
+	}
+
+	virtual ~PassDefault() override
+	{
+	}
+};

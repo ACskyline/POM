@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "Store.h"
 #include "Light.h"
+#include "DeferredLighting.h"
 #include <algorithm>
 
 CommandLineArg PARAM_printBvh("-printBvh");
@@ -162,7 +163,7 @@ void PathTracer::InitPathTracer(Store& store, Scene& scene)
 	sPathTracerDebugCubePass.SetCamera(&gCameraMain);
 
 	sPathTracerDebugFullscreenPass.AddMesh(&gFullscreenTriangle);
-	sPathTracerDebugFullscreenPass.AddShader(&gDeferredVS);
+	sPathTracerDebugFullscreenPass.AddShader(&DeferredLighting::gDeferredVS);
 	sPathTracerDebugFullscreenPass.AddShader(&sPathTracerDebugFullscreenPS);
 	sPathTracerDebugFullscreenPass.AddRenderTexture(&sDebugBackbufferPT, 0, 0, BlendState::AlphaBlend());
 	sPathTracerDebugFullscreenPass.SetCamera(&gCameraMain);
@@ -336,14 +337,14 @@ inline void CentroidOfAABB(const AABB& aabb, XMFLOAT3& centroid)
 inline void TransformAABB(const XMFLOAT4X4& mat, const AABB& in, AABB& out)
 {
 	// transformed AABB is not necessarily an AABB anymore, so we need to recalculate the AABB
-	XMVECTOR A = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMin.x, in.mMin.y, in.mMin.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR B = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMin.x, in.mMin.y, in.mMax.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR C = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMin.x, in.mMax.y, in.mMin.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR D = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMin.x, in.mMax.y, in.mMax.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR E = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMax.x, in.mMin.y, in.mMin.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR F = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMax.x, in.mMin.y, in.mMax.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR G = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMax.x, in.mMax.y, in.mMin.z, 1.0f)), XMLoadFloat4x4(&mat));
-	XMVECTOR H = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(in.mMax.x, in.mMax.y, in.mMax.z, 1.0f)), XMLoadFloat4x4(&mat));
+	XMVECTOR A = XMVector4Transform(XMVectorSet(in.mMin.x, in.mMin.y, in.mMin.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR B = XMVector4Transform(XMVectorSet(in.mMin.x, in.mMin.y, in.mMax.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR C = XMVector4Transform(XMVectorSet(in.mMin.x, in.mMax.y, in.mMin.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR D = XMVector4Transform(XMVectorSet(in.mMin.x, in.mMax.y, in.mMax.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR E = XMVector4Transform(XMVectorSet(in.mMax.x, in.mMin.y, in.mMin.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR F = XMVector4Transform(XMVectorSet(in.mMax.x, in.mMin.y, in.mMax.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR G = XMVector4Transform(XMVectorSet(in.mMax.x, in.mMax.y, in.mMin.z, 1.0f), XMLoadFloat4x4(&mat));
+	XMVECTOR H = XMVector4Transform(XMVectorSet(in.mMax.x, in.mMax.y, in.mMax.z, 1.0f), XMLoadFloat4x4(&mat));
 	XMStoreFloat3(&out.mMin, XMVectorMin(A, XMVectorMin(B, XMVectorMin(C, XMVectorMin(D, XMVectorMin(E, XMVectorMin(F, XMVectorMin(G, H))))))));
 	XMStoreFloat3(&out.mMax, XMVectorMax(A, XMVectorMax(B, XMVectorMax(C, XMVectorMax(D, XMVectorMax(E, XMVectorMax(F, XMVectorMax(G, H))))))));
 }
