@@ -138,6 +138,12 @@
     <FxCompile Include="..\patapom\src\shader\ps_watersim_rasterizer.hlsl">
       <Filter>src</Filter>
     </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\ps_watersim_p2g.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
+    <FxCompile Include="..\patapom\src\shader\vs_watersim_p2g.hlsl">
+      <Filter>src</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\patapom\src\shader\Lighting.hlsli">

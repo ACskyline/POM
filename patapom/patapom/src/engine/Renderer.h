@@ -162,8 +162,8 @@ struct BlendState {
 			BlendState::BlendFactor::ONE,
 			BlendState::BlendFactor::ONE,
 			BlendState::BlendOp::ADD,
-			BlendState::BlendFactor::ZERO,
-			BlendState::BlendFactor::ZERO,
+			BlendState::BlendFactor::ONE,
+			BlendState::BlendFactor::ONE,
 			BlendState::BlendOp::ADD,
 			BlendState::LogicOp::NOOP,
 			BlendState::WriteMask::RED | BlendState::WriteMask::GREEN | BlendState::WriteMask::BLUE | BlendState::WriteMask::ALPHA
@@ -597,6 +597,7 @@ public:
 	static DXGI_FORMAT TranslateFormatToRead(Format format, ReadFrom readFrom);
 	static D3D12_PRIMITIVE_TOPOLOGY_TYPE TranslatePrimitiveTopologyType(PrimitiveType primitiveType);
 	static D3D12_PRIMITIVE_TOPOLOGY TranslatePrimitiveTopology(PrimitiveType primitiveType);
+	static u8 GetPrimitiveMinElementCount(PrimitiveType primitiveType);
 	static D3D12_DESCRIPTOR_HEAP_TYPE TranslateDescriptorHeapType(DescriptorHeap::Type type);
 	static D3D12_FILTER ExtractFilter(Sampler sampler);
 	static D3D12_TEXTURE_ADDRESS_MODE TranslateAddressMode(Sampler::AddressMode addressMode);
@@ -764,6 +765,7 @@ private:
 		ID3D12PipelineState** pso,
 		ID3D12RootSignature* rootSignature,
 		D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
+		D3D12_INPUT_LAYOUT_DESC inputLayoutDesc,
 		D3D12_BLEND_DESC blendDesc,
 		D3D12_DEPTH_STENCIL_DESC dsDesc,
 		const vector<DXGI_FORMAT>& rtvFormat,

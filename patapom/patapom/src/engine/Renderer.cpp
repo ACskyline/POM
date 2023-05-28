@@ -652,7 +652,7 @@ D3D12_PRIMITIVE_TOPOLOGY_TYPE Renderer::TranslatePrimitiveTopologyType(Primitive
 	case PrimitiveType::TRIANGLE:
 		return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	default:
-		fatalf("wring primitive type");
+		fatalf("wrong primitive type");
 	}
 	return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 }
@@ -668,9 +668,25 @@ D3D12_PRIMITIVE_TOPOLOGY Renderer::TranslatePrimitiveTopology(PrimitiveType prim
 	case PrimitiveType::TRIANGLE:
 		return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	default:
-		fatalf("wring primitive type");
+		fatalf("wrong primitive type");
 	}
 	return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+}
+
+u8 Renderer::GetPrimitiveMinElementCount(PrimitiveType primitiveType)
+{
+	switch (primitiveType)
+	{
+	case PrimitiveType::POINT:
+		return 1;
+	case PrimitiveType::LINE:
+		return 2;
+	case PrimitiveType::TRIANGLE:
+		return 3;
+	default:
+		fatalf("wrong primitive type");
+	}
+	return 1;
 }
 
 D3D12_FILTER Renderer::ExtractFilter(Sampler sampler)
@@ -991,7 +1007,7 @@ bool Renderer::InitRenderer(
 {
 	mInitialized = false;
 	mFrameCount = frameCount;
-	mFrameCountSinceGameStart = 1;
+	mFrameCountSinceGameStart = 0;
 	mLastFrameTimeInSecond = 1.0f;
 	mMultiSampleCount = multiSampleCount;
 	mWidth = width;
@@ -1855,12 +1871,21 @@ void Renderer::CreateGraphicsPSO(
 	if (multiSampleCount < 0)
 		multiSampleCount = mMultiSampleCount;
 
+
+	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc = { nullptr, 0 };
+	if (pass.GetMeshes().size())
+	{
+		inputLayoutDesc.NumElements = COUNT_OF(VertexInputLayout);
+		inputLayoutDesc.pInputElementDescs = VertexInputLayout;
+	}
+
 	// create PSO
 	CreateGraphicsPSOInternal(
 		mDevice,
 		pso,
 		rootSignature,
 		primitiveType,
+		inputLayoutDesc,
 		blendDesc,
 		depthStencilDesc,
 		rtvFormatVec,
@@ -1895,6 +1920,7 @@ void Renderer::CreateGraphicsPSOInternal(
 	ID3D12PipelineState** pso,
 	ID3D12RootSignature* rootSignature,
 	D3D12_PRIMITIVE_TOPOLOGY_TYPE primitiveType,
+	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc,
 	D3D12_BLEND_DESC blendDesc,
 	D3D12_DEPTH_STENCIL_DESC dsDesc,
 	const vector<DXGI_FORMAT>& rtvFormatVec,
@@ -1907,26 +1933,6 @@ void Renderer::CreateGraphicsPSOInternal(
 	Shader* pixelShader,
 	const string& name)
 {
-	// create input layout
-	// fill out an input layout description structure
-	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc = {};
-
-	// we can get the number of elements in an array by "sizeof(array) / sizeof(arrayElementType)"
-	inputLayoutDesc.NumElements = _countof(VertexInputLayout);
-	inputLayoutDesc.pInputElementDescs = VertexInputLayout;
-
-	// create a pipeline state object (PSO)
-
-	// In a real application, you will have many pso's. for each different shader
-	// or different combinations of shaders, different blend states or different rasterizer states,
-	// different topology types (point, line, triangle, patch), or a different number
-	// of render targets you will need a pso
-
-	// VS is the only required shader for a pso. You might be wondering when a case would be where
-	// you only set the VS. It's possible that you have a pso that only outputs data with the stream
-	// output, and not on a render target, which means you would not need anything after the stream
-	// output.
-
 	DXGI_SAMPLE_DESC sampleDesc = {};
 	sampleDesc.Count = multiSampleCount;
 	sampleDesc.Quality = 0;
@@ -1950,7 +1956,7 @@ void Renderer::CreateGraphicsPSOInternal(
 	// For feature levels 9.1, 9.2, 9.3, and 10.0, if you set MultisampleEnable to FALSE, 
 	// the runtime renders all points, lines, and triangles without anti - aliasing even for render targets with a sample count greater than 1. 
 	// For feature levels 10.1 and higher, the setting of MultisampleEnable has no effect on points and triangles with regard to MSAA and impacts only the selection of the line - rendering algorithms.
-	//psoDesc.RasterizerState.MultisampleEnable = multiSampleCount > 1;
+	// psoDesc.RasterizerState.MultisampleEnable = multiSampleCount > 1;
 	psoDesc.BlendState = blendDesc;
 	psoDesc.NumRenderTargets = rtvFormatVec.size();
 	psoDesc.DepthStencilState = dsDesc;// CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT); // a default depth stencil state
@@ -2013,9 +2019,10 @@ void Renderer::RecordGraphicsPassInstanced(
 	{
 		if (pass.GetShaderTarget(i).IsRenderTargetUsed())
 		{
-			fatalAssertf(pass.GetShaderTarget(i).GetHeight() == pass.GetCamera()->GetHeight() &&
-				pass.GetShaderTarget(i).GetWidth() == pass.GetCamera()->GetWidth(),
-				"render texture's dimension doesn't match the viewport's dimension!");
+			fatalAssertf(!pass.GetCamera() ||
+				(pass.GetShaderTarget(i).GetHeight() == pass.GetCamera()->GetHeight() &&
+				pass.GetShaderTarget(i).GetWidth() == pass.GetCamera()->GetWidth()),
+				"render texture's dimension doesn't match the camera's dimension! (this should be allowed but I don't see any valid usage for now so I'm keeping it as an error.)");
 			if (renderTargetCount < 8)
 			{
 				if (pass.GetShaderTarget(i).mRenderTexture)
@@ -2053,11 +2060,12 @@ void Renderer::RecordGraphicsPassInstanced(
 	fatalAssert(depthStencilCount == pass.GetDepthStencilCount());
 	fatalAssert(depthStencilIndex == pass.GetDepthStencilIndex());
 
-	// if the pass has outputs but none are bound, use swap chain back buffer instead
+	// if the pass use outputs but none are bound, use swap chain back buffer instead
 	if (pass.GetRenderTargetCount() == 0 && pass.UseRenderTarget())
 	{
-		fatalAssertf(mHeight == pass.GetCamera()->GetHeight() &&
-			mWidth == pass.GetCamera()->GetWidth(),
+		fatalAssertf(!pass.GetCamera() ||
+			(mHeight == pass.GetCamera()->GetHeight() &&
+			mWidth == pass.GetCamera()->GetWidth()),
 			"render texture's dimension doesn't match the viewport's dimension!");
 		frameRtvHandles.clear();
 		frameRtvHandles.push_back(IsResolveNeeded() ? mPreResolvedRtvHandles[mCurrentFramebufferIndex].GetCpuHandle() : mRtvHandles[mCurrentFramebufferIndex].GetCpuHandle());
@@ -2065,8 +2073,9 @@ void Renderer::RecordGraphicsPassInstanced(
 
 	if (pass.GetDepthStencilCount() == 0 && pass.UseDepthStencil())
 	{
-		fatalAssertf(mHeight == pass.GetCamera()->GetHeight() &&
-			mWidth == pass.GetCamera()->GetWidth(),
+		fatalAssertf(!pass.GetCamera() ||
+			(mHeight == pass.GetCamera()->GetHeight() &&
+			mWidth == pass.GetCamera()->GetWidth()),
 			"render texture's dimension doesn't match the viewport's dimension!");
 		frameDsvHandle = mDsvHandles[mCurrentFramebufferIndex].GetCpuHandle(); 
 		// assuming backbuffer always supports depth stencil buffer
@@ -2076,8 +2085,8 @@ void Renderer::RecordGraphicsPassInstanced(
 
 	int numViewPorts = frameRtvHandles.size() > 0 ? frameRtvHandles.size() : 1;
 	// duplicate the same viewport and scissor rect for all render targets, we don't support different viewports at the moment
-	vector<D3D12_VIEWPORT> frameViewPorts(numViewPorts, TranslateViewport(pass.GetCamera()->GetViewport()));
-	vector<D3D12_RECT> frameScissorRects(numViewPorts, TranslateScissorRect(pass.GetCamera()->GetScissorRect()));
+	vector<D3D12_VIEWPORT> frameViewPorts(numViewPorts, TranslateViewport(pass.GetViewport()));
+	vector<D3D12_RECT> frameScissorRects(numViewPorts, TranslateScissorRect(pass.GetScissorRect()));
 	commandList.GetImpl()->OMSetRenderTargets(frameRtvHandles.size(), frameRtvHandles.data(), FALSE, depthStencilIndex >= 0 ? &frameDsvHandle : nullptr);
 	commandList.GetImpl()->RSSetViewports(frameViewPorts.size(), frameViewPorts.data()); // set the viewports
 	commandList.GetImpl()->RSSetScissorRects(frameScissorRects.size(), frameScissorRects.data()); // set the scissor rects
@@ -2143,22 +2152,34 @@ void Renderer::RecordGraphicsPassInstanced(
 		commandList.GetImpl()->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::PASS, RegisterType::UAV), pass.GetUavDescriptorHeapHandle(mCurrentFramebufferIndex).GetGpuHandle());
 	}
 
-	int meshCount = pass.GetMeshVec().size();
-	for (int i = 0; i < meshCount; i++)
+	int meshCount = pass.GetMeshes().size();
+	if (meshCount)
 	{
-		const Mesh* mesh = pass.GetMeshVec()[i];
-		PrimitiveType meshPrimitiveType = mesh->GetPrimitiveType();
-		if (verifyf(meshPrimitiveType == pass.GetPrimitiveType(), "mesh has a different primitive type from pass"))
+		for (int i = 0; i < meshCount; i++)
 		{
-			commandList.GetImpl()->IASetPrimitiveTopology(Renderer::TranslatePrimitiveTopology(meshPrimitiveType));
-			commandList.GetImpl()->IASetVertexBuffers(0, 1, &mesh->GetVertexBufferView());
-			commandList.GetImpl()->IASetIndexBuffer(&mesh->GetIndexBufferView());
-			commandList.GetImpl()->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::CBV), mesh->GetUniformBufferGpuAddress(mCurrentFramebufferIndex));
-			commandList.GetImpl()->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::SRV), mesh->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFramebufferIndex).GetGpuHandle());
-			string passFullname = pass.GetDebugName() + ":" + pass.GetGraphicShaderNames();
-			GPU_MARKER(commandList, "%s", passFullname.c_str());
-			commandList.GetImpl()->DrawIndexedInstanced(mesh->GetIndexCount(), instanceCount, 0, 0, 0);
+			const Mesh* mesh = pass.GetMeshes()[i];
+			PrimitiveType meshPrimitiveType = mesh->GetPrimitiveType();
+			if (verifyf(meshPrimitiveType == pass.GetPrimitiveType(), "mesh has a different primitive type from pass"))
+			{
+				commandList.GetImpl()->IASetPrimitiveTopology(Renderer::TranslatePrimitiveTopology(meshPrimitiveType));
+				commandList.GetImpl()->IASetVertexBuffers(0, 1, &mesh->GetVertexBufferView());
+				commandList.GetImpl()->IASetIndexBuffer(&mesh->GetIndexBufferView());
+				commandList.GetImpl()->SetGraphicsRootConstantBufferView(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::CBV), mesh->GetUniformBufferGpuAddress(mCurrentFramebufferIndex));
+				commandList.GetImpl()->SetGraphicsRootDescriptorTable(GetUniformSlot(RegisterSpace::OBJECT, RegisterType::SRV), mesh->GetCbvSrvUavDescriptorHeapTableHandle(mCurrentFramebufferIndex).GetGpuHandle());
+				string passFullname = pass.GetDebugName() + ":" + pass.GetGraphicShaderNames();
+				GPU_MARKER(commandList, "%s", passFullname.c_str());
+				commandList.GetImpl()->DrawIndexedInstanced(mesh->GetIndexCount(), instanceCount, 0, 0, 0);
+			}
 		}
+	}
+	else
+	{
+		commandList.GetImpl()->IASetPrimitiveTopology(Renderer::TranslatePrimitiveTopology(pass.GetPrimitiveType()));
+		commandList.GetImpl()->IASetVertexBuffers(0, 0, nullptr);
+		commandList.GetImpl()->IASetIndexBuffer(nullptr);
+		string passFullname = pass.GetDebugName() + ":" + pass.GetGraphicShaderNames();
+		GPU_MARKER(commandList, "%s", passFullname.c_str());
+		commandList.GetImpl()->DrawIndexedInstanced(GetPrimitiveMinElementCount(pass.GetPrimitiveType()), instanceCount, 0, 0, 0);
 	}
 }
 

@@ -171,7 +171,6 @@ void LoadStores()
 	gPassPathTracerBlit.AddTexture(&PathTracer::sDebugBackbufferPT);
 	
 	// shader toy debug
-	gPassShadertoyDebug.SetCamera(&gCameraDummy);
 	gPassShadertoyDebug.AddMesh(&gFullscreenTriangle);
 	gPassShadertoyDebug.AddShader(&DeferredLighting::gDeferredVS);
 	gPassShadertoyDebug.AddShader(&gShadertoyDebugPS);
@@ -969,6 +968,11 @@ void UpdateUI(bool initOnly = false)
 			ImGui::Checkbox("enable debug", &WaterSim::sEnableDebugCell);
 			ImGui::Checkbox("enable debug velocity", &WaterSim::sEnableDebugCellVelocity);
 			ImGui::Checkbox("water sim cs rasterizer", &WaterSim::sUseComputeRasterizer);
+
+			if (ImGui::Checkbox("water sim rasterizer P2G", &WaterSim::sUseRasterizerP2G))
+			{
+				WaterSim::SetUseRasterizerP2G(WaterSim::sUseRasterizerP2G);
+			}
 
 			if (ImGui::Checkbox("apply force", &waterSimApplyForce))
 			{

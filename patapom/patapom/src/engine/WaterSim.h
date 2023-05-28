@@ -10,6 +10,7 @@ public:
 	enum WaterSimMode { FLIP, FLIP_STEP, MPM, MPM_STEP, WATERSIM_MODE_COUNT };
 	enum WaterSimPassType { 
 		P2G, 
+		P2G_RASTERIZER,
 		PRE_UPDATE_GRID, 
 		UPDATE_GRID,
 		PROJECT,
@@ -28,6 +29,8 @@ public:
 	};
 	static PassWaterSim sPassWaterSim[WATERSIM_PASSTYPE_COUNT];
 	static Shader sWaterSimP2GCS;
+	static Shader sWaterSimP2GVS;
+	static Shader sWaterSimP2GPS;
 	static Shader sWaterSimPreUpdateGridCS;
 	static Shader sWaterSimUpdateGridCS;
 	static Shader sWaterSimProjectCS;
@@ -59,6 +62,8 @@ public:
 	static const int sParticleThreadGroupCount;
 	static const int sBackbufferWidth;
 	static const int sBackbufferHeight;
+	static const int sCellRenderTextureWidth;
+	static const int sCellRenderTextureHeight;
 	static const float sCellSize;
 	static XMFLOAT3 sParticleSpawnSourcePos;
 	static XMFLOAT3 sParticleSpawnSourceSpan;
@@ -66,6 +71,7 @@ public:
 	static XMFLOAT3 sExplosionForceScale;
 	static WaterSimMode sWaterSimMode;
 	static bool sUseComputeRasterizer;
+	static bool sUseRasterizerP2G;
 	static bool sApplyExplosion;
 	static int sAliveParticleCount;
 	static float sTimeStepScale;
@@ -87,6 +93,7 @@ public:
 	static RenderTexture sDebugBackbuffer;
 	static RenderTexture sDepthBufferMax;
 	static RenderTexture sDepthBufferMin;
+	static RenderTexture sCellRenderTexture;
 	static std::vector<WaterSimParticle> sParticles;
 	static std::vector<WaterSimCellFace> sCellFaces;
 	static std::vector<WaterSimCell> sCells;
@@ -110,4 +117,6 @@ public:
 	static void SetExplosionForceScale(XMFLOAT3 explosionForceScale);
 	static void SetApplyExplosion(bool applyExplosion);
 	static void SetWaterSimMode(int mode);
+	static void SetUseRasterizerP2G(bool useRasterizerP2G);
+	static int GetCellCount() { return sCellCountX * sCellCountY * sCellCountZ; }
 };

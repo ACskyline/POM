@@ -6,6 +6,7 @@
 StructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(t0, SPACE(PASS));
 RWStructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(u0, SPACE(PASS));
 RWStructuredBuffer<WaterSimParticle> gWaterSimParticleBuffer : register(u1, SPACE(PASS));
+RWTexture2D<float4> gWaterSimCellRT : register(u2, SPACE(PASS));
 
 #include "WaterSimCellFaceResourceUtil.hlsli"
 
@@ -108,7 +109,11 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 							{
 								float dWeight = weights[dx].x * weights[dy].y * weights[dz].z;
 								float3 dCellDiff = (dIndexXYZ + 0.5f) * uPass.mCellSize - particle.mPos;
-								float3 weightedVelocity = dWeight * gWaterSimCellBuffer[dIndex].mVelocity;
+								float3 weightedVelocity = dWeight;
+								if (uPass.mUseRasterizerP2G)
+									weightedVelocity *= gWaterSimCellRT.Load(CellIndexToPixelIndices(dIndex)).rgb;
+								else
+									weightedVelocity *= gWaterSimCellBuffer[dIndex].mVelocity;
 								float3x3 b;
 								b._m00_m01_m02 = weightedVelocity.x * dCellDiff; // row 0
 								b._m10_m11_m12 = weightedVelocity.y * dCellDiff; // row 1
@@ -125,6 +130,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep, 2.0f);
 				particle.mCellIndexXYZ = uint4(indexXYZ, index);
 				particle.mF = mul(IDENTITY_3X3 + particle.mC * WaterSimTimeStep, particle.mF);
+				particle.mJ = determinant(particle.mF);
 
 				// write back
 				gWaterSimParticleBuffer[particleIndex] = particle;

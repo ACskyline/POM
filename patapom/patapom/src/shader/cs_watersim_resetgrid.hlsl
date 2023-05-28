@@ -7,6 +7,7 @@ RWStructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(u0, SPACE(PASS))
 RWStructuredBuffer<WaterSimCell> gWaterSimCellBufferTemp : register(u1, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(u2, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBufferTemp : register(u3, SPACE(PASS));
+RWTexture2D<float4> gWaterSimCellRT : register(u4, SPACE(PASS));
 
 [numthreads(WATERSIM_THREAD_PER_THREADGROUP_X, WATERSIM_THREAD_PER_THREADGROUP_Y, WATERSIM_THREAD_PER_THREADGROUP_Z)]
 void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
@@ -31,6 +32,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 			{
 				cell.mPressure = gWaterSimCellBuffer[cellIndex].mPressure;
 			}
+			gWaterSimCellRT[CellIndexToPixelIndices(cellIndex)] = 0.0f.xxxx;
 			gWaterSimCellBuffer[cellIndex] = cell;
 			gWaterSimCellBufferTemp[cellIndex] = cell;
 		}

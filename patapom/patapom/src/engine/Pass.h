@@ -64,16 +64,20 @@ public:
 	int GetWriteTargetCount();
 	vector<ShaderResource*>& GetShaderResources();
 	vector<ShaderTarget>& GetShaderTargets();
-	ShaderTarget GetShaderTarget(int i);
+	ShaderTarget GetShaderTarget(int i) const;
 	int GetRenderTargetCount();
 	int GetDepthStencilCount();
 	int GetDepthStencilIndex();
 	bool UseRenderTarget();
 	bool UseDepthStencil();
 	bool ShareMeshesWithPathTracer();
-	Camera* GetCamera();
+	u32 GetWidth() const;
+	u32 GetHeight() const;
+	Viewport GetViewport();
+	ScissorRect GetScissorRect();
+	Camera* GetCamera() const;
 	Scene* GetScene();
-	vector<Mesh*>& GetMeshVec();
+	vector<Mesh*>& GetMeshes();
 	ID3D12PipelineState* GetPso();
 	ID3D12RootSignature* GetRootSignature();
 	D3D12_GPU_VIRTUAL_ADDRESS GetUniformBufferGpuAddress(int frameIndex);
@@ -256,10 +260,7 @@ public:
 
 	virtual void UpdateUniform() override
 	{
-		if (mCamera)
-		{
-			mPassUniform.Update(mCamera);
-		}
+		mPassUniform.Update(*this);
 	}
 
 	UniformType mPassUniform;

@@ -1,8 +1,5 @@
 #define VS_OUTPUT_LITE
-
-#ifndef PS_COLOR_OUTPUT_COUNT
 #define PS_COLOR_OUTPUT_COUNT 1
-#endif
 
 #define ENV_MAP_NUM_SAMPLES 128
 #define CUSTOM_PASS_UNIFORM

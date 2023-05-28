@@ -46,6 +46,9 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 
 			particle.mVolume0 = 1.0f / max(density, 0.0001f);
 			particle.mF = IDENTITY_3X3;
+			particle.mJ = determinant(particle.mF);
+
+			// write back
 			gWaterSimParticleBuffer[particleIndex] = particle;
 		} // (particle.mAlive)
 	} // (particleIndex < uPass.mParticleCount)

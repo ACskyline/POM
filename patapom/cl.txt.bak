@@ -1,7 +1,0 @@
-#-printBvh
-#-debugMode=1
-#-buildBvhGpu
-#-loadRawShaders
--sanitizeWaterSim
-#-pixCaptureStartFrame=10
-#-pixCaptureFrameCount=10

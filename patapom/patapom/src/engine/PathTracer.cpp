@@ -67,7 +67,6 @@ RenderTexture						PathTracer::sBackbufferPT(TextureType::TEX_2D, "path tracer b
 RenderTexture						PathTracer::sDebugBackbufferPT(TextureType::TEX_2D, "path tracer debug backbuffer", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 RenderTexture						PathTracer::sDepthbufferWritePT(TextureType::TEX_2D, "path tracer depthbuffer write", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_FLOAT, XMFLOAT4(DEPTH_FAR_REVERSED_Z_SWITCH, 0.0f, 0.0f, 0.0f));
 RenderTexture						PathTracer::sDepthbufferRenderPT(TextureType::TEX_2D, "path tracer depthbuffer read", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::DEPTH, Format::D32_FLOAT, DEPTH_FAR_REVERSED_Z_SWITCH, 0);
-Camera								PathTracer::sCameraDummyPT(XMFLOAT3(0.0f, 0.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f), sBackbufferWidth, sBackbufferHeight, 45.0f, 100.0f, 0.1f);
 
 void PathTracer::InitPathTracer(Store& store, Scene& scene)
 {
@@ -143,7 +142,6 @@ void PathTracer::InitPathTracer(Store& store, Scene& scene)
 	sPathTracerCopyDepthPass.AddShader(&sPathTracerCopyDepthPS);
 	sPathTracerCopyDepthPass.AddTexture(&sDepthbufferWritePT);
 	sPathTracerCopyDepthPass.AddRenderTexture(&sDepthbufferRenderPT, 0, 0, DS_REVERSED_Z_SWITCH);
-	sPathTracerCopyDepthPass.SetCamera(&sCameraDummyPT);
 
 	sPathTracerDebugLinePass.AddMesh(&sPathTracerDebugMeshLine);
 	sPathTracerDebugLinePass.AddShader(&sPathTracerDebugLineVS);
@@ -236,7 +234,6 @@ void PathTracer::InitPathTracer(Store& store, Scene& scene)
 	store.AddTexture(&sDebugBackbufferPT);
 	store.AddTexture(&sDepthbufferWritePT);
 	store.AddTexture(&sDepthbufferRenderPT);
-	store.AddCamera(&sCameraDummyPT);
 
 	// scene uniform
 	scene.mSceneUniform.mPathTracerCurrentTileIndex = 0;
@@ -286,7 +283,7 @@ void PathTracer::InitPathTracer(Store& store, Scene& scene)
 int PathTracer::AddMeshesFromPass(Pass& pass)
 {
 	int trianglePerMeshMax = 0;
-	vector<Mesh*>& meshes = pass.GetMeshVec();
+	vector<Mesh*>& meshes = pass.GetMeshes();
 	for (u32 i = 0; i < meshes.size(); i++)
 	{
 		vector<Texture*>& meshTextures = meshes[i]->GetTextures();

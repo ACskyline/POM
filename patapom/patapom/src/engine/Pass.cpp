@@ -5,21 +5,25 @@
 #include "Scene.h"
 #include "Mesh.h"
 
-void PassUniformDefault::Update(Camera* camera) 
+void PassUniformDefault::Update(const Pass& pass) 
 {
-	mViewProj = camera->GetViewProjMatrix();
-	mViewProjInv = camera->GetViewProjInvMatrix();
-	mView = camera->GetViewMatrix();
-	mViewInv = camera->GetViewInvMatrix();
-	mProj = camera->GetProjMatrix();
-	mProjInv = camera->GetProjInvMatrix();
+	Camera* camera = pass.GetCamera();
+	if (camera)
+	{
+		mViewProj = camera->GetViewProjMatrix();
+		mViewProjInv = camera->GetViewProjInvMatrix();
+		mView = camera->GetViewMatrix();
+		mViewInv = camera->GetViewInvMatrix();
+		mProj = camera->GetProjMatrix();
+		mProjInv = camera->GetProjInvMatrix();
+		mEyePos = camera->GetPosition();
+		mNearClipPlane = camera->GetNearClipPlane();
+		mFarClipPlane = camera->GetFarClipPlane();
+		mFov = camera->GetFov();
+	}
+	mResolution.x = pass.GetWidth();
+	mResolution.y = pass.GetHeight();
 	mPassIndex = 1; // TODO: create a class static counter so that we can save an unique id for each frame
-	mEyePos = camera->GetPosition();
-	mNearClipPlane = camera->GetNearClipPlane();
-	mFarClipPlane = camera->GetFarClipPlane();
-	mResolution.x = camera->GetWidth();
-	mResolution.y = camera->GetHeight();
-	mFov = camera->GetFov();
 }
 
 Pass::Pass() : 
@@ -555,8 +559,6 @@ void Pass::InitPass(
 	DescriptorHeap& dsvDescriptorHeap)
 {
 	fatalAssertf(mScene, "pass '%s' not assigned to any scene", mDebugName.c_str());
-	fatalAssertf(mCamera || mShaders[Shader::ShaderType::COMPUTE_SHADER], "non-compute pass must have a camera");
-	fatalAssertf(mMeshes.size() || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no mesh in this non-compute pass!");
 	// revisit the two asserts below after adding support for compute shaders
 	assertf(mShaders[Shader::VERTEX_SHADER] != nullptr || mShaders[Shader::PIXEL_SHADER] != nullptr || mShaders[Shader::ShaderType::COMPUTE_SHADER], "no vertex/pixel shader in this non-compute pass!");
 
@@ -653,7 +655,7 @@ vector<ShaderTarget>& Pass::GetShaderTargets()
 	return mShaderTargets;
 }
 
-ShaderTarget Pass::GetShaderTarget(int i)
+ShaderTarget Pass::GetShaderTarget(int i) const
 {
 	return mShaderTargets[i];
 }
@@ -688,7 +690,39 @@ bool Pass::ShareMeshesWithPathTracer()
 	return mShareMeshesWithPathTracer;
 }
 
-Camera* Pass::GetCamera()
+u32 Pass::GetWidth() const
+{
+	if (mShaderTargets.size())
+		return GetShaderTarget(0).GetWidth();
+	else
+		return mRenderer->mWidth;
+}
+
+u32 Pass::GetHeight() const
+{
+	if (mShaderTargets.size())
+		return GetShaderTarget(0).GetHeight();
+	else
+		return mRenderer->mHeight;
+}
+
+Viewport Pass::GetViewport()
+{
+	if (mCamera)
+		return mCamera->GetViewport();
+	else
+		return Viewport{ 0, 0, (float)GetWidth(), (float)GetHeight(), 0, 1 };
+}
+
+ScissorRect Pass::GetScissorRect()
+{
+	if (mCamera)
+		return mCamera->GetScissorRect();
+	else
+		return ScissorRect{ 0, 0, (float)GetWidth(), (float)GetHeight() };
+}
+
+Camera* Pass::GetCamera() const
 {
 	return mCamera;
 }
@@ -698,7 +732,7 @@ Scene* Pass::GetScene()
 	return mScene;
 }
 
-vector<Mesh*>& Pass::GetMeshVec()
+vector<Mesh*>& Pass::GetMeshes()
 {
 	return mMeshes;
 }

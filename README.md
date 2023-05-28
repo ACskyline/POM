@@ -24,3 +24,7 @@ A project for parallel occlusion mapping study
 ## FLIP
 
 ![FLIP](./img/flip.gif)
+
+## MLS-MPM
+
+![FLIP](./img/mls-mpm.gif)

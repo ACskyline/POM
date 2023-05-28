@@ -120,6 +120,8 @@
 #define WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z		8
 #define WATERSIM_BACKBUFFER_WIDTH						960
 #define WATERSIM_BACKBUFFER_HEIGHT						960
+#define WATERSIM_CELL_RT_WIDTH							4096
+#define WATERSIM_CELL_RT_HEIGHT							4096
 #define WATERSIM_VIEWDEPTH_MAX							100.0f
 #define WATERSIM_DEPTHBUFFER_MAX						0xffffffff
 
@@ -256,6 +258,7 @@ struct WaterSimParticle
 	UINT3 mCellFaceMaxIndexXYZ;
 	float mAlive;
 	float mVolume0; // mpm
+	float mJ; // mpm
 	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mC; // mpm 
 	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mF; // mpm 
 };
@@ -405,7 +408,7 @@ struct FrameUniform
 	UINT PADDING0;
 };
 
-SHARED_HEADER_CPP_ONLY(class Camera;)
+SHARED_HEADER_CPP_ONLY(class Pass;)
 struct PassUniformDefault
 {
 	FLOAT4X4 mViewProj;
@@ -423,7 +426,27 @@ struct PassUniformDefault
 	UINT PADDING_0;
 	UINT PADDING_1;
 	UINT PADDING_2;
-	SHARED_HEADER_CPP_ONLY(void Update(Camera* camera);)
+#ifdef SHARED_HEADER_CPP
+	void Update(const Pass& pass);
+	PassUniformDefault() :
+		mViewProj(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mViewProjInv(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mView(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mViewInv(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mProj(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mProjInv(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
+		mPassIndex(0),
+		mEyePos(0, 0, 0),
+		mNearClipPlane(0),
+		mFarClipPlane(0),
+		mResolution(0, 0),
+		mFov(0),
+		PADDING_0(0),
+		PADDING_1(0),
+		PADDING_2(0)
+	{
+	}
+#endif
 };
 
 struct PassUniformIBL : PassUniformDefault
@@ -478,9 +501,8 @@ struct PassUniformWaterSim : PassUniformDefault
 	FLOAT3 mGridRenderScale;
 	float mApplyExplosion;
 	UINT mWaterSimMode;
-	UINT PADDING_0;
-	UINT PADDING_1;
-	UINT PADDING_2;
+	UINT2 mCellRenderTextureSize;
+	float mUseRasterizerP2G;
 };
 
 struct ObjectUniform

@@ -1,6 +1,4 @@
-#ifndef PS_COLOR_OUTPUT_COUNT
 #define PS_COLOR_OUTPUT_COUNT 4
-#endif
 
 #include "ShaderInclude.hlsli"
 #include "Lighting.hlsli"

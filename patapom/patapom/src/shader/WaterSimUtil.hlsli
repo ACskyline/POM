@@ -2,14 +2,66 @@
 #define WATERSIM_UTIL_H
 
 #include "../engine/SharedHeader.h"
-#define WATERSIM_VELOCITY_MAX 1000000.0f
+
+#define YOUNGS_MODULUS	10000.0f
+#define POISSON_RATIO	0.2f
+#define ELASTIC_MU		(YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
+#define ELASTIC_LAMDA	YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO))
 
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
 {
 	PassUniformWaterSim uPass;
 };
 
+bool ShouldApplyForce()
+{
+	// time is not correct for the very first frame so we don't apply force
+	return uPass.mApplyForce > 0 && uFrame.mFrameCountSinceGameStart > 0;
+}
+
+struct VS_OUTPUT_P2G
+{
+	float4 pos : SV_POSITION;
+	nointerpolation uint particleIndex : PARTICLE;
+	nointerpolation uint3 dxyz : DXYZ;
+	nointerpolation uint cellIndex : CELL;
+};
+
+// (0,0) ------------ (width,0)
+//   |  0, 1, 2, 3, 4,  ... |
+//   |  width, width+1, ... |
+//   |                      |
+//   |                      |
+//   |                      |
+//   |                      |
+// (0,height) ------- (width,height)
+uint2 CellIndexToPixelIndices(uint cellIndex)
+{
+	return uint2(cellIndex % uPass.mCellRenderTextureSize.x, cellIndex / uPass.mCellRenderTextureSize.x);
+}
+
+// (-1,1) --------------- (1,1)
+//    |  0, 1, 2, 3, 4, ... |
+//    |  width, width+1, ...|
+//    |                     |
+//    |                     |
+//    |                     |
+//    |                     |
+// (-1,-1) -------------- (1,-1)
+float4 CellIndexToPixelCoords(uint cellIndex)
+{
+	return float4((CellIndexToPixelIndices(cellIndex) + 0.5f) / (float)uPass.mCellRenderTextureSize * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.5, 1.0f);
+}
+
 #define WaterSimTimeStep (uPass.mTimeStepScale * uFrame.mLastFrameTimeInSecond)
+#define WATERSIM_VELOCITY_MAX 1000000.0f
+
+float3 ApplyExplosion(float3 particlePos, float3 explosionPos, float3 explosionScale)
+{
+	float3 dir = normalize(particlePos - explosionPos);
+	float distanceScale = 1.0f / max(1.0f, length(particlePos - explosionPos));
+	return max(-WATERSIM_VELOCITY_MAX, min(WATERSIM_VELOCITY_MAX, dir * distanceScale * explosionScale * WaterSimTimeStep));
+}
 
 #define GetCellFaceVar(cellFaceIndex, var) (gWaterSimCellFaceBuffer[cellFaceIndex].var)
 #define SetCellFaceVar(cellFaceIndex, var, val) gWaterSimCellFaceBuffer[cellFaceIndex].var = val

@@ -6,6 +6,7 @@
 StructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBufferSrc : register(t0, SPACE(PASS));
 RWStructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(u0, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBufferDest : register(u1, SPACE(PASS));
+RWTexture2D<float4> gWaterSimCellRT : register(u2, SPACE(PASS));
 
 float ApplyGravity(float velocityY)
 {
@@ -63,17 +64,30 @@ void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, 
 		{
 			if (CellExist(cellIndexXYZ))
 			{
-				WaterSimCell cell = gWaterSimCellBuffer[cellIndex];
-				float mass = asfloat(cell.mMassU32);
+				float mass = 0.0f;
+				float3 velocity = 0.0f.xxx;
+				uint2 texelCoord = CellIndexToPixelIndices(cellIndex);
+				WaterSimCell cell;
+				if (uPass.mUseRasterizerP2G)
+				{
+					mass = gWaterSimCellRT.Load(texelCoord).a;
+					velocity = gWaterSimCellRT.Load(texelCoord).rgb;
+				}
+				else
+				{
+					cell = gWaterSimCellBuffer[cellIndex];
+					mass = asfloat(cell.mMassU32);
+					velocity = float3(asfloat(cell.mVelocityXU32), asfloat(cell.mVelocityYU32), asfloat(cell.mVelocityZU32));
+				}
+				float3 oldVelocity = velocity;
+				
 				if (mass > 0.0f)
 				{
 					// convert momentum to velocity
-					float3 velocity = float3(asfloat(cell.mVelocityXU32), asfloat(cell.mVelocityYU32), asfloat(cell.mVelocityZU32)) / mass;
-
-					cell.mOldVelocity = velocity;
+					velocity /= mass;
 
 					// grid force
-					if (uPass.mApplyForce)
+					if (ShouldApplyForce())
 					{
 						velocity.y = ApplyGravity(velocity.y);
 					}
@@ -85,17 +99,25 @@ void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, 
 						velocity.y = 0.0f;
 					if (faceCellIndexXYZ.z == 0 || faceCellIndexXYZ.z == uPass.mCellCount.z)
 						velocity.z = 0.0f;
+				}
 
+				if (uPass.mUseRasterizerP2G)
+				{
+					gWaterSimCellRT[texelCoord] = float4(velocity, mass);
+				}
+				else
+				{
+					// update grid
 					cell.mMass = mass;
 					cell.mVelocity = velocity;
+					cell.mOldVelocity = oldVelocity;
+					// reset grid for next sub step
+					cell.mMassU32 = 0;
+					cell.mVelocityXU32 = 0;
+					cell.mVelocityYU32 = 0;
+					cell.mVelocityZU32 = 0;
+					gWaterSimCellBuffer[cellIndex] = cell;
 				}
-				// reset grid for next sub step
-				cell.mMassU32 = 0;
-				cell.mVelocityXU32 = 0;
-				cell.mVelocityYU32 = 0;
-				cell.mVelocityZU32 = 0;
-				gWaterSimCellBuffer[cellIndex] = cell;
-
 			}
 		}
 	}

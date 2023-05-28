@@ -1,9 +1,6 @@
 #define VS_OUTPUT_LITE
-
 #define PS_DEPTH_OUTPUT
-#ifndef PS_COLOR_OUTPUT_COUNT
 #define PS_COLOR_OUTPUT_COUNT 0
-#endif
 
 #include "ShaderInclude.hlsli"
 

@@ -24,6 +24,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				particle.mVelocity = float3(0.0f, 0.0f, 0.0f);
 				particle.mAlive = 1.0f;
 				particle.mF = IDENTITY_3X3;
+				particle.mJ = determinant(particle.mF);
 			}
 		}
 		else

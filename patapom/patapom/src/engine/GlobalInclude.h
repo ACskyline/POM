@@ -238,5 +238,4 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) { return (ENUMTYPE &)(((_
 
 #define SHARED_HEADER_CPP
 #include "SharedHeader.h"
-
 #include "CommandLineArg.h"

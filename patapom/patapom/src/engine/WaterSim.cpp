@@ -12,6 +12,8 @@ CommandLineArg PARAM_sanitizeWaterSim("-sanitizeWaterSim");
 
 PassWaterSim WaterSim::sPassWaterSim[WaterSim::WATERSIM_PASSTYPE_COUNT];
 Shader WaterSim::sWaterSimP2GCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_p2g");
+Shader WaterSim::sWaterSimP2GVS(Shader::ShaderType::VERTEX_SHADER, "vs_watersim_p2g");
+Shader WaterSim::sWaterSimP2GPS(Shader::ShaderType::PIXEL_SHADER, "ps_watersim_p2g");
 Shader WaterSim::sWaterSimPreUpdateGridCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_preupdategrid");
 Shader WaterSim::sWaterSimUpdateGridCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_updategrid");
 Shader WaterSim::sWaterSimProjectCS(Shader::ShaderType::COMPUTE_SHADER, "cs_watersim_project");
@@ -43,6 +45,8 @@ const int WaterSim::sParticleCount = WATERSIM_PARTICLE_COUNT_MAX;
 const int WaterSim::sParticleThreadGroupCount = ceil(sParticleCount / (float)(WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X * WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y * WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z));
 const int WaterSim::sBackbufferWidth = WATERSIM_BACKBUFFER_WIDTH;
 const int WaterSim::sBackbufferHeight = WATERSIM_BACKBUFFER_HEIGHT;
+const int WaterSim::sCellRenderTextureWidth = WATERSIM_CELL_RT_WIDTH;
+const int WaterSim::sCellRenderTextureHeight = WATERSIM_CELL_RT_HEIGHT;
 const float WaterSim::sCellSize = 1.0f;
 XMFLOAT3 WaterSim::sParticleSpawnSourcePos;
 XMFLOAT3 WaterSim::sParticleSpawnSourceSpan;
@@ -50,10 +54,11 @@ XMFLOAT3 WaterSim::sExplosionPos;
 XMFLOAT3 WaterSim::sExplosionForceScale = {100.0f, 100.0f, 100.0f};
 WaterSim::WaterSimMode WaterSim::sWaterSimMode = WaterSim::MPM;
 bool WaterSim::sUseComputeRasterizer = false;
+bool WaterSim::sUseRasterizerP2G = true;
 bool WaterSim::sApplyExplosion = false;
 int WaterSim::sAliveParticleCount = 256;
 float WaterSim::sTimeStepScale = 1.0f;
-int WaterSim::sSubStepCount = 5; // 5 is for flip
+int WaterSim::sSubStepCount = 1; // 5 is for flip
 bool WaterSim::sApplyForce = true;
 float WaterSim::sGravitationalAccel = 9.86f;
 float WaterSim::sWaterDensity = 1.0f;
@@ -72,6 +77,7 @@ WriteBuffer WaterSim::sParticleBuffer("water particle buffer", sizeof(WaterSimPa
 RenderTexture WaterSim::sDepthBufferMax(TextureType::TEX_2D, "water sim depth buffer max", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_UINT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 RenderTexture WaterSim::sDepthBufferMin(TextureType::TEX_2D, "water sim depth buffer min", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R32_UINT, XMFLOAT4(WATERSIM_DEPTHBUFFER_MAX, 0.0f, 0.0f, 0.0f));
 RenderTexture WaterSim::sDebugBackbuffer(TextureType::TEX_2D, "water sim debug backbuffer", sBackbufferWidth, sBackbufferHeight, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_UNORM, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
+RenderTexture WaterSim::sCellRenderTexture(TextureType::TEX_2D, "water sim cell rt", sCellRenderTextureWidth, sCellRenderTextureHeight, 1, 1, ReadFrom::COLOR, Format::R16G16B16A16_FLOAT, XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f));
 std::vector<WaterSimParticle> WaterSim::sParticles;
 std::vector<WaterSimCellFace> WaterSim::sCellFaces;
 std::vector<WaterSimCell> WaterSim::sCells;
@@ -84,6 +90,13 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	sPassWaterSim[P2G].AddWriteBuffer(&sCellFaceBuffer);
 	sPassWaterSim[P2G].AddWriteBuffer(&sParticleBuffer);
 
+	// TODO: we actually need point rasterization, one point for one particle
+	sPassWaterSim[P2G_RASTERIZER].CreatePass("p2g rasterizer", true, false, false, PrimitiveType::POINT);
+	sPassWaterSim[P2G_RASTERIZER].AddShader(&sWaterSimP2GVS);
+	sPassWaterSim[P2G_RASTERIZER].AddShader(&sWaterSimP2GPS);
+	sPassWaterSim[P2G_RASTERIZER].AddBuffer(&sParticleBuffer);
+	sPassWaterSim[P2G_RASTERIZER].AddRenderTexture(&sCellRenderTexture, 0, 0, BlendState::AdditiveBlend());
+
 	sPassWaterSim[PRE_UPDATE_GRID].CreatePass("preupdate grid");
 	sPassWaterSim[PRE_UPDATE_GRID].AddShader(&sWaterSimPreUpdateGridCS);
 	sPassWaterSim[PRE_UPDATE_GRID].AddWriteBuffer(&sCellBuffer);
@@ -95,6 +108,7 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	sPassWaterSim[UPDATE_GRID].AddBuffer(&sCellFaceBufferTemp);
 	sPassWaterSim[UPDATE_GRID].AddWriteBuffer(&sCellBuffer);
 	sPassWaterSim[UPDATE_GRID].AddWriteBuffer(&sCellFaceBuffer);
+	sPassWaterSim[UPDATE_GRID].AddWriteTexture(&sCellRenderTexture, 0);
 
 	sPassWaterSim[PROJECT].CreatePass("project");
 	sPassWaterSim[PROJECT].AddShader(&sWaterSimProjectCS);
@@ -108,6 +122,7 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	sPassWaterSim[G2P].AddBuffer(&sCellFaceBuffer);
 	sPassWaterSim[G2P].AddWriteBuffer(&sCellBuffer);
 	sPassWaterSim[G2P].AddWriteBuffer(&sParticleBuffer);
+	sPassWaterSim[G2P].AddWriteTexture(&sCellRenderTexture, 0);
 
 	// clear min max buffer
 	sPassWaterSim[CLEAR].CreatePass("water sim clear");
@@ -151,6 +166,7 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellBufferTemp);
 	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellFaceBuffer);
 	sPassWaterSim[RESET_GRID].AddWriteBuffer(&sCellFaceBufferTemp);
+	sPassWaterSim[RESET_GRID].AddWriteTexture(&sCellRenderTexture, 0);
 
 	// reset particles
 	sPassWaterSim[RESET_PARTICLES].CreatePass("water sim reset particles");
@@ -197,6 +213,8 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	}
 
 	store.AddShader(&sWaterSimP2GCS);
+	store.AddShader(&sWaterSimP2GVS);
+	store.AddShader(&sWaterSimP2GPS);
 	store.AddShader(&sWaterSimPreUpdateGridCS);
 	store.AddShader(&sWaterSimUpdateGridCS);
 	store.AddShader(&sWaterSimProjectCS);
@@ -223,6 +241,7 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 	store.AddTexture(&sDebugBackbuffer);
 	store.AddTexture(&sDepthBufferMax);
 	store.AddTexture(&sDepthBufferMin);
+	store.AddTexture(&sCellRenderTexture);
 	store.AddMesh(&sWaterSimDebugMeshLine);
 	store.AddMesh(&sWaterSimDebugMeshCube);
 	store.AddMesh(&sWaterSimParticleMesh);
@@ -230,6 +249,8 @@ void WaterSim::InitWaterSim(Store& store, Scene& scene)
 
 void WaterSim::PrepareWaterSim(CommandList commandList)
 {
+	fatalAssertf(GetCellCount() < sCellRenderTextureWidth * sCellRenderTextureHeight, "Cell count exceeds render texture limit");
+
 	XMStoreFloat3(&sParticleSpawnSourcePos, WaterSim::sCellSize * XMVectorSet(WaterSim::sCellCountX / 2, WaterSim::sCellCountY / 3, WaterSim::sCellCountZ / 2, 0));
 	XMStoreFloat3(&sParticleSpawnSourceSpan, WaterSim::sCellSize * XMVectorSet(1, 1, 1, 0));
 
@@ -245,6 +266,7 @@ void WaterSim::PrepareWaterSim(CommandList commandList)
 		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mCurrentJacobiIteration, 0);
 		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleSpawnSourcePos, sParticleSpawnSourcePos);
 		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mParticleSpawnSourceSpan, sParticleSpawnSourceSpan);
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mCellRenderTextureSize, XMUINT2(sCellRenderTextureWidth, sCellRenderTextureHeight));
 	}
 
 	SetTimeStepScale(sTimeStepScale);
@@ -259,6 +281,7 @@ void WaterSim::PrepareWaterSim(CommandList commandList)
 	SetExplosionForceScale(sExplosionForceScale);
 	SetApplyExplosion(sApplyExplosion);
 	SetWaterSimMode(sWaterSimMode);
+	SetUseRasterizerP2G(sUseRasterizerP2G);
 
 	sParticles.resize(sParticleCount);
 	sCellFaces.resize(sCellFaceCountX * sCellFaceCountY * sCellFaceCountZ * 3);
@@ -299,6 +322,7 @@ void WaterSim::WaterSimResetGrid(CommandList commandList)
 	sCellBufferTemp.MakeReadyToWriteAgain(commandList);
 	sCellFaceBuffer.MakeReadyToWrite(commandList);
 	sCellFaceBufferTemp.MakeReadyToWrite(commandList);
+	sCellRenderTexture.MakeReadyToWrite(commandList);
 	gRenderer.RecordComputePass(sPassWaterSim[RESET_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 }
 
@@ -410,19 +434,30 @@ void WaterSim::WaterSimStepOnceMPM(CommandList commandList)
 	{
 		GPU_LABEL(commandList, "WaterSim MPM Sub Step");
 		
-		sParticleBuffer.MakeReadyToWriteAuto(commandList);
-		sCellBuffer.MakeReadyToWriteAgain(commandList);
-		sCellFaceBuffer.MakeReadyToWrite(commandList);
-		gRenderer.RecordComputePass(sPassWaterSim[P2G], commandList, sParticleThreadGroupCount, 1, 1);
+		if (sUseRasterizerP2G)
+		{
+			sParticleBuffer.MakeReadyToWriteAuto(commandList);
+			sCellRenderTexture.MakeReadyToRender(commandList);
+			gRenderer.RecordGraphicsPassInstanced(sPassWaterSim[P2G_RASTERIZER], commandList, sAliveParticleCount * 27); // 3x3x3 neighboring cells
+		}
+		else
+		{
+			sParticleBuffer.MakeReadyToWriteAuto(commandList);
+			sCellBuffer.MakeReadyToWriteAgain(commandList);
+			sCellFaceBuffer.MakeReadyToWrite(commandList);
+			gRenderer.RecordComputePass(sPassWaterSim[P2G], commandList, sParticleThreadGroupCount, 1, 1);
+		}
 
 		sCellFaceBufferTemp.MakeReadyToRead(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
-		sCellFaceBuffer.MakeReadyToWriteAgain(commandList);
+		sCellFaceBuffer.MakeReadyToWriteAuto(commandList);
+		sCellRenderTexture.MakeReadyToWrite(commandList);
 		gRenderer.RecordComputePass(sPassWaterSim[UPDATE_GRID], commandList, sCellFaceThreadGroupCount, 1, 1);
 
 		sCellFaceBuffer.MakeReadyToRead(commandList);
 		sCellBuffer.MakeReadyToWriteAgain(commandList);
 		sParticleBuffer.MakeReadyToWriteAgain(commandList);
+		sCellRenderTexture.MakeReadyToWriteAgain(commandList);
 		gRenderer.RecordComputePass(sPassWaterSim[G2P], commandList, sParticleThreadGroupCount, 1, 1);
 	}
 
@@ -583,5 +618,14 @@ void WaterSim::SetWaterSimMode(int mode)
 	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
 	{
 		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mWaterSimMode, sWaterSimMode);
+	}
+}
+
+void WaterSim::SetUseRasterizerP2G(bool useRasterizerP2G)
+{
+	sUseRasterizerP2G = useRasterizerP2G;
+	for (int i = 0; i < WATERSIM_PASSTYPE_COUNT; i++)
+	{
+		SET_UNIFORM_VAR(sPassWaterSim[i], mPassUniform, mUseRasterizerP2G, sUseRasterizerP2G ? 1.0f : 0.0f);
 	}
 }

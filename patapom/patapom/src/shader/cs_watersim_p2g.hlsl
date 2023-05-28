@@ -3,24 +3,12 @@
 #include "ShaderInclude.hlsli"
 #include "WaterSimUtil.hlsli"
 
-#define YOUNGS_MODULUS	10000.0f
-#define POISSON_RATIO	0.2f
-#define ELASTIC_MU		(YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
-#define ELASTIC_LAMDA	YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO))
-
 RWStructuredBuffer<WaterSimCell> gWaterSimCellBuffer : register(u0, SPACE(PASS));
 RWStructuredBuffer<WaterSimCellFace> gWaterSimCellFaceBuffer : register(u1, SPACE(PASS));
 RWStructuredBuffer<WaterSimParticle> gWaterSimParticleBuffer : register(u2, SPACE(PASS));
 
 #include "WaterSimCellResourceUtil.hlsli"
 #include "WaterSimCellFaceResourceUtil.hlsli"
-
-float3 ApplyExplosion(float3 particlePos, float3 explosionPos, float3 explosionScale)
-{
-	float3 dir = normalize(particlePos - explosionPos);
-	float distanceScale = 1.0f / max(1.0f, length(particlePos - explosionPos));
-	return max(-WATERSIM_VELOCITY_MAX, min(WATERSIM_VELOCITY_MAX, dir * distanceScale * explosionScale * WaterSimTimeStep));
-}
 
 [numthreads(WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z)]
 void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
@@ -32,7 +20,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 		if (particle.mAlive)
 		{
 			// apply particle force
-			if (uPass.mApplyForce)
+			if (ShouldApplyForce())
 			{
 				if (uPass.mApplyExplosion)
 				{
@@ -162,7 +150,8 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				uint cellIndex;
 				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, cellIndex);
 
-				// otherwise
+				// J = 0 means the volume becomes zero. In the real world, this will never happen
+				// J < 0 means inverted material. We skip both situations by checking nan down below, otherwise log(J) is invalid
 				float J = determinant(particle.mF);
 				float volume = J * particle.mVolume0;
 				// useful matrices for Neo-Hookean model
@@ -190,7 +179,7 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				weights[0] = 0.5f * pow(0.5f - cellDiff, 2.0f);
 				weights[1] = 0.75f - pow(cellDiff, 2.0f); // is this correct ?
 				weights[2] = 0.5f * pow(0.5f + cellDiff, 2.0f);
-				// TODO: use volume to calculate stress to update grid momentum
+
 				for (uint dx = 0; dx < 3; dx++)
 				{
 					for (uint dy = 0; dy < 3; dy++)
