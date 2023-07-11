@@ -14,7 +14,7 @@ float ApplyGravity(float velocityY)
 }
 
 [numthreads(WATERSIM_THREAD_PER_THREADGROUP_X, WATERSIM_THREAD_PER_THREADGROUP_Y, WATERSIM_THREAD_PER_THREADGROUP_Z)]
-void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
+void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex, uint3 gDispatchThreadID : SV_DispatchThreadID)
 {
 	uint faceCellIndex = GetThreadIndex(gGroupID, gGroupIndex);
 	if (FaceCellExist(faceCellIndex))
@@ -85,13 +85,12 @@ void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, 
 				{
 					// convert momentum to velocity
 					velocity /= mass;
+					oldVelocity /= mass;
 
 					// grid force
 					if (ShouldApplyForce())
-					{
 						velocity.y = ApplyGravity(velocity.y);
-					}
-
+					
 					// boundary condition
 					if (faceCellIndexXYZ.x == 0 || faceCellIndexXYZ.x == uPass.mCellCount.x)
 						velocity.x = 0.0f;
@@ -116,6 +115,7 @@ void main(uint3 gGroupThreadID : SV_GroupThreadID, uint3 gGroupID : SV_GroupID, 
 					cell.mVelocityXU32 = 0;
 					cell.mVelocityYU32 = 0;
 					cell.mVelocityZU32 = 0;
+					cell.mThreadID = gDispatchThreadID;
 					gWaterSimCellBuffer[cellIndex] = cell;
 				}
 			}

@@ -3,5 +3,7 @@
 #-buildBvhGpu
 #-loadRawShaders
 #-sanitizeWaterSim
-#-pixCaptureStartFrame=10
-#-pixCaptureFrameCount=10
+#-outputWaterSim
+#-outputWaterSimParticleIndex=39
+#-pixCaptureStartFrame=6
+#-pixFramesToCapture=1

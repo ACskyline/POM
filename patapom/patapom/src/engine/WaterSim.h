@@ -20,8 +20,6 @@ public:
 		RASTERIZER_CS,
 		BLIT,
 		RESET_PARTICLES,
-		PRE_UPDATE_PARTICLES,
-		UPDATE_PARTICLES,
 		RESET_GRID,
 		DEBUG_LINE,
 		DEBUG_CUBE,
@@ -41,8 +39,6 @@ public:
 	static Shader sWaterSimRasterizerCS;
 	static Shader sWaterSimBlitBackbufferPS;
 	static Shader sWaterSimResetParticlesCS;
-	static Shader sWaterSimPreUpdateParticlesCS;
-	static Shader sWaterSimUpdateParticlesCS;
 	static Shader sWaterSimResetGridCS;
 	static Shader sWaterSimDebugLineVS;
 	static Shader sWaterSimDebugLinePS;
@@ -74,6 +70,9 @@ public:
 	static bool sUseRasterizerP2G;
 	static bool sApplyExplosion;
 	static int sAliveParticleCount;
+#if WATERSIM_DEBUG
+	static int sDebugRasterizerParticleCount;
+#endif
 	static float sTimeStepScale;
 	static int sSubStepCount;
 	static bool sApplyForce;
@@ -84,6 +83,8 @@ public:
 	static bool sEnableDebugCell;
 	static bool sEnableDebugCellVelocity;
 	static int sJacobiIterationCount;
+	static float sYoungModulus;
+	static float sPoissonRatio;
 	static WriteBuffer sCellBuffer;
 	static WriteBuffer sCellBufferTemp;
 	static WriteBuffer sCellFaceBuffer;
@@ -118,5 +119,7 @@ public:
 	static void SetApplyExplosion(bool applyExplosion);
 	static void SetWaterSimMode(int mode);
 	static void SetUseRasterizerP2G(bool useRasterizerP2G);
+	static void SetWaterSimYoungModulus(float young);
+	static void SetWaterSimPoissonRatio(float poisson);
 	static int GetCellCount() { return sCellCountX * sCellCountY * sCellCountZ; }
 };

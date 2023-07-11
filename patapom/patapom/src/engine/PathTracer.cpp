@@ -715,6 +715,8 @@ void PathTracer::PrintBVH()
 
 void PathTracer::PreparePathTracer(CommandList commandList, Scene& scene)
 {
+	GPU_LABEL_BEGIN(commandList, "Prepare PathTracer");
+
 	sPathTracerPass.mPassUniform.mTriangleCountPT = sTriangles.size();
 	sPathTracerPass.mPassUniform.mMeshCountPT = sMeshes.size();
 	sPathTracerPass.mPassUniform.mLightCountPT = sLightData.size();
@@ -734,6 +736,8 @@ void PathTracer::PreparePathTracer(CommandList commandList, Scene& scene)
 	{
 		UpdateBvhGpu(commandList, scene);
 	}
+
+	GPU_LABEL_END(commandList);
 }
 
 void PathTracer::RunPathTracer(CommandList commandList)

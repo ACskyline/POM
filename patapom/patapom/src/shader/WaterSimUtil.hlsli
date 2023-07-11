@@ -3,15 +3,20 @@
 
 #include "../engine/SharedHeader.h"
 
-#define YOUNGS_MODULUS	10000.0f
-#define POISSON_RATIO	0.2f
-#define ELASTIC_MU		(YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
-#define ELASTIC_LAMDA	YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO))
-
 cbuffer PassUniformBuffer : register(b0, SPACE(PASS))
 {
 	PassUniformWaterSim uPass;
 };
+
+#define YOUNGS_MODULUS	uPass.mYoungModulus
+#define POISSON_RATIO	uPass.mPoissonRatio
+#if WATERSIM_STABLE_NEO_HOOKEAN
+#define ELASTIC_MU		(4.0f / 3.0f * YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
+#define ELASTIC_LAMDA	(5.0f / 6.0f * ELASTIC_MU + YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO)))
+#else
+#define ELASTIC_MU		(YOUNGS_MODULUS / (2.0f * (1.0f + POISSON_RATIO)))
+#define ELASTIC_LAMDA	(YOUNGS_MODULUS * POISSON_RATIO / ((1.0f + POISSON_RATIO) * (1.0f - 2.0f * POISSON_RATIO)))
+#endif
 
 bool ShouldApplyForce()
 {

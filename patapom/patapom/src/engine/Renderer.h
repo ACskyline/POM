@@ -411,6 +411,7 @@ enum class Format {
 	R8G8B8A8_UNORM,
 	R16G16B16A16_UNORM,
 	R16G16B16A16_FLOAT,
+	R32G32B32A32_FLOAT,
 	R16_FLOAT,
 	R32_FLOAT,
 	R32_UINT,
@@ -645,6 +646,8 @@ public:
 	bool WaitForFrame(int frameIndex);
 	void BeginFrame(int frameIndex);
 	void EndFrame(int frameIndex);
+	void PixCaptureBegin();
+	void PixCaptureEnd();
 
 	// explicit on command list for future multi thread support
 	bool RecordBegin(int frameIndex, CommandList commandList);
@@ -735,8 +738,7 @@ public:
 	int mFrameCount;
 	int mFrameCountSinceGameStart;
 	int mPixCaptureStartFrame;
-	int mPixCaptureFrameCount;
-	int mPixCapturedFrameCount;
+	int mPixFramesToCapture;
 	float mLastFrameTimeInSecond;
 	int mMultiSampleCount;
 	BlendState mBlendState;

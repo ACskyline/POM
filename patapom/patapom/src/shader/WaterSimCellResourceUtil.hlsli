@@ -51,6 +51,7 @@ void InterLockedAddCellVelocityZ(uint cellIndex, float velocity)
 
 void InterLockedAddCellMass(uint cellIndex, float mass)
 {
+	[allow_uav_condition]
 	while (true)
 	{
 		uint oldMassU32 = gWaterSimCellBuffer[cellIndex].mMassU32;

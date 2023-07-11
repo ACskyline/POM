@@ -123,12 +123,6 @@
     <FxCompile Include="..\patapom\src\shader\cs_watersim_preupdategrid.hlsl">
       <Filter>src</Filter>
     </FxCompile>
-    <FxCompile Include="..\patapom\src\shader\cs_watersim_updateparticles.hlsl">
-      <Filter>src</Filter>
-    </FxCompile>
-    <FxCompile Include="..\patapom\src\shader\cs_watersim_preupdateparticles.hlsl">
-      <Filter>src</Filter>
-    </FxCompile>
     <FxCompile Include="..\patapom\src\shader\ps_shadertoydebug.hlsl">
       <Filter>src</Filter>
     </FxCompile>

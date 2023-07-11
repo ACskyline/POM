@@ -33,6 +33,7 @@
 #define NTH_POWER_OF_TWO(x)					(1 << x)
 #define MAX_UINT32							0xffffffff
 #define INVALID_UINT32						MAX_UINT32
+#define SQR(x)								((x) * (x))
 
 #define USE_REVERSED_Z
 #ifdef USE_REVERSED_Z
@@ -124,6 +125,16 @@
 #define WATERSIM_CELL_RT_HEIGHT							4096
 #define WATERSIM_VIEWDEPTH_MAX							100.0f
 #define WATERSIM_DEPTHBUFFER_MAX						0xffffffff
+#define WATERSIM_DEBUG									0
+#define WATERSIM_STABLE_NEO_HOOKEAN						1 // https://graphics.pixar.com/library/StableElasticity/paper.pdf
+
+#if WATERSIM_DEBUG
+#define WATERSIM_DEBUG_ONLY(x)							x
+#define WATERSIM_DEBUG_SWITCH(x, y)						x
+#else
+#define WATERSIM_DEBUG_ONLY(x)
+#define WATERSIM_DEBUG_SWITCH(x, y)						y
+#endif
 
 SHARED_HEADER_CPP_TEMPLATE_T
 SHARED_HEADER_CPP_STATIC_INLINE TEMPLATE_UINT RoundUpDivide(TEMPLATE_UINT dividend, TEMPLATE_UINT divisor)
@@ -258,9 +269,12 @@ struct WaterSimParticle
 	UINT3 mCellFaceMaxIndexXYZ;
 	float mAlive;
 	float mVolume0; // mpm
+#if WATERSIM_DEBUG
 	float mJ; // mpm
+#endif
 	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mC; // mpm 
 	SHARED_HEADER_HLSL_ONLY(row_major) FLOAT3X3 mF; // mpm 
+	FLOAT3 mThreadID;
 };
 
 struct WaterSimCell
@@ -283,6 +297,7 @@ struct WaterSimCell
 	float mMass; // mpm
 	FLOAT3 mVelocity; // mpm
 	FLOAT3 mOldVelocity; // mpm debug
+	FLOAT3 mThreadID;
 };
 
 struct WaterSimCellFace
@@ -503,6 +518,10 @@ struct PassUniformWaterSim : PassUniformDefault
 	UINT mWaterSimMode;
 	UINT2 mCellRenderTextureSize;
 	float mUseRasterizerP2G;
+	float mYoungModulus;
+	float mPoissonRatio;
+	UINT PADDING_0;
+	UINT PADDING_1;
 };
 
 struct ObjectUniform

@@ -148,37 +148,48 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 			{
 				// mls-mpm
 				uint cellIndex;
-				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, cellIndex);
+				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos - 0.5f, cellIndex); // GetFloorCellMinIndex(particle.mPos, cellIndex);
 
 				// J = 0 means the volume becomes zero. In the real world, this will never happen
 				// J < 0 means inverted material. We skip both situations by checking nan down below, otherwise log(J) is invalid
-				float J = determinant(particle.mF);
-				float volume = J * particle.mVolume0;
-				// useful matrices for Neo-Hookean model
+				float J = 
+#if WATERSIM_DEBUG
+					particle.mJ;
+#else
+					determinant(particle.mF);
+#endif
+
+#if !WATERSIM_STABLE_NEO_HOOKEAN
+				J = max(J, 1.0e-10); // for log(J)
+#endif
+				float volume = J * particle.mVolume0; // mpm-course eq 153
 				float3x3 F_T = transpose(particle.mF);
+
+#if WATERSIM_STABLE_NEO_HOOKEAN
+				float3x3 F_T_F = mul(F_T, particle.mF);
+				float Ic = F_T_F[0][0] + F_T_F[1][1] + F_T_F[2][2];
+				float alpha = 1.0f + 0.75f * ELASTIC_MU / ELASTIC_LAMDA;
+				float3 column0 = cross(F_T[1], F_T[2]);
+				float3 column1 = cross(F_T[2], F_T[0]);
+				float3 column2 = cross(F_T[0], F_T[1]);
+				float3x3 dJdF = float3x3(float3(column0.x, column1.x, column2.x),
+					float3(column0.y, column1.y, column2.y),
+					float3(column0.z, column1.z, column2.z));
+				float3x3 P = ELASTIC_MU * (1.0f - 1.0f / (Ic + 1.0f)) * particle.mF + ELASTIC_LAMDA * (J - alpha) * dJdF;
+#else
 				float3x3 F_inv_T = Inverse(F_T);
 				float3x3 F_minus_F_inv_T = particle.mF - F_inv_T;
-
 				// MPM course equation 48
-				float3x3 P_term_0 = ELASTIC_MU * (F_minus_F_inv_T);
-				float3x3 P_term_1 = ELASTIC_LAMDA * log(J) * F_inv_T;
-				float3x3 P = P_term_0 + P_term_1;
+				float3x3 P = ELASTIC_MU * (F_minus_F_inv_T) + ELASTIC_LAMDA * log(J) * F_inv_T;
+#endif
 
-				// cauchy_stress = (1 / det(F)) * P * F_T
-				// equation 38, MPM course
+				float Dinv = 4 / (uPass.mCellSize * uPass.mCellSize);
 				float3x3 stress = (1.0f / J) * mul(P, F_T);
-
-				// (M_p)^-1 = 4, see APIC paper and MPM course page 42
-				// this term is used in MLS-MPM paper eq. 16. with quadratic weights, Mp = (1/4) * (delta_x)^2.
-				// in this simulation, delta_x = 1, because i scale the rendering of the domain rather than the domain itself.
-				// we multiply by dt as part of the process of fusing the momentum and force update for MLS-MPM
-				float3x3 eq_16_term_0 = -volume * 4 * stress * WaterSimTimeStep;
-
-				float3 cellDiff = particle.mPos / uPass.mCellSize - indexXYZ - 0.5f;
+				float3 cellDiff = particle.mPos / uPass.mCellSize - indexXYZ; // particle.mPos / uPass.mCellSize - indexXYZ - 0.5f;
 				float3 weights[3];
-				weights[0] = 0.5f * pow(0.5f - cellDiff, 2.0f);
-				weights[1] = 0.75f - pow(cellDiff, 2.0f); // is this correct ?
-				weights[2] = 0.5f * pow(0.5f + cellDiff, 2.0f);
+				weights[0] = 0.5f * SQR(1.5f - cellDiff);
+				weights[1] = 0.75f - SQR(cellDiff - 1.0f);
+				weights[2] = 0.5f * SQR(cellDiff - 0.5);
 
 				for (uint dx = 0; dx < 3; dx++)
 				{
@@ -186,24 +197,22 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 					{
 						for (uint dz = 0; dz < 3; dz++)
 						{
-							uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz) - 1;
+							uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz);
 							uint dIndex = FlattenCellIndexClamp(dIndexXYZ);
 							if (CellExistXYZ(dIndexXYZ))
 							{
 								float dWeight = weights[dx].x * weights[dy].y * weights[dz].z;
-								float3 dCellDiff = (dIndexXYZ + 0.5f) * uPass.mCellSize - particle.mPos;
-								float3 Q = mul(particle.mC, dCellDiff);
+								float3 dCellDiff = (float3(dx, dy, dz) - cellDiff) * uPass.mCellSize;
 								float massContrib = dWeight; // assume mass is 1
-								float3 weightedMomentum = massContrib * (particle.mVelocity + Q); // TODO: adding Q makes particles go up for some reason
+								float3x3 force = -volume * Dinv * WaterSimTimeStep * stress;
+								float3x3 affine = force + particle.mC;
+								float3 weightedMomentum = massContrib * (particle.mVelocity + mul(affine, dCellDiff));
 
-								// fused force/momentum update from MLS-MPM
-								// see MLS-MPM paper, equation listed after eqn. 28
-								weightedMomentum += mul(eq_16_term_0 * dWeight, dCellDiff);
-
+#if WATERSIM_DEBUG
 								if (!any(isnan(weightedMomentum)))
+#endif
 								{
 									InterLockedAddCellMass(dIndex, massContrib);
-									// TODO: rearrange the sequence based on particle index to avoid potential wait when writing to the same component of the cell's velocity
 									InterLockedAddCellVelocityX(dIndex, weightedMomentum.x);
 									InterLockedAddCellVelocityY(dIndex, weightedMomentum.y);
 									InterLockedAddCellVelocityZ(dIndex, weightedMomentum.z);

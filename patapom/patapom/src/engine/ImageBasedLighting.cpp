@@ -84,6 +84,8 @@ void ImageBasedLighting::InitIBL(Store& store, Scene& scene)
 
 void ImageBasedLighting::PrepareIBL(CommandList commandList)
 {
+	GPU_LABEL_BEGIN(commandList, "Prepare IBL");
+
 	sPrefilteredEnvMap.MakeReadyToRender(commandList);
 	for (int i = 0; i < Texture::CubeFace::COUNT; i++)
 	{
@@ -97,6 +99,8 @@ void ImageBasedLighting::PrepareIBL(CommandList commandList)
 	sLUT.MakeReadyToRender(commandList);
 	gRenderer.RecordGraphicsPass(sPrepareLutPass, commandList, true);
 	sLUT.MakeReadyToRead(commandList);
+
+	GPU_LABEL_END(commandList);
 }
 
 void ImageBasedLighting::Shutdown()

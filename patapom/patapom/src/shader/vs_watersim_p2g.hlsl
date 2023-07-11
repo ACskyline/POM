@@ -13,18 +13,22 @@ VS_OUTPUT_P2G main(uint instanceID : SV_InstanceID)
 	if (particleIndex < uPass.mParticleCount)
 	{
 		WaterSimParticle particle = gWaterSimParticleBuffer[particleIndex];
-		if (particle.mAlive && particle.mJ > 0.0f)
+		if (particle.mAlive 
+#if WATERSIM_DEBUG
+			&& particle.mJ > 0.0f
+#endif
+			)
 		{
 			uint dxyz = instanceID % 27;
 			uint dx = dxyz / 9;
 			uint dy = (dxyz - 9 * dx) / 3;
 			uint dz = (dxyz - 9 * dx - 3 * dy);
 			uint cellIndex;
-			uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, cellIndex);
-			uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz) - 1;
-			uint dIndex = FlattenCellIndexClamp(dIndexXYZ);
+			uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos - 0.5f, cellIndex);
+			uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz);
 			if (CellExistXYZ(dIndexXYZ))
 			{
+				uint dIndex = FlattenCellIndexClamp(dIndexXYZ);
 				output.pos = CellIndexToPixelCoords(dIndex);
 				output.cellIndex = dIndex;
 				output.particleIndex = particleIndex;

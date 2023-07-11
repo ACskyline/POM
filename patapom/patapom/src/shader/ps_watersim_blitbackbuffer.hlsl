@@ -13,15 +13,14 @@ PS_OUTPUT main(VS_OUTPUT input)
 {
 	PS_OUTPUT output;
 	int3 uvw = int3(TransformUV(input.uv) * uPass.mWaterSimBackbufferSize, 0);
-	uint packedMax = gWaterSimDepthBufferMax.Load(uvw).r;
-	uint packedMin = gWaterSimDepthBufferMin.Load(uvw).r;
-	bool hasWater = (packedMax != 0) && (packedMin != WATERSIM_DEPTHBUFFER_MAX);
-	float depthMax = UnpackWaterSimParticleDepth(packedMax);
-	float depthMin = UnpackWaterSimParticleDepth(packedMin);
+	//uint packedMax = gWaterSimDepthBufferMax.Load(uvw).r;
+	//uint packedMin = gWaterSimDepthBufferMin.Load(uvw).r;
+	//float depthMax = UnpackWaterSimParticleDepth(packedMax);
+	//float depthMin = UnpackWaterSimParticleDepth(packedMin);
 	float4 debugCol = gWaterSimDebugBackbuffer.Load(uvw);
-	float3 waterCol = float3(0.0f, 0.0f, saturate(depthMax - depthMin));
 	// blend in debug ui
-	output.col0.rgb = debugCol.a * debugCol.rgb + (1.0f - debugCol.a) * waterCol;
-	output.col0.a = hasWater ? 1.0f : 0.0f; // any(output.col0.rgb > 0.0f.xxx) ? 0.0f : 0.0f; // 
+	//output.col0.rgb = debugCol.a * debugCol.rgb + (1.0f - debugCol.a) * waterCol;
+	//output.col0.a = 1.0f; // hasWater ? 1.0f : 0.0f; // any(output.col0.rgb > 0.0f.xxx) ? 0.0f : 0.0f; // 
+	output.col0 = debugCol;
 	return output;
 }

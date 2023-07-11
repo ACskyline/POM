@@ -17,14 +17,14 @@ void MovePosition(inout float3 pos, inout float3 velocity, float timeStep, float
 	float3 outside = float3((newPos < boundaryCellCount * uPass.mCellSize) || (newPos > (uPass.mCellCount - boundaryCellCount) * uPass.mCellSize));
 	if (any(outside))
 	{
-		velocity = saturate(1.0f - outside) * velocity;
+		velocity = saturate(1.0f.xxx - outside) * velocity;
 		newPos = clamp(newPos, (2.0f.xxx + EPSILON) * uPass.mCellSize, (uPass.mCellCount - (2.0f.xxx + EPSILON)) * uPass.mCellSize);
 	}
 	pos = newPos;
 }
 
 [numthreads(WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_X, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Y, WATERSIM_PARTICLE_THREAD_PER_THREADGROUP_Z)]
-void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
+void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex, uint3 gDispatchThreadID : SV_DispatchThreadID)
 {
 	uint particleIndex = GetParticleThreadIndex(gGroupID, gGroupIndex);
 	if (particleIndex < uPass.mParticleCount)
@@ -87,13 +87,13 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 			else if (uPass.mWaterSimMode == 2 || uPass.mWaterSimMode == 3) // mpm
 			{
 				// mls-mpm
-				uint index;
-				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos, index);
-				float3 cellDiff = particle.mPos / uPass.mCellSize - indexXYZ - 0.5f;
+				uint cellIndex;
+				uint3 indexXYZ = GetFloorCellMinIndex(particle.mPos - 0.5f, cellIndex); // GetFloorCellMinIndex(particle.mPos, cellIndex);
+				float3 cellDiff = particle.mPos / uPass.mCellSize - indexXYZ; // particle.mPos / uPass.mCellSize - indexXYZ - 0.5f;
 				float3 weights[3];
-				weights[0] = 0.5f * pow(0.5f - cellDiff, 2.0f);
-				weights[1] = 0.75f - pow(cellDiff, 2.0f); // is this correct ?
-				weights[2] = 0.5f * pow(0.5f + cellDiff, 2.0f);
+				weights[0] = 0.5f * SQR(1.5f - cellDiff);
+				weights[1] = 0.75f - SQR(cellDiff - 1.0f);
+				weights[2] = 0.5f * SQR(cellDiff - 0.5);
 
 				float3x3 B = 0;
 				float3 velocity = 0.0f.xxx;
@@ -103,12 +103,12 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 					{
 						for (uint dz = 0; dz < 3; dz++)
 						{
-							uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz) - 1;
-							uint dIndex = FlattenCellIndexClamp(dIndexXYZ);
+							uint3 dIndexXYZ = indexXYZ + uint3(dx, dy, dz); // indexXYZ + uint3(dx, dy, dz) - 1;
 							if (CellExistXYZ(dIndexXYZ))
 							{
+								uint dIndex = FlattenCellIndexClamp(dIndexXYZ);
 								float dWeight = weights[dx].x * weights[dy].y * weights[dz].z;
-								float3 dCellDiff = (dIndexXYZ + 0.5f) * uPass.mCellSize - particle.mPos;
+								float3 dCellDiff = (float3(dx, dy, dz) - cellDiff) * uPass.mCellSize; // (dIndexXYZ + 0.5f) * uPass.mCellSize - particle.mPos;
 								float3 weightedVelocity = dWeight;
 								if (uPass.mUseRasterizerP2G)
 									weightedVelocity *= gWaterSimCellRT.Load(CellIndexToPixelIndices(dIndex)).rgb;
@@ -128,10 +128,12 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				particle.mVelocity = velocity;
 				particle.mC = B * 4.0f / (uPass.mCellSize * uPass.mCellSize);
 				MovePosition(particle.mPos, particle.mVelocity, WaterSimTimeStep, 2.0f);
-				particle.mCellIndexXYZ = uint4(indexXYZ, index);
+				particle.mCellIndexXYZ = uint4(indexXYZ, cellIndex);
 				particle.mF = mul(IDENTITY_3X3 + particle.mC * WaterSimTimeStep, particle.mF);
+#if WATERSIM_DEBUG
 				particle.mJ = determinant(particle.mF);
-
+#endif
+				particle.mThreadID = gDispatchThreadID;
 				// write back
 				gWaterSimParticleBuffer[particleIndex] = particle;
 			}

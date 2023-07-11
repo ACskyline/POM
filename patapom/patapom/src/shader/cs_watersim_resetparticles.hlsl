@@ -24,7 +24,10 @@ void main(uint3 gGroupID : SV_GroupID, uint gGroupIndex : SV_GroupIndex)
 				particle.mVelocity = float3(0.0f, 0.0f, 0.0f);
 				particle.mAlive = 1.0f;
 				particle.mF = IDENTITY_3X3;
+				particle.mVolume0 = 1.0f;
+#if WATERSIM_DEBUG
 				particle.mJ = determinant(particle.mF);
+#endif
 			}
 		}
 		else

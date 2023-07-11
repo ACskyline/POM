@@ -1,0 +1,9 @@
+#-printBvh
+#-debugMode=1
+#-buildBvhGpu
+#-loadRawShaders
+#-sanitizeWaterSim
+-outputWaterSim
+-outputWaterSimParticleIndex=39
+#-pixCaptureStartFrame=6
+#-pixFramesToCapture=1

@@ -49,6 +49,7 @@ bool gWaterSimEnabled = true;
 bool gWaterSimStepOnce = false;
 bool gWaterSimReset = true;
 bool gShadertoyDebug = false;
+bool gWaterSimForceSpawnParticle = false;
 
 Renderer gRenderer;
 Store gStoreDefault("default store");
@@ -307,6 +308,21 @@ bool InitDirectInput(HINSTANCE hInstance)
 	return true;
 }
 
+bool KeyHeld(const BYTE state[256], char key)
+{
+	return KEYHELD(state, key);
+}
+
+bool KeyDown(const BYTE state[256], const BYTE oldState[256], char key)
+{
+	return KEYHELD(state, key) && !KEYHELD(oldState, key);
+}
+
+bool KeyUp(const BYTE state[256], const BYTE oldState[256], char key)
+{
+	return !KEYHELD(state, key) && KEYHELD(oldState, key);
+}
+
 void UpdateDetectInput()
 {
 	BYTE keyboardCurrState[256];
@@ -320,13 +336,7 @@ void UpdateDetectInput()
 	//ScreenToClient(gHwnd, &mouseCurrentCursorPos); // don't want to use absolute position
 	
 	//keyboard control
-	//this is handled in mainloop, no need to do this here again
-	//if (KEYDOWN(keyboardCurrState, DIK_ESCAPE))
-	//{
-	//	PostMessage(hwnd, WM_DESTROY, 0, 0);
-	//}
-
-	if (KEYDOWN(keyboardCurrState, DIK_C)) // hold c to operate camera
+	if (KeyHeld(keyboardCurrState, DIK_C)) // hold c to operate camera
 	{
 		if (!gMouseAcquired)
 		{
@@ -334,10 +344,18 @@ void UpdateDetectInput()
 			gMouseAcquired = true;
 		}
 	}
-	else
+	else // c up
 	{
-		gDIMouse->Unacquire();
-		gMouseAcquired = false;
+		if (gMouseAcquired)
+		{
+			gDIMouse->Unacquire();
+			gMouseAcquired = false;
+		}
+	}
+
+	if (KeyDown(keyboardCurrState, gKeyboardLastState, DIK_W))
+	{
+		gWaterSimForceSpawnParticle = !gWaterSimForceSpawnParticle;
 	}
 
 	if (gMouseAcquired)
@@ -360,7 +378,7 @@ void UpdateDetectInput()
 		}
 
 		// c + left button + drag to orbit
-		if (BUTTONDOWN(mouseCurrentState.rgbButtons[0]))
+		if (BUTTONHELD(mouseCurrentState.rgbButtons[0]))
 		{
 			if (mouseCurrentState.lX != 0)
 			{
@@ -378,7 +396,7 @@ void UpdateDetectInput()
 		}
 
 		// c + mid button + drag to pan
-		if (BUTTONDOWN(mouseCurrentState.rgbButtons[2]))
+		if (BUTTONHELD(mouseCurrentState.rgbButtons[2]))
 		{
 			float dX = (mouseCurrentCursorPos.x - gMouseLastCursorPos.x) * 0.02f;
 			float dY = (mouseCurrentCursorPos.y - gMouseLastCursorPos.y) * 0.02f;
@@ -395,7 +413,7 @@ void UpdateDetectInput()
 		}
 
 		// c + right button to debug ray
-		if (BUTTONDOWN(mouseCurrentState.rgbButtons[1]))
+		if (BUTTONHELD(mouseCurrentState.rgbButtons[1]))
 		{
 			bool xPosChanged = mouseCurrentCursorPos.x != gMouseLastCursorPos.x;
 			bool yPosChanged = mouseCurrentCursorPos.y != gMouseLastCursorPos.y;
@@ -701,9 +719,11 @@ void BeginRender()
 
 void Render()
 {
+	gRenderer.PixCaptureBegin();
 	Record();
 	Submit();
-	Present();
+	Present(); // frame index increment
+	gRenderer.PixCaptureEnd();
 }
 
 void FpsLimiter()
@@ -965,7 +985,7 @@ void UpdateUI(bool initOnly = false)
 		if (ImGui::TreeNode("Water Sim"))
 		{
 			ImGui::Checkbox("enable water sim", &gWaterSimEnabled);
-			ImGui::Checkbox("enable debug", &WaterSim::sEnableDebugCell);
+			ImGui::Checkbox("enable debug cell", &WaterSim::sEnableDebugCell);
 			ImGui::Checkbox("enable debug velocity", &WaterSim::sEnableDebugCellVelocity);
 			ImGui::Checkbox("water sim cs rasterizer", &WaterSim::sUseComputeRasterizer);
 
@@ -1016,11 +1036,21 @@ void UpdateUI(bool initOnly = false)
 				WaterSim::SetWaterDensity(waterSimWaterDensity);
 			}
 
+			if (ImGui::SliderFloat("water sim young modulus", &WaterSim::sYoungModulus, 0.0f, 50000.0f))
+			{
+				WaterSim::SetWaterSimYoungModulus(WaterSim::sYoungModulus);
+			}
+
+			if (ImGui::SliderFloat("water sim poisson ratio", &WaterSim::sPoissonRatio, 0.0f, 1.0, "%.4f"))
+			{
+				WaterSim::SetWaterSimPoissonRatio(WaterSim::sPoissonRatio);
+			}
+
 			{
 				char buttonText[128];
 				sprintf_s(buttonText, COUNT_OF(buttonText), "water sim increase alive particles (%d/%d)###water sim increase alive particles", WaterSim::sAliveParticleCount, WaterSim::sParticleCount);
 				ImGui::PushButtonRepeat(true);
-				if (ImGui::Button(buttonText))
+				if (ImGui::Button(buttonText) || gWaterSimForceSpawnParticle)
 				{
 					waterSimParticleCount += 100;
 					WaterSim::SetAliveParticleCount(waterSimParticleCount);
@@ -1028,6 +1058,10 @@ void UpdateUI(bool initOnly = false)
 				}
 				ImGui::PopButtonRepeat();
 			}
+
+#if WATERSIM_DEBUG
+			ImGui::SliderInt("debug rasterizer particle count", &WaterSim::sDebugRasterizerParticleCount, -1, WaterSim::sAliveParticleCount);
+#endif
 
 			ImGui::PushButtonRepeat(true);
 			if (ImGui::Button("water sim respawn dead particles"))
@@ -1381,9 +1415,13 @@ void PrepareSystems()
 
 	CommandList commandList = gRenderer.BeginSingleTimeCommands();
 
+	GPU_LABEL_BEGIN(commandList, "Prepare Systems");
+
 	ImageBasedLighting::PrepareIBL(commandList);
 	PathTracer::PreparePathTracer(commandList, gSceneDefault);
 	WaterSim::PrepareWaterSim(commandList);
+
+	GPU_LABEL_END(commandList);
 
 	gRenderer.EndSingleTimeCommands();
 }

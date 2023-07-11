@@ -31,8 +31,8 @@ using namespace std;
 #endif // _DEBUG
 
 // common util macros
-#define KEYDOWN(name, key) ((name)[(key)] & 0x80)
-#define BUTTONDOWN(button) ((button) & 0x80)
+#define KEYHELD(name, key) ((name)[(key)] & 0x80)
+#define BUTTONHELD(button) ((button) & 0x80)
 #define MIN(a, b) (a < b ? a : b)
 #define MAX(a, b) (a > b ? a : b)
 #define CLAMP(x, minA, maxB) MAX(MIN(x, maxB), minA)
@@ -57,11 +57,11 @@ static void VsOutput(const char* szFormat, ...)
 	printf(szBuff);
 #endif
 }
-#define vsprintf(...) VsOutput(__VA_ARGS__)
+#define vsdisplayf(...) VsOutput(__VA_ARGS__)
 #elif _OUTPUT
-#define vsprintf(...) printf(__VA_ARGS__)
+#define vsdisplayf(...) printf(__VA_ARGS__)
 #else
-#define vsprintf(x)
+#define vsdisplayf(x)
 #endif
 
 // ASSERT related macros
@@ -70,19 +70,17 @@ static void VsOutput(const char* szFormat, ...)
 #endif // _DEBUG
 
 #if defined(ASSERT)
-#define assertOnly(x) x
-#define println(...) (vsprintf("[%d:%d] ", gFrameCountSinceGameStart, gCurrentFramebufferIndex), (vsprintf(__VA_ARGS__), vsprintf("\n")))
-#define fatalAssert(x) { if(!(x)) __debugbreak(); }
-#define fatalAssertf(x, ...) { if(!(x)) { println(__VA_ARGS__); __debugbreak();} }
-#define assertf(x, ...) { if(!(x)) { println("%s, %s, line %d:", __FILE__, __FUNCTION__, __LINE__); println(__VA_ARGS__); } }
-#define fatalf(...) { println(__VA_ARGS__); __debugbreak(); }
-#define displayfln(...) println(__VA_ARGS__)
-#define displayf(...) vsprintf(__VA_ARGS__)
-#define debugbreak(x) { x; __debugbreak(); }
-#define verifyf(x, ...) (x ? true : (println(__VA_ARGS__), false))
+#define assertOnly(x)			x
+#define fatalAssert(x)			{ if(!(x)) __debugbreak(); }
+#define fatalAssertf(x, ...)	{ if(!(x)) { displayfln(__VA_ARGS__); __debugbreak();} }
+#define assertf(x, ...)			{ if(!(x)) { displayfln("%s, %s, line %d:", __FILE__, __FUNCTION__, __LINE__); displayfln(__VA_ARGS__); } }
+#define fatalf(...)				{ displayfln(__VA_ARGS__); __debugbreak(); }
+#define displayfln(...)			(vsdisplayf("[%d:%d] ", gFrameCountSinceGameStart, gCurrentFramebufferIndex), (vsdisplayf(__VA_ARGS__), vsdisplayf("\n")))
+#define displayf(...)			(vsdisplayf("[%d:%d] ", gFrameCountSinceGameStart, gCurrentFramebufferIndex), vsdisplayf(__VA_ARGS__))
+#define debugbreak(x)			{ x; __debugbreak(); }
+#define verifyf(x, ...)			(x ? true : (displayfln(__VA_ARGS__), false))
 #else // defined(ASSERT)
 #define assertOnly(x)
-#define println(...)
 #define fatalAssert(x)
 #define fatalAssertf(x, ...)
 #define assertf(x, ...)
@@ -94,7 +92,7 @@ static void VsOutput(const char* szFormat, ...)
 #endif // ASSERT
 
 #if defined(ASSERT) && ASSERT >= 2
-#define assertf2(...) assertf(__VA_ARGS__)
+#define assertf2(...)			assertf(__VA_ARGS__)
 #else // ASSERT >= 2
 #define assertf2(x)
 #endif // ASSERT >= 2

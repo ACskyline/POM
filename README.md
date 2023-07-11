@@ -27,4 +27,6 @@ A project for parallel occlusion mapping study
 
 ## MLS-MPM
 
-![FLIP](./img/mls-mpm.gif)
+![mls-mpm_1](./img/mls-mpm.gif)
+
+![mls-mpm_2](./img/stable_neo-hookean.gif)

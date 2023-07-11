@@ -19,7 +19,7 @@ VS_OUTPUT main(VS_INPUT input)
 	float3 pos = input.pos * scale + translate;
 	float4 renderPos = float4(pos * uPass.mGridRenderScale + uPass.mGridRenderOffset, 1.0f);
 	renderPos = mul(uPass.mProj, mul(uPass.mView, renderPos));
-	output.col = gWaterSimCellBuffer[cellIndex].mType == 1 ? float4(1.0f, 0.0f, 0.0f, 0.5) : float4(0.0f, 1.0f, 0.0f, 0.5);
+	output.col = float4(input.uv, 0.0f, 0.0f);
 	output.pos = renderPos;
 	return output;
 }

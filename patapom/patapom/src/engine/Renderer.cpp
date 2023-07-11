@@ -9,7 +9,7 @@
 #include "Texture.h"
 
 CommandLineArg PARAM_pixCaptureStartFrame("-pixCaptureStartFrame");
-CommandLineArg PARAM_pixCaptureFrameCount("-pixCaptureFrameCount");
+CommandLineArg PARAM_pixFramesToCapture("-pixFramesToCapture");
 
 int GetUniformSlot(RegisterSpace space, RegisterType type)
 {
@@ -546,6 +546,8 @@ DXGI_FORMAT Renderer::TranslateFormat(Format format)
 		return DXGI_FORMAT_R16G16B16A16_UNORM;
 	case Format::R16G16B16A16_FLOAT:
 		return DXGI_FORMAT_R16G16B16A16_FLOAT;
+	case Format::R32G32B32A32_FLOAT:
+		return DXGI_FORMAT_R32G32B32A32_FLOAT;
 	case Format::R16_FLOAT:
 		return DXGI_FORMAT_R16_FLOAT;
 	case Format::R32_FLOAT:
@@ -573,6 +575,8 @@ DXGI_FORMAT Renderer::TranslateToTypelessFormat(Format format)
 	case Format::R16G16B16A16_UNORM:
 	case Format::R16G16B16A16_FLOAT:
 		return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+	case Format::R32G32B32A32_FLOAT:
+		return DXGI_FORMAT_R32G32B32A32_TYPELESS;
 	case Format::R16_FLOAT:
 	case Format::D16_UNORM:
 		return DXGI_FORMAT_R16_TYPELESS;
@@ -1018,10 +1022,9 @@ bool Renderer::InitRenderer(
 	mDepthStencilBufferFormat = depthStencilBufferFormat;
 	mDebugMode = debugMode;
 	mPixCaptureStartFrame = 0;
-	mPixCaptureFrameCount = 0;
-	mPixCapturedFrameCount = 0;
+	mPixFramesToCapture = 0;
 	PARAM_pixCaptureStartFrame.GetAsInt(mPixCaptureStartFrame);
-	PARAM_pixCaptureFrameCount.GetAsInt(mPixCaptureFrameCount);
+	PARAM_pixFramesToCapture.GetAsInt(mPixFramesToCapture);
 	HRESULT hr;
 
 	//debug mode
@@ -1366,23 +1369,40 @@ void Renderer::WaitAllFrames()
 	}
 }
 
+void Renderer::PixCaptureBegin()
+{
+	if (mPixFramesToCapture &&
+		mFrameCountSinceGameStart == mPixCaptureStartFrame)
+	{
+		wchar_t fileName[32];
+		swprintf_s(fileName, COUNT_OF(fileName), L"pix_cap_%d_to_%d.wpix", mPixCaptureStartFrame, mPixCaptureStartFrame + mPixFramesToCapture);
+		PIXCaptureParameters capParam;
+		capParam.GpuCaptureParameters.FileName = (PCWSTR)fileName;
+		PIXBeginCapture2(PIX_CAPTURE_GPU, &capParam);
+	}
+}
+
+void Renderer::PixCaptureEnd()
+{
+	if (mPixFramesToCapture &&
+		mFrameCountSinceGameStart > mPixCaptureStartFrame)
+	{
+		// if intend to capture and started capturing but haven't finished
+		mPixFramesToCapture--;
+		if (!mPixFramesToCapture)
+		{
+			while(PIXEndCapture(false) == E_PENDING)
+			{
+				// keep running
+			}
+		}
+	}
+}
+
 bool Renderer::RecordBegin(int frameIndex, CommandList commandList)
 {
 	if (!mCommandLists[frameIndex].Reset())
 		return false;
-
-	if (mPixCaptureFrameCount)
-	{
-		// if intend to capture
-		if (mFrameCountSinceGameStart == mPixCaptureStartFrame)
-		{
-			wchar_t fileName[32];
-			swprintf_s(fileName, COUNT_OF(fileName), L"pix_cap_%d_to_%d", mPixCaptureStartFrame, mPixCaptureStartFrame + mPixCaptureFrameCount);
-			PIXCaptureParameters capParam;
-			capParam.GpuCaptureParameters.FileName = (PCWSTR)fileName;
-			PIXBeginCapture2(PIX_CAPTURE_GPU, &capParam);
-		}
-	}
 
 	if (IsResolveNeeded())
 	{
@@ -1421,18 +1441,6 @@ bool Renderer::RecordEnd(int frameIndex, CommandList commandList)
 
 	if (CheckError(commandList.Close()))
 		return false;
-
-	if (mPixCaptureFrameCount && 
-		mFrameCountSinceGameStart >= mPixCaptureStartFrame &&
-		mPixCapturedFrameCount < mPixCaptureFrameCount)
-	{
-		// if intend to capture and started capturing but haven't finished
-		mPixCapturedFrameCount++;
-		if (mPixCapturedFrameCount == mPixCaptureFrameCount)
-		{
-			PIXEndCapture(false);
-		}
-	}
 
 	return true;
 }
